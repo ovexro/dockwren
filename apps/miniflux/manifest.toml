@@ -1,0 +1,70 @@
+[app]
+id = "miniflux"
+name = "Miniflux"
+description = "Minimalist self-hosted RSS reader"
+version = 1
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Name"
+type = "string"
+default = "miniflux"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+
+[[fields]]
+key = "PUBLIC_URL"
+label = "Public URL"
+type = "url"
+default = "http://127.0.0.1:${WEB_PORT}/"
+
+[[fields]]
+key = "ADMIN_USER"
+label = "Admin user"
+type = "string"
+default = "admin"
+pattern = "^[a-z][a-z0-9_-]{2,30}$"
+
+[[secrets]]
+key = "POSTGRES_PASSWORD"
+kind = "password"
+length = 32
+
+[[secrets]]
+key = "ADMIN_PASSWORD"
+kind = "password"
+length = 20
+
+[[services]]
+name = "db"
+health = { source = "image" }
+
+[[services]]
+name = "miniflux"
+main = true
+health = { source = "image" }
+
+[[post_start]]
+name = "show-admin-password"
+service = "db"
+run = ["sh", "-c", "echo admin-password=${ADMIN_PASSWORD}"]
+capture = { label = "Admin password", regex = "admin-password=(\\S+)" }
+
+[backup]
+paths = []
+[[backup.dumps]]
+service = "db"
+run = ["pg_dump", "--clean", "--if-exists", "-U", "miniflux", "miniflux"]
+restore = ["psql", "-v", "ON_ERROR_STOP=1", "-q", "-U", "miniflux", "miniflux"]
+output = "db.sql"
+
+[update]
+image_pins = ["miniflux/miniflux", "postgres"]
+pre_update = ["backup"]
+pinned_major = ["postgres"]
