@@ -140,18 +140,28 @@ async fn container_action(
 const HTMX: &str = include_str!("../static/htmx.min.js");
 const CSS: &str = include_str!("../static/dockwren.css");
 
+/// Short content hash of the bundled assets, appended to their URLs so a new build is never served from a stale cache.
+pub fn asset_version() -> String {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in CSS.bytes().chain(HTMX.bytes()) {
+        h = (h ^ u64::from(b)).wrapping_mul(0x100000001b3);
+    }
+    format!("{:08x}", h >> 32)
+}
+
 async fn stylesheet() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "text/css")], CSS)
+    ([(header::CONTENT_TYPE, "text/css"), (header::CACHE_CONTROL, "no-cache")], CSS)
 }
 
 async fn htmx_js() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "text/javascript")], HTMX)
+    ([(header::CONTENT_TYPE, "text/javascript"), (header::CACHE_CONTROL, "no-cache")], HTMX)
 }
 
 #[derive(Template)]
 #[template(path = "index.html")]
 struct IndexTemplate {
     version: &'static str,
+    assets: String,
 }
 
 async fn health() -> &'static str {
@@ -161,6 +171,7 @@ async fn health() -> &'static str {
 async fn index() -> Html<String> {
     let page = IndexTemplate {
         version: env!("CARGO_PKG_VERSION"),
+        assets: asset_version(),
     };
     Html(page.render().expect("index template renders"))
 }
@@ -534,6 +545,17 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         assert!(body_of(res).await.contains("id=\"metrics\""));
+    }
+
+    #[tokio::test]
+    async fn assets_are_versioned_and_revalidated() {
+        let v = asset_version();
+        assert_eq!(v.len(), 8);
+        let app = test_app();
+        let login = body_of(app.clone().oneshot(Request::get("/login").body(Body::empty()).unwrap()).await.unwrap()).await;
+        assert!(login.contains(&format!("/static/dockwren.css?v={v}")));
+        let css = app.oneshot(Request::get("/static/dockwren.css?v=x").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(css.headers()[header::CACHE_CONTROL], "no-cache");
     }
 
     #[tokio::test]

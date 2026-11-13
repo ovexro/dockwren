@@ -333,10 +333,11 @@ pub async fn require_session(State(auth): State<SharedAuth>, req: Request, next:
 #[template(path = "login.html")]
 struct LoginTemplate {
     error: Option<&'static str>,
+    assets: String,
 }
 
 fn login_page(status: StatusCode, error: Option<&'static str>) -> Response {
-    let body = LoginTemplate { error }
+    let body = LoginTemplate { error, assets: crate::asset_version() }
         .render()
         .expect("login template renders");
     (status, Html(body)).into_response()
