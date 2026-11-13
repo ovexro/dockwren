@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · Dockwren</title>
+</head>
+<body>
+  <main>
+    <h1>Dockwren</h1>
+    <form method="post" action="/login">
+      {% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
+      <label>Password <input type="password" name="password" autocomplete="current-password" autofocus required></label>
+      <button type="submit">Sign in</button>
+    </form>
+  </main>
+</body>
+</html>
