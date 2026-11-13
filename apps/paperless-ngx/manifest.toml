@@ -1,0 +1,93 @@
+[app]
+id = "paperless-ngx"
+name = "Paperless-ngx"
+description = "Document archive with OCR and full-text search"
+homepage = "https://docs.paperless-ngx.com/"
+version = 1
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Name"
+type = "string"
+default = "paperless"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+
+[[fields]]
+key = "PUBLIC_URL"
+label = "Public URL"
+type = "string"
+default = "http://127.0.0.1:${WEB_PORT}"
+pattern = "^https?://[^/\\s]+$"
+help = "Origin only, no trailing slash or path (Paperless rejects a path)."
+
+[[fields]]
+key = "ADMIN_USER"
+label = "Admin user"
+type = "string"
+default = "admin"
+pattern = "^[a-z][a-z0-9_-]{2,30}$"
+
+[[fields]]
+key = "TIME_ZONE"
+label = "Time zone"
+type = "string"
+default = "UTC"
+pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
+help = "IANA name, for example Europe/Bucharest."
+
+[[fields]]
+key = "OCR_LANGUAGE"
+label = "OCR language"
+type = "string"
+default = "eng"
+pattern = "^[a-z]{3}(\\+[a-z]{3})*$"
+help = "Tesseract codes joined with +, for example ron+eng."
+
+[[secrets]]
+key = "POSTGRES_PASSWORD"
+kind = "password"
+length = 32
+
+[[secrets]]
+key = "SECRET_KEY"
+kind = "hex"
+length = 64
+
+[[secrets]]
+key = "ADMIN_PASSWORD"
+kind = "password"
+length = 20
+reveal = true
+
+[[services]]
+name = "broker"
+health = { source = "image" }
+
+[[services]]
+name = "db"
+health = { source = "image" }
+
+[[services]]
+name = "paperless"
+main = true
+health = { source = "image" }
+
+[backup]
+paths = ["data", "media"]
+[[backup.dumps]]
+service = "db"
+run = ["pg_dump", "--clean", "--if-exists", "-U", "paperless", "paperless"]
+restore = ["psql", "-v", "ON_ERROR_STOP=1", "-q", "-U", "paperless", "paperless"]
+output = "db.sql"
+
+[update]
+image_pins = ["ghcr.io/paperless-ngx/paperless-ngx", "postgres"]
+pre_update = ["backup"]
+pinned_major = ["postgres"]
