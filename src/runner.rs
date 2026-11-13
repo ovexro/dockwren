@@ -189,7 +189,7 @@ pub async fn run_post_start(
     inst: &Instance,
     t: &Template,
     env: &BTreeMap<String, String>,
-    log: &mut dyn FnMut(&str),
+    log: &mut (dyn FnMut(&str) + Send),
 ) -> Result<Vec<(String, String)>, String> {
     let mut shown = Vec::new();
     for h in &t.manifest.post_start {
@@ -217,7 +217,7 @@ pub async fn run_post_start(
 
 /// Install steps 3-5 of the spec: validate, pull, start, wait healthy.
 /// `log` receives one line per step.
-pub async fn bring_up(inst: &Instance, log: &mut dyn FnMut(&str)) -> Result<(), String> {
+pub async fn bring_up(inst: &Instance, log: &mut (dyn FnMut(&str) + Send)) -> Result<(), String> {
     log("checking compose file");
     compose(inst, &["config", "-q"]).await?;
     log("pulling images");

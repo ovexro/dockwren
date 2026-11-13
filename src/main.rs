@@ -1,3 +1,4 @@
+mod apps;
 mod auth;
 mod config;
 mod docker;
@@ -23,6 +24,13 @@ use docker::{Action, ContainerInfo, DockerClient};
 struct AppState {
     auth: SharedAuth,
     docker: DockerClient,
+    apps: apps::Apps,
+}
+
+impl FromRef<AppState> for apps::Apps {
+    fn from_ref(state: &AppState) -> Self {
+        state.apps.clone()
+    }
 }
 
 impl FromRef<AppState> for SharedAuth {
@@ -87,7 +95,7 @@ async fn close_logs() -> Html<&'static str> {
 const LOG_LINES: u32 = 200;
 
 /// Rejects cross-origin POSTs (defence in depth on top of the SameSite=Strict session cookie).
-fn same_origin(headers: &HeaderMap) -> bool {
+pub fn same_origin(headers: &HeaderMap) -> bool {
     let Some(origin) = headers.get(header::ORIGIN) else {
         return true; // non-browser client; it still needs the session cookie
     };
@@ -141,13 +149,19 @@ async fn index() -> Html<String> {
     Html(page.render().expect("index template renders"))
 }
 
-fn app(auth: SharedAuth, docker: DockerClient) -> Router {
+fn app(auth: SharedAuth, docker: DockerClient, apps: apps::Apps) -> Router {
     let protected = Router::new()
         .route("/", get(index))
         .route("/containers", get(containers))
         .route("/containers/{id}/{action}", post(container_action))
         .route("/containers/{id}/logs", get(container_logs))
         .route("/logs/close", get(close_logs))
+        .route("/apps", get(apps::list))
+        .route("/apps/{id}/new", get(apps::new_form))
+        .route("/apps/{id}/install", post(apps::install_submit))
+        .route("/jobs/{id}", get(apps::job))
+        .route("/instances", get(apps::instances))
+        .route("/instances/{name}/remove", post(apps::instance_remove))
         .route("/static/htmx.min.js", get(htmx_js))
         .route("/logout", post(auth::logout))
         .route_layer(from_fn_with_state(auth.clone(), auth::require_session));
@@ -155,13 +169,13 @@ fn app(auth: SharedAuth, docker: DockerClient) -> Router {
         .route("/health", get(health))
         .route("/login", get(auth::login_form).post(auth::login_submit))
         .merge(protected)
-        .with_state(AppState { auth, docker })
+        .with_state(AppState { auth, docker, apps })
 }
 
 /// `dockwren install <app> [KEY=VALUE...]`: resolve, prepare, bring up.
 async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String> {
     let app = args.first().ok_or("usage: dockwren install <app> [KEY=VALUE...]")?;
-    let templates = template::load_all(&cfg.apps_dir())?;
+    let templates = apps::catalog(cfg)?;
     let t = templates
         .iter()
         .find(|t| &t.manifest.app.id == app)
@@ -252,7 +266,9 @@ async fn main() {
         .await
         .unwrap_or_else(|e| panic!("cannot bind {}: {e}", cfg.bind));
     println!("dockwren listening on http://{}", cfg.bind);
-    axum::serve(listener, app(auth, docker))
+    let templates = apps::catalog(&cfg).unwrap_or_else(|e| panic!("bad template: {e}"));
+    let apps = apps::Apps::new(templates, cfg.instances_dir());
+    axum::serve(listener, app(auth, docker, apps))
         .await
         .expect("server error");
 }
@@ -272,7 +288,8 @@ mod tests {
     fn test_app() -> Router {
         let hash = auth::hash_password(PASSWORD);
         let docker = DockerClient::connect().unwrap();
-        app(Arc::new(auth::Auth::new(&hash, false).unwrap()), docker)
+        let apps = apps::Apps::new(template::catalog(None).unwrap(), std::env::temp_dir().join("dockwren-test-none"));
+        app(Arc::new(auth::Auth::new(&hash, false).unwrap()), docker, apps)
     }
 
     async fn body_of(res: Response<Body>) -> String {
@@ -562,5 +579,83 @@ mod tests {
         assert_eq!(hash, hash2);
         assert!(pw2.is_none());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+    #[tokio::test]
+    async fn app_routes_need_a_session() {
+        for (method, uri) in [
+            ("GET", "/apps"),
+            ("GET", "/apps/gitea/new"),
+            ("POST", "/apps/gitea/install"),
+            ("GET", "/jobs/x"),
+            ("GET", "/instances"),
+            ("POST", "/instances/gt/remove"),
+        ] {
+            let res = test_app()
+                .oneshot(Request::builder().method(method).uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::SEE_OTHER, "{method} {uri}");
+        }
+    }
+
+    #[tokio::test]
+    async fn apps_ui_renders_and_rejects_bad_input() {
+        let app = test_app();
+        let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+        let get = |uri: &str| {
+            Request::get(uri).header(header::COOKIE, &cookie).body(Body::empty()).unwrap()
+        };
+        let post = |uri: &str, origin: Option<&str>, body: &str| {
+            let mut r = Request::post(uri)
+                .header(header::COOKIE, &cookie)
+                .header(header::HOST, "p.example")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+            if let Some(o) = origin {
+                r = r.header(header::ORIGIN, o);
+            }
+            r.body(Body::from(body.to_string())).unwrap()
+        };
+
+        let res = app.clone().oneshot(get("/apps")).await.unwrap();
+        let html = body_of(res).await;
+        assert!(html.contains("Gitea") && html.contains("Vaultwarden"));
+
+        let res = app.clone().oneshot(get("/apps/gitea/new")).await.unwrap();
+        let html = body_of(res).await;
+        assert!(html.contains("name=\"ADMIN_EMAIL\"") && html.contains("hx-post=\"/apps/gitea/install\""));
+        // Secrets are generated, never asked for in the form.
+        assert!(!html.contains("POSTGRES_PASSWORD"));
+
+        let res = app.clone().oneshot(get("/apps/nope/new")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        let res = app.clone().oneshot(get("/jobs/unknown")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+        // Cross-origin install is refused before anything is created.
+        let res = app
+            .clone()
+            .oneshot(post("/apps/gitea/install", Some("https://evil.example"), "ADMIN_EMAIL=a@b.io"))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+        // Invalid input comes back as the form with an error; nothing is created.
+        let res = app
+            .clone()
+            .oneshot(post("/apps/gitea/install", None, "ADMIN_EMAIL=not-an-email"))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let html = body_of(res).await;
+        assert!(html.contains("role=\"alert\"") && html.contains("e-mail"));
+        assert!(html.contains("not-an-email"), "entered values are kept");
+        assert!(!std::env::temp_dir().join("dockwren-test-none").exists());
+
+        let res = app.clone().oneshot(get("/instances")).await.unwrap();
+        assert!(body_of(res).await.contains("No apps installed"));
+        let res = app.clone().oneshot(post("/instances/..%2Fx/remove", None, "")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        let res = app.oneshot(post("/instances/ghost/remove", None, "")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 }

@@ -10,6 +10,11 @@
   <main>
     <h1>Dockwren</h1>
     <p>Version {{ version }}</p>
+    <h2>Apps</h2>
+    <div id="apps" hx-get="/apps" hx-trigger="load" hx-swap="innerHTML">Loading…</div>
+    <section id="install"></section>
+    <h2>Installed apps</h2>
+    <div id="instances" hx-get="/instances" hx-trigger="load, every 10s" hx-swap="innerHTML">Loading…</div>
     <h2>Containers</h2>
     <div id="containers" hx-get="/containers" hx-trigger="load, every 5s" hx-swap="innerHTML">Loading…</div>
     <section id="logs"></section>

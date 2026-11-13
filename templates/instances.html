@@ -1,0 +1,15 @@
+{% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
+{% if instances.is_empty() %}
+<p>No apps installed yet.</p>
+{% else %}
+<table>
+  <thead><tr><th>Name</th><th>App</th><th>Ports</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {% for i in instances %}
+    <tr><td>{{ i.name }}</td><td>{{ i.app }}</td><td>{{ i.ports }}</td><td>{{ i.status }}</td>
+      <td><button hx-post="/instances/{{ i.name }}/remove" hx-target="#instances" hx-swap="innerHTML"
+          hx-confirm="Stop {{ i.name }} and remove its containers? Data is kept.">Stop &amp; remove containers</button></td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}

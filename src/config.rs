@@ -13,9 +13,9 @@ pub struct Config {
 }
 
 impl Config {
-    /// Where templates live (`DOCKWREN_APPS`, default `./apps`).
-    pub fn apps_dir(&self) -> PathBuf {
-        std::env::var("DOCKWREN_APPS").map(PathBuf::from).unwrap_or_else(|_| "./apps".into())
+    /// Optional directory of extra/overriding templates (`DOCKWREN_APPS`).
+    pub fn apps_dir_override(&self) -> Option<PathBuf> {
+        std::env::var("DOCKWREN_APPS").ok().map(PathBuf::from)
     }
 
     /// Installed instances live under the data dir.

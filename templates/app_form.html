@@ -1,0 +1,16 @@
+<h3>Install {{ name }}</h3>
+{% if https_note %}<p><em>{{ name }} only works in a browser over HTTPS (or localhost). Set up the public URL separately.</em></p>{% endif %}
+{% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
+<form hx-post="/apps/{{ id }}/install" hx-target="#install" hx-swap="innerHTML">
+{% for f in fields %}
+  <p><label>{{ f.label }}
+  {% if f.input == "select" %}
+    <select name="{{ f.key }}">{% for o in f.options %}<option value="{{ o }}"{% if o == &f.value %} selected{% endif %}>{{ o }}</option>{% endfor %}</select>
+  {% else %}
+    <input type="{{ f.input }}" name="{{ f.key }}" value="{{ f.value }}" placeholder="{{ f.placeholder }}"{% if f.required %} required{% endif %}>
+  {% endif %}
+  </label>{% if !f.help.is_empty() %}<br><small>{{ f.help }}</small>{% endif %}</p>
+{% endfor %}
+  <button type="submit">Install</button>
+  <button type="button" onclick="document.getElementById('install').innerHTML=''">Cancel</button>
+</form>

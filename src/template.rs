@@ -182,17 +182,21 @@ pub struct Template {
     pub compose: String,
 }
 
+/// Parse and validate a template from its two files' contents.
+pub fn parse(manifest: &str, compose: &str) -> Result<Template, String> {
+    let manifest: Manifest = toml::from_str(manifest).map_err(|e| format!("manifest.toml: {e}"))?;
+    validate(&manifest, compose)?;
+    Ok(Template { manifest, compose: compose.to_string() })
+}
+
 /// Load and validate one template directory.
 pub fn load(dir: &Path) -> Result<Template, String> {
     let read = |name: &str| {
         std::fs::read_to_string(dir.join(name))
             .map_err(|e| format!("{}: {name}: {e}", dir.display()))
     };
-    let manifest: Manifest =
-        toml::from_str(&read("manifest.toml")?).map_err(|e| format!("manifest.toml: {e}"))?;
-    let compose = read("compose.yaml")?;
-    validate(&manifest, &compose)?;
-    Ok(Template { manifest, compose })
+    parse(&read("manifest.toml")?, &read("compose.yaml")?)
+        .map_err(|e| format!("{}: {e}", dir.display()))
 }
 
 /// Load every template under `root` (one sub-directory each), sorted by id.
@@ -207,6 +211,28 @@ pub fn load_all(root: &Path) -> Result<Vec<Template>, String> {
     }
     out.sort_by(|a, b| a.manifest.app.id.cmp(&b.manifest.app.id));
     Ok(out)
+}
+
+/// Templates shipped inside the binary.
+const BUNDLED: &[(&str, &str)] = &[
+    (include_str!("../apps/gitea/manifest.toml"), include_str!("../apps/gitea/compose.yaml")),
+    (include_str!("../apps/vaultwarden/manifest.toml"), include_str!("../apps/vaultwarden/compose.yaml")),
+];
+
+/// Bundled templates plus (optionally) a directory of extra or overriding ones.
+pub fn catalog(extra_dir: Option<&Path>) -> Result<Vec<Template>, String> {
+    let mut all = BUNDLED
+        .iter()
+        .map(|(m, c)| parse(m, c))
+        .collect::<Result<Vec<_>, _>>()?;
+    if let Some(dir) = extra_dir.filter(|d| d.is_dir()) {
+        for t in load_all(dir)? {
+            all.retain(|b| b.manifest.app.id != t.manifest.app.id);
+            all.push(t);
+        }
+    }
+    all.sort_by(|a, b| a.manifest.app.id.cmp(&b.manifest.app.id));
+    Ok(all)
 }
 
 /// All `${NAME}` references in `text`.
@@ -421,6 +447,15 @@ mod tests {
 
     fn apps() -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("apps")
+    }
+
+    #[test]
+    fn embedded_catalog_matches_apps_dir_and_dir_overrides() {
+        let ids: Vec<_> = catalog(None).unwrap().iter().map(|t| t.manifest.app.id.clone()).collect();
+        assert_eq!(ids, ["gitea", "vaultwarden"]);
+        // An on-disk template with the same id replaces the bundled one.
+        let c = catalog(Some(&apps())).unwrap();
+        assert_eq!(c.len(), 2);
     }
 
     #[test]
