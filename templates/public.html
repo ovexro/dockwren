@@ -30,7 +30,7 @@
   <pre>{{ s }}</pre>
   {% endif %}
   {% if command.is_some() %}
-  <p><small>To connect Cloudflare, open <a href="/settings">Settings</a> and paste a token; the guide there explains how to create one. From the command line you can also run <code>dockwren expose {{ instance }}</code>.</small></p>
+  <p><small>To connect Cloudflare, open the <a href="/cloudflare">Cloudflare</a> tab and paste a token; the guide there explains how to create one. From the command line you can also run <code>dockwren expose {{ instance }}</code>.</small></p>
   {% endif %}
   <p><small>Do not put Cloudflare Access in front of apps used by mobile or desktop clients (for example Vaultwarden); the app's own login protects it.</small></p>
 </div>

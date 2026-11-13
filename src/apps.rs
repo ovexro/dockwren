@@ -189,7 +189,7 @@ fn form_view(t: &AppTemplate, values: &HashMap<String, String>, error: Option<St
             format!("{base} Dockwren will also make it reachable from the internet for you.")
         } else {
             format!(
-                "{base} Cloudflare is not connected yet: paste a token under Settings first, then press Publish on the app's Public URL page."
+                "{base} Cloudflare is not connected yet: paste a token in the Cloudflare tab first, then press Publish on the app's Public URL page."
             )
         };
         let at = usize::from(fields.first().is_some_and(|f| f.key == "INSTANCE_NAME"));

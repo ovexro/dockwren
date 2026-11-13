@@ -28,10 +28,11 @@
     {% else if active == "containers" %}
     <div id="containers" hx-get="/containers/list" hx-trigger="load, every 5s [!document.querySelector('#containers details[open]')]" hx-swap="innerHTML">Loading…</div>
     <section id="logs"></section>
+    {% else if active == "cloudflare" %}
+    <div id="cloudflare" hx-get="/settings/cloudflare" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     {% else if active == "resources" %}
     <div id="metrics" hx-get="/metrics" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     {% else %}
-    <div id="cloudflare" hx-get="/settings/cloudflare" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>About</h2>
     <p>Dockwren version {{ version }}</p>
     <h2>Session</h2>

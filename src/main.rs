@@ -180,11 +180,12 @@ struct PageTemplate {
 }
 
 /// (href, key, label) of the sidebar entries.
-const NAV: [(&str, &str, &str); 5] = [
+const NAV: [(&str, &str, &str); 6] = [
     ("/", "overview", "Overview"),
     ("/apps", "apps", "Apps"),
     ("/containers", "containers", "Containers"),
     ("/resources", "resources", "Resources"),
+    ("/cloudflare", "cloudflare", "Cloudflare"),
     ("/settings", "settings", "Settings"),
 ];
 
@@ -231,6 +232,9 @@ async fn containers_page() -> Html<String> {
 async fn resources_page() -> Html<String> {
     page("resources")
 }
+async fn cloudflare_page() -> Html<String> {
+    page("cloudflare")
+}
 async fn settings_page() -> Html<String> {
     page("settings")
 }
@@ -248,6 +252,7 @@ fn app(
         .route("/containers", get(containers_page))
         .route("/resources", get(resources_page))
         .route("/settings", get(settings_page))
+        .route("/cloudflare", get(cloudflare_page))
         .route("/overview", get(overview))
         .route("/containers/list", get(containers))
         .route("/containers/{id}/{action}", post(container_action))
@@ -1070,6 +1075,7 @@ mod tests {
             ("GET", "/instances/gt/public"),
             ("POST", "/instances/gt/public"),
             ("POST", "/instances/gt/public/publish"),
+            ("GET", "/cloudflare"),
             ("GET", "/settings/cloudflare"),
             ("POST", "/settings/cloudflare/connect"),
             ("POST", "/settings/cloudflare/tunnel"),

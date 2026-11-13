@@ -1,5 +1,6 @@
 <div id="cloudflare">
-  <h2>Cloudflare (publish apps on your own domain)</h2>
+  <h2>Connect your domain</h2>
+  <p>Dockwren publishes each app on its own address, for example <code>blog.yourdomain.com</code> for WordPress or <code>mail.yourdomain.com</code> for a mail client. For that it needs permission to manage the domain you added to Cloudflare. You give it that permission once, with a <strong>token</strong>, and every app you install later reuses it.</p>
   {% if let Some((ok, text)) = message %}
   <p role="status"><strong>{% if *ok %}Success:{% else %}Failed:{% endif %}</strong> {{ text }}</p>
   {% endif %}
@@ -42,19 +43,24 @@
   </form>
   <details {% if !has_token %}open{% endif %}>
     <summary>How do I get a token? (about 2 minutes)</summary>
+    <p><small>Before you start: your domain must already be added to Cloudflare (Cloudflare shows it as <em>Active</em>). A token is like a key card: it only opens what you tick below.</small></p>
     <ol>
-      <li>Open <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener">dash.cloudflare.com/profile/api-tokens</a> and click <strong>Create Token</strong>, then <strong>Create Custom Token</strong> (the last option, "Get started").</li>
+      <li>Open <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener">dash.cloudflare.com/profile/api-tokens</a>, click <strong>Create Token</strong>, then <strong>Get started</strong> next to <em>Create Custom Token</em>.</li>
       <li>Name it, for example <em>Dockwren</em>.</li>
-      <li>Under <strong>Permissions</strong> add three rows:
+      <li>Under <strong>Permissions</strong> add three rows (use <strong>+ Add more</strong>):
         <ul>
           <li><strong>Account</strong> · <strong>Cloudflare Tunnel</strong> · <strong>Edit</strong></li>
           <li><strong>Zone</strong> · <strong>DNS</strong> · <strong>Edit</strong></li>
           <li><strong>Zone</strong> · <strong>Zone</strong> · <strong>Read</strong></li>
         </ul></li>
-      <li><strong>Account Resources</strong>: Include, your account.<br>
-          <strong>Zone Resources</strong>: Include, Specific zone, then the domain you want to publish on. A token limited to one domain is safest.</li>
+      <li><strong>Account Resources</strong>: Include, your account.</li>
+      <li><strong>Zone Resources</strong>: this decides which domains Dockwren can publish on.
+        <ul>
+          <li>Planning several apps on one domain (WordPress, a mail client, a wiki...)? Choose <strong>Include, Specific zone</strong> and pick that domain. One token then covers <em>all</em> its subdomains, so you never need a new token per app.</li>
+          <li>Use several domains? Add each one, or choose <strong>All zones</strong>.</li>
+        </ul></li>
       <li>Click <strong>Continue to summary</strong>, then <strong>Create Token</strong>. Copy the token now: Cloudflare shows it only once.</li>
-      <li>Paste it above and press <strong>Connect</strong>.</li>
+      <li>Paste it above and press <strong>Connect</strong>. Dockwren lists the domains the token covers. If the one you want is missing, create a new token that includes it and connect again.</li>
     </ol>
     <p><small>You also need a Cloudflare Tunnel that is already connected to this server (Zero Trust, Networks, Tunnels). The tunnel is the secure link that lets visitors reach your apps without opening any port. Never share the token in chats or put it in a repository.</small></p>
   </details>
