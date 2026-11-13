@@ -6,6 +6,7 @@ mod docker;
 mod install;
 mod runner;
 mod template;
+mod update;
 
 use std::sync::Arc;
 
@@ -248,6 +249,29 @@ async fn main() {
             }
             return;
         }
+        Some("update") => {
+            let name = std::env::args().nth(2).unwrap_or_default();
+            if !runner::valid_name(&name) {
+                eprintln!("usage: dockwren update <instance>");
+                std::process::exit(2);
+            }
+            let result = async {
+                let templates = apps::catalog(&cfg)?;
+                update::update_instance(&cfg, &templates, &name, &mut |s| println!("  {s}")).await
+            }
+            .await;
+            match result {
+                Ok(update::Outcome::UpToDate) => println!("{name} is already up to date"),
+                Ok(update::Outcome::Updated { from, to }) => {
+                    println!("{name} updated from template version {from} to {to}, up and healthy")
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
         Some("remove") => {
             let name = std::env::args().nth(2).unwrap_or_default();
             if !runner::valid_name(&name) {
@@ -265,7 +289,7 @@ async fn main() {
             return;
         }
         Some(other) => {
-            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | remove <instance>]");
+            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | remove <instance>]");
             std::process::exit(2);
         }
     }
