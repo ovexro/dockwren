@@ -1,0 +1,56 @@
+services:
+  db:
+    image: mariadb:11.8.9
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - ./db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  wordpress:
+    image: wordpress:7.1.4-php8.3-apache
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+      WORDPRESS_AUTH_KEY: ${WP_KEY_1}
+      WORDPRESS_SECURE_AUTH_KEY: ${WP_KEY_2}
+      WORDPRESS_LOGGED_IN_KEY: ${WP_KEY_3}
+      WORDPRESS_NONCE_KEY: ${WP_KEY_4}
+      WORDPRESS_AUTH_SALT: ${WP_KEY_5}
+      WORDPRESS_SECURE_AUTH_SALT: ${WP_KEY_6}
+      WORDPRESS_LOGGED_IN_SALT: ${WP_KEY_7}
+      WORDPRESS_NONCE_SALT: ${WP_KEY_8}
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_HOME', '${SITE_URL}');
+        define('WP_SITEURL', '${SITE_URL}');
+    volumes:
+      - ./wp:/var/www/html
+    ports:
+      - "127.0.0.1:${WEB_PORT}:80"
+  wpcli:
+    image: wordpress:cli-2.12.0-php8.3
+    restart: unless-stopped
+    user: "33:33"
+    depends_on:
+      - wordpress
+    command: ["sleep", "infinity"]
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./wp:/var/www/html

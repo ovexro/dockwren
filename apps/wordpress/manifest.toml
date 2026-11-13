@@ -1,0 +1,135 @@
+[app]
+id = "wordpress"
+name = "WordPress"
+description = "Website and blog platform"
+homepage = "https://wordpress.org/"
+version = 1
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Name"
+type = "string"
+default = "wordpress"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+
+[[fields]]
+key = "SITE_URL"
+label = "Site address"
+type = "string"
+default = "http://127.0.0.1:${WEB_PORT}"
+pattern = "^https?://[^/\\s]+$"
+help = "Origin only, no trailing slash, for example https://blog.example.com."
+
+[[fields]]
+key = "ADMIN_USER"
+label = "Admin user"
+type = "string"
+default = "admin"
+pattern = "^[A-Za-z][A-Za-z0-9_-]{2,30}$"
+
+[[fields]]
+key = "ADMIN_PASSWORD"
+label = "Admin password"
+type = "password"
+pattern = "^[^\\s'\"$]{12,64}$"
+help = "At least 12 characters; no spaces, quotes or $."
+
+[[fields]]
+key = "ADMIN_EMAIL"
+label = "Admin e-mail"
+type = "email"
+
+[[fields]]
+key = "SITE_TITLE"
+label = "Site title"
+type = "string"
+default = "My site"
+pattern = "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,60}$"
+
+[[secrets]]
+key = "DB_PASSWORD"
+kind = "password"
+length = 32
+
+[[secrets]]
+key = "DB_ROOT_PASSWORD"
+kind = "password"
+length = 32
+
+[[secrets]]
+key = "WP_KEY_1"
+kind = "hex"
+length = 64
+
+[[secrets]]
+key = "WP_KEY_2"
+kind = "hex"
+length = 64
+
+[[secrets]]
+key = "WP_KEY_3"
+kind = "hex"
+length = 64
+
+[[secrets]]
+key = "WP_KEY_4"
+kind = "hex"
+length = 64
+
+[[secrets]]
+key = "WP_KEY_5"
+kind = "hex"
+length = 64
+
+[[secrets]]
+key = "WP_KEY_6"
+kind = "hex"
+length = 64
+
+[[secrets]]
+key = "WP_KEY_7"
+kind = "hex"
+length = 64
+
+[[secrets]]
+key = "WP_KEY_8"
+kind = "hex"
+length = 64
+
+[[services]]
+name = "db"
+health = { source = "image" }
+
+[[services]]
+name = "wordpress"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/80'"], interval = "10s", start_period = "30s" }
+
+[[services]]
+name = "wpcli"
+health = { source = "panel", test = ["CMD", "wp", "--version"], interval = "30s", start_period = "10s" }
+
+[[post_start]]
+name = "install-site"
+service = "wpcli"
+run = ["wp", "core", "install", "--url=${SITE_URL}", "--title=${SITE_TITLE}", "--admin_user=${ADMIN_USER}", "--admin_password=${ADMIN_PASSWORD}", "--admin_email=${ADMIN_EMAIL}", "--skip-email"]
+
+[backup]
+paths = ["wp"]
+[[backup.dumps]]
+service = "db"
+run = ["sh", "-c", "mariadb-dump --single-transaction --add-drop-table -u root -p\"$MARIADB_ROOT_PASSWORD\" wordpress"]
+restore = ["sh", "-c", "mariadb -u root -p\"$MARIADB_ROOT_PASSWORD\" wordpress"]
+output = "db.sql"
+
+[update]
+image_pins = ["wordpress", "mariadb"]
+pre_update = ["backup"]
+pinned_major = ["mariadb"]
