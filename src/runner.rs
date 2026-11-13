@@ -108,7 +108,15 @@ pub fn claimed_ports(root: &Path) -> std::collections::HashSet<u16> {
 
 /// Run `docker compose` for an instance; returns stdout, or stderr on failure.
 pub async fn compose(inst: &Instance, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("docker")
+    let mut cmd = Command::new("docker");
+    // The Docker CLI refuses to load plugins when it cannot read ~/.docker (e.g.
+    // under systemd ProtectHome), so give it a config dir inside our data dir.
+    if std::env::var_os("DOCKER_CONFIG").is_none()
+        && let Some(data) = inst.dir.parent().and_then(Path::parent)
+    {
+        cmd.env("DOCKER_CONFIG", data.join("docker-config"));
+    }
+    let out = cmd
         .arg("compose")
         .args(["-p", &format!("dockwren-{}", inst.name)])
         .arg("--project-directory")
