@@ -158,10 +158,27 @@ fn app(auth: SharedAuth, docker: DockerClient) -> Router {
 #[tokio::main]
 async fn main() {
     let cfg = config::Config::from_env();
-    let (hash, first_run_password) = auth::load_or_create(&cfg.data_dir)
+    match std::env::args().nth(1).as_deref() {
+        None | Some("serve") => {}
+        Some("set-password") => {
+            let password = auth::set_password(&cfg.data_dir).unwrap_or_else(|e| {
+                panic!("cannot set password in {}: {e}", cfg.data_dir.display())
+            });
+            println!("New admin password (shown once, not stored):");
+            println!("    {password}");
+            println!("A running server applies it immediately and signs all sessions out.");
+            return;
+        }
+        Some(other) => {
+            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password]");
+            std::process::exit(2);
+        }
+    }
+    let (_, first_run_password) = auth::load_or_create(&cfg.data_dir)
         .unwrap_or_else(|e| panic!("cannot prepare data dir {}: {e}", cfg.data_dir.display()));
-    let auth =
-        Arc::new(auth::Auth::new(&hash, cfg.secure_cookie).unwrap_or_else(|e| panic!("{e}")));
+    let auth = Arc::new(
+        auth::Auth::open(&cfg.data_dir, cfg.secure_cookie).unwrap_or_else(|e| panic!("{e}")),
+    );
 
     if let Some(password) = first_run_password {
         println!("First run: generated admin password (shown once, not stored):");
