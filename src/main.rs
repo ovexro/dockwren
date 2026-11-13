@@ -266,7 +266,20 @@ fn app(
             "/instances/{name}/public",
             get(apps::public_form).post(apps::public_submit),
         )
-        .route("/instances/{name}/public/publish", post(apps::public_publish))
+        .route(
+            "/instances/{name}/public/publish",
+            post(apps::public_publish),
+        )
+        .route("/settings/cloudflare", get(apps::cloudflare_show))
+        .route(
+            "/settings/cloudflare/connect",
+            post(apps::cloudflare_connect),
+        )
+        .route("/settings/cloudflare/tunnel", post(apps::cloudflare_tunnel))
+        .route(
+            "/settings/cloudflare/disconnect",
+            post(apps::cloudflare_disconnect),
+        )
         .route(
             "/instances/{name}/restore",
             get(apps::restore_form).post(apps::restore_submit),
@@ -1057,6 +1070,10 @@ mod tests {
             ("GET", "/instances/gt/public"),
             ("POST", "/instances/gt/public"),
             ("POST", "/instances/gt/public/publish"),
+            ("GET", "/settings/cloudflare"),
+            ("POST", "/settings/cloudflare/connect"),
+            ("POST", "/settings/cloudflare/tunnel"),
+            ("POST", "/settings/cloudflare/disconnect"),
             ("GET", "/instances/gt/restore"),
             ("POST", "/instances/gt/restore"),
             ("POST", "/instances/gt/cleanup"),

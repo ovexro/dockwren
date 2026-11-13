@@ -29,29 +29,8 @@
   <p>Add this rule to your Cloudflare Tunnel (ingress, above the catch-all):</p>
   <pre>{{ s }}</pre>
   {% endif %}
-  {% if let Some(c) = command %}
-  <p>Or let Dockwren do the tunnel route and DNS record from the server. It needs a scoped
-  <code>CLOUDFLARE_API_TOKEN</code> (Tunnel edit + DNS edit), <code>CLOUDFLARE_ACCOUNT_ID</code> and
-  <code>DOCKWREN_TUNNEL_ID</code> in the environment. Without <code>--yes</code> it only previews:</p>
-  <pre>{{ c }}
-{{ c }} --yes</pre>
+  {% if command.is_some() %}
+  <p><small>To connect Cloudflare, open <a href="/settings">Settings</a> and paste a token; the guide there explains how to create one. From the command line you can also run <code>dockwren expose {{ instance }}</code>.</small></p>
   {% endif %}
-  <details>
-    <summary>How to create the Cloudflare token</summary>
-    <small>
-    <ol>
-      <li>Cloudflare dashboard: profile icon, My Profile, API Tokens, Create Token, Custom token.</li>
-      <li>Permissions (add three rows): Account / Cloudflare Tunnel / Edit; Zone / DNS / Edit; Zone / Zone / Read.
-          Only for <code>--access</code>: also Account / Access: Apps and Policies / Edit.</li>
-      <li>Account Resources: Include, your account. Zone Resources: Include, Specific zone, the one domain you publish on.</li>
-      <li>Create, copy the token once (Cloudflare never shows it again).</li>
-      <li>Account ID: any zone's Overview page, right column. Tunnel ID: Zero Trust, Networks, Tunnels, open your tunnel
-          (it must be a remotely managed tunnel).</li>
-      <li>Give the three values to the process that runs <code>dockwren</code> as
-          <code>CLOUDFLARE_API_TOKEN</code>, <code>CLOUDFLARE_ACCOUNT_ID</code>, <code>DOCKWREN_TUNNEL_ID</code>.
-          Never paste the token into a chat or a repository.</li>
-    </ol>
-    </small>
-  </details>
   <p><small>Do not put Cloudflare Access in front of apps used by mobile or desktop clients (for example Vaultwarden); the app's own login protects it.</small></p>
 </div>

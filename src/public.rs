@@ -1,8 +1,7 @@
 //! Public hostnames for apps. The hostname is stored per instance in `public.txt`
 //! (not state.toml, which updates rewrite). `expose` wires it up in Cloudflare:
-//! a tunnel ingress rule plus a proxied CNAME. It needs a scoped API token in
-//! the environment and never runs from the web panel, so the panel holds no
-//! Cloudflare credentials.
+//! a tunnel ingress rule plus a proxied CNAME. It needs a scoped API token, either
+//! in the environment or pasted in the web panel (kept in `cloudflare.json`, 0600).
 
 use std::path::Path;
 use std::process::Stdio;
@@ -225,8 +224,22 @@ pub struct Settings {
 }
 
 impl Settings {
-    /// Cloudflare settings from the environment; `None` unless all three are set (opt-in).
+    /// Cloudflare settings: the environment wins; otherwise what was pasted in the panel.
+    /// `None` unless token, account and tunnel are all known (opt-in).
     pub fn from_env() -> Option<Self> {
+        Self::from_environment().or_else(|| {
+            let v = load_saved();
+            let get = |x: Option<String>| x.filter(|v| !v.is_empty());
+            Some(Self {
+                token: get(v.token)?,
+                account: get(v.account)?,
+                tunnel: get(v.tunnel)?,
+            })
+        })
+    }
+
+    /// Only the process environment (set by the server admin).
+    pub fn from_environment() -> Option<Self> {
         let get = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         Some(Self {
             token: get("CLOUDFLARE_API_TOKEN")?,
@@ -234,6 +247,118 @@ impl Settings {
             tunnel: get("DOCKWREN_TUNNEL_ID")?,
         })
     }
+}
+
+/// What the web panel keeps after the user pastes a token.
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
+pub struct Saved {
+    pub token: Option<String>,
+    pub account: Option<String>,
+    pub tunnel: Option<String>,
+}
+
+fn store_path() -> std::path::PathBuf {
+    crate::config::Config::from_env()
+        .data_dir
+        .join("cloudflare.json")
+}
+
+pub fn load_saved() -> Saved {
+    std::fs::read_to_string(store_path())
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_saved(v: &Saved) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let path = store_path();
+    let tmp = path.with_extension("json.new");
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&tmp)
+        .map_err(|e| e.to_string())?;
+    f.write_all(
+        serde_json::to_string(v)
+            .map_err(|e| e.to_string())?
+            .as_bytes(),
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+}
+
+pub fn forget_saved() -> Result<(), String> {
+    match std::fs::remove_file(store_path()) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+        _ => Ok(()),
+    }
+}
+
+/// What a token can see.
+pub struct Probe {
+    pub account: String,
+    pub zones: Vec<String>,
+    /// (id, name) of remotely managed tunnels in that account.
+    pub tunnels: Vec<(String, String)>,
+}
+
+/// Check a token against Cloudflare: list the domains it covers, find the account and
+/// the tunnels. Read-only.
+pub async fn probe(token: &str) -> Result<Probe, String> {
+    let api = Api {
+        token: token.to_string(),
+    };
+    let z = api
+        .call("GET", "/zones?per_page=50", None)
+        .await
+        .map_err(|e| {
+            if e.contains("Invalid") || e.contains("Authentication") {
+                "Cloudflare does not accept this token. Copy the whole token again (no spaces) and check it is still active.".to_string()
+            } else {
+                e
+            }
+        })?;
+    let zones: Vec<Value> = z["result"].as_array().cloned().unwrap_or_default();
+    if zones.is_empty() {
+        return Err("the token works but covers no domain: add Zone / Zone / Read and pick your domain under Zone Resources".into());
+    }
+    let account = zones[0]["account"]["id"]
+        .as_str()
+        .ok_or("could not read the account id from Cloudflare")?
+        .to_string();
+    let t = api
+        .call(
+            "GET",
+            &format!("/accounts/{account}/cfd_tunnel?is_deleted=false&per_page=50"),
+            None,
+        )
+        .await
+        .map_err(|e| format!("{e} (the token needs Account / Cloudflare Tunnel / Edit)"))?;
+    let tunnels = t["result"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter(|x| x["config_src"].as_str().is_none_or(|c| c == "cloudflare"))
+        .filter_map(|x| {
+            Some((
+                x["id"].as_str()?.to_string(),
+                x["name"].as_str()?.to_string(),
+            ))
+        })
+        .collect();
+    Ok(Probe {
+        account,
+        zones: zones
+            .iter()
+            .filter_map(|z| z["name"].as_str().map(String::from))
+            .collect(),
+        tunnels,
+    })
 }
 
 /// After an install that was given a public hostname: record it and, when Cloudflare

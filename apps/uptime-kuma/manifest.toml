@@ -8,11 +8,11 @@ needs_public_https = false
 
 [[fields]]
 key = "INSTANCE_NAME"
-label = "Name"
+label = "Internal name"
 type = "string"
 default = "uptime-kuma"
 pattern = "^[a-z][a-z0-9-]{1,30}$"
-help = "Short id for this copy; becomes its folder and container names. Letters, digits, hyphens."
+help = "Only a label for this installation on your server (used for its folder and container names); visitors never see it. Short, lower-case, for example blog. You can run several copies of the same app by giving each its own name."
 
 [[fields]]
 key = "WEB_PORT"

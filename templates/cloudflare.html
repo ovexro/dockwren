@@ -1,0 +1,62 @@
+<div id="cloudflare">
+  <h2>Cloudflare (publish apps on your own domain)</h2>
+  {% if let Some((ok, text)) = message %}
+  <p role="status"><strong>{% if *ok %}Success:{% else %}Failed:{% endif %}</strong> {{ text }}</p>
+  {% endif %}
+
+  {% if env_managed %}
+  <p>Cloudflare is connected by the server's configuration (environment variables), so there is nothing to paste here.</p>
+  {% endif %}
+
+  {% if has_token %}
+    {% if let Some(p) = problem %}
+    <p role="alert"><strong>Cloudflare rejected the saved token:</strong> {{ p }}</p>
+    {% else %}
+    <p><strong>Connected.</strong> This token can publish on: {% for z in zones %}<code>{{ z }}</code>{% if !loop.last %}, {% endif %}{% endfor %}.
+    {% if let Some(t) = tunnel_name %}Tunnel: <code>{{ t }}</code>.{% endif %}</p>
+    {% if !choose.is_empty() %}
+    <form hx-post="/settings/cloudflare/tunnel" hx-target="#cloudflare" hx-swap="outerHTML">
+      <p><label>Which tunnel carries your apps?
+        <select name="tunnel">{% for t in choose %}<option value="{{ t.0 }}">{{ t.1 }}</option>{% endfor %}</select></label><br>
+        <small>A tunnel is the secure link between Cloudflare and this server.</small></p>
+      <button type="submit">Use this tunnel</button>
+    </form>
+    {% else if tunnel_name.is_none() %}
+    <p role="alert">No tunnel found in your account. Create one first: Cloudflare, Zero Trust, Networks, Tunnels, Create a tunnel, then run the connector it shows on this server. Then reload this page.</p>
+    {% endif %}
+    {% endif %}
+    {% if !env_managed %}
+    <form hx-post="/settings/cloudflare/disconnect" hx-target="#cloudflare" hx-swap="outerHTML"
+          hx-confirm="Forget the saved Cloudflare token? Published apps stay online; you just can't publish new ones from here.">
+      <button type="submit">Disconnect (forget the token)</button>
+    </form>
+    {% endif %}
+  {% endif %}
+
+  {% if !env_managed %}
+  <form hx-post="/settings/cloudflare/connect" hx-target="#cloudflare" hx-swap="outerHTML" autocomplete="off">
+    <p><label>{% if has_token %}Replace the token{% else %}Paste your Cloudflare token{% endif %}
+      <input type="password" name="token" required autocomplete="off" spellcheck="false" placeholder="paste the token here"></label><br>
+      <small>Dockwren checks it with Cloudflare, finds your domains and tunnel by itself, and stores it on this server only (never shown again).</small></p>
+    <button class="primary" type="submit">Connect</button>
+  </form>
+  <details {% if !has_token %}open{% endif %}>
+    <summary>How do I get a token? (about 2 minutes)</summary>
+    <ol>
+      <li>Open <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener">dash.cloudflare.com/profile/api-tokens</a> and click <strong>Create Token</strong>, then <strong>Create Custom Token</strong> (the last option, "Get started").</li>
+      <li>Name it, for example <em>Dockwren</em>.</li>
+      <li>Under <strong>Permissions</strong> add three rows:
+        <ul>
+          <li><strong>Account</strong> · <strong>Cloudflare Tunnel</strong> · <strong>Edit</strong></li>
+          <li><strong>Zone</strong> · <strong>DNS</strong> · <strong>Edit</strong></li>
+          <li><strong>Zone</strong> · <strong>Zone</strong> · <strong>Read</strong></li>
+        </ul></li>
+      <li><strong>Account Resources</strong>: Include, your account.<br>
+          <strong>Zone Resources</strong>: Include, Specific zone, then the domain you want to publish on. A token limited to one domain is safest.</li>
+      <li>Click <strong>Continue to summary</strong>, then <strong>Create Token</strong>. Copy the token now: Cloudflare shows it only once.</li>
+      <li>Paste it above and press <strong>Connect</strong>.</li>
+    </ol>
+    <p><small>You also need a Cloudflare Tunnel that is already connected to this server (Zero Trust, Networks, Tunnels). The tunnel is the secure link that lets visitors reach your apps without opening any port. Never share the token in chats or put it in a repository.</small></p>
+  </details>
+  {% endif %}
+</div>

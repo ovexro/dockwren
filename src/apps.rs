@@ -188,7 +188,9 @@ fn form_view(t: &AppTemplate, values: &HashMap<String, String>, error: Option<St
         let help = if crate::public::Settings::from_env().is_some() {
             format!("{base} Dockwren will also make it reachable from the internet for you.")
         } else {
-            format!("{base} Cloudflare is not connected yet, so after the install press Publish on the app's Public URL page (or run dockwren expose).")
+            format!(
+                "{base} Cloudflare is not connected yet: paste a token under Settings first, then press Publish on the app's Public URL page."
+            )
         };
         let at = usize::from(fields.first().is_some_and(|f| f.key == "INSTANCE_NAME"));
         fields.insert(
@@ -817,6 +819,144 @@ pub async fn public_submit(
     let error = crate::public::write(&apps.root.join(&name), &host).err();
     let saved = error.is_none();
     Ok(render(public_page(&apps, &name, host, error, saved)))
+}
+
+// ---- Cloudflare connection (paste a token) -----------------------------
+
+#[derive(Template)]
+#[template(path = "cloudflare.html")]
+struct CloudflarePanel {
+    env_managed: bool,
+    has_token: bool,
+    problem: Option<String>,
+    zones: Vec<String>,
+    tunnel_name: Option<String>,
+    choose: Vec<(String, String)>,
+    message: Option<(bool, String)>,
+}
+
+async fn cloudflare_panel(message: Option<(bool, String)>) -> CloudflarePanel {
+    let env = crate::public::Settings::from_environment();
+    let saved = crate::public::load_saved();
+    let (token, tunnel) = match &env {
+        Some(e) => (Some(e.token.clone()), Some(e.tunnel.clone())),
+        None => (saved.token.clone(), saved.tunnel.clone()),
+    };
+    let mut p = CloudflarePanel {
+        env_managed: env.is_some(),
+        has_token: token.is_some(),
+        problem: None,
+        zones: Vec::new(),
+        tunnel_name: None,
+        choose: Vec::new(),
+        message,
+    };
+    if let Some(t) = token {
+        match crate::public::probe(&t).await {
+            Ok(probe) => {
+                p.zones = probe.zones;
+                match tunnel.filter(|id| !id.is_empty()) {
+                    Some(id) => {
+                        p.tunnel_name = Some(
+                            probe
+                                .tunnels
+                                .iter()
+                                .find(|(i, _)| *i == id)
+                                .map_or(id, |(_, n)| n.clone()),
+                        )
+                    }
+                    None => p.choose = probe.tunnels,
+                }
+            }
+            Err(e) => p.problem = Some(e),
+        }
+    }
+    p
+}
+
+pub async fn cloudflare_show() -> Html<String> {
+    render(cloudflare_panel(None).await)
+}
+
+pub async fn cloudflare_connect(
+    headers: HeaderMap,
+    Form(values): Form<HashMap<String, String>>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let token = values.get("token").map(|t| t.trim()).unwrap_or_default();
+    let msg = if crate::public::Settings::from_environment().is_some() {
+        (
+            false,
+            "Cloudflare is configured by the server environment; change it there.".to_string(),
+        )
+    } else if token.is_empty()
+        || token.len() > 200
+        || token.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        (
+            false,
+            "That does not look like a token: paste only the token text, no spaces.".to_string(),
+        )
+    } else {
+        match crate::public::probe(token).await {
+            Err(e) => (false, e),
+            Ok(p) => {
+                let tunnel = (p.tunnels.len() == 1).then(|| p.tunnels[0].0.clone());
+                let saved = crate::public::Saved {
+                    token: Some(token.to_string()),
+                    account: Some(p.account),
+                    tunnel,
+                };
+                match crate::public::save_saved(&saved) {
+                    Ok(()) => (true, "token accepted and saved on this server.".to_string()),
+                    Err(e) => (false, format!("could not save: {e}")),
+                }
+            }
+        }
+    };
+    Ok(render(cloudflare_panel(Some(msg)).await))
+}
+
+pub async fn cloudflare_tunnel(
+    headers: HeaderMap,
+    Form(values): Form<HashMap<String, String>>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let id = values.get("tunnel").map(|t| t.trim()).unwrap_or_default();
+    let mut saved = crate::public::load_saved();
+    let msg = match saved.token.clone() {
+        None => (false, "connect a token first".to_string()),
+        Some(t) => match crate::public::probe(&t).await {
+            Ok(p) if p.tunnels.iter().any(|(i, _)| i == id) => {
+                saved.tunnel = Some(id.to_string());
+                match crate::public::save_saved(&saved) {
+                    Ok(()) => (true, "tunnel selected.".to_string()),
+                    Err(e) => (false, format!("could not save: {e}")),
+                }
+            }
+            Ok(_) => (false, "that tunnel is not in your account".to_string()),
+            Err(e) => (false, e),
+        },
+    };
+    Ok(render(cloudflare_panel(Some(msg)).await))
+}
+
+pub async fn cloudflare_disconnect(headers: HeaderMap) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let msg = match crate::public::forget_saved() {
+        Ok(()) => (
+            true,
+            "token forgotten. Apps already published stay online.".to_string(),
+        ),
+        Err(e) => (false, e),
+    };
+    Ok(render(cloudflare_panel(Some(msg)).await))
 }
 
 /// `POST /instances/{name}/public/publish`: wire the saved hostname to Cloudflare and
