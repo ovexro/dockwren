@@ -1,9 +1,8 @@
 mod auth;
 mod config;
 mod docker;
-#[allow(dead_code)]
 mod install;
-#[allow(dead_code)]
+mod runner;
 mod template;
 
 use std::sync::Arc;
@@ -159,6 +158,38 @@ fn app(auth: SharedAuth, docker: DockerClient) -> Router {
         .with_state(AppState { auth, docker })
 }
 
+/// `dockwren install <app> [KEY=VALUE...]`: resolve, prepare, bring up.
+async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String> {
+    let app = args.first().ok_or("usage: dockwren install <app> [KEY=VALUE...]")?;
+    let templates = template::load_all(&cfg.apps_dir())?;
+    let t = templates
+        .iter()
+        .find(|t| &t.manifest.app.id == app)
+        .ok_or_else(|| format!("unknown app {app}"))?;
+    let input = args[1..]
+        .iter()
+        .map(|a| a.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())).ok_or(format!("expected KEY=VALUE, got {a}")))
+        .collect::<Result<std::collections::HashMap<_, _>, _>>()?;
+    let root = cfg.instances_dir();
+    let claimed = runner::claimed_ports(&root);
+    let resolved = install::resolve(t, &input, &claimed, &install::port_is_free)?;
+    let inst = runner::prepare(&root, t, &resolved.env)?;
+    println!("instance {} prepared in {}", inst.name, inst.dir.display());
+    runner::bring_up(&inst, &mut |step| println!("  {step}")).await.map_err(|e| {
+        format!("{e}\n(instance kept in {}; `dockwren remove {}` stops it)", inst.dir.display(), inst.name)
+    })?;
+    for key in ["WEB_PORT", "SSH_PORT"] {
+        if let Some(p) = resolved.env.get(key) {
+            println!("  {key}: 127.0.0.1:{p}");
+        }
+    }
+    for (k, v) in &resolved.revealed {
+        println!("  {k} (shown once): {v}");
+    }
+    println!("up and healthy");
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
     let cfg = config::Config::from_env();
@@ -173,8 +204,32 @@ async fn main() {
             println!("A running server applies it immediately and signs all sessions out.");
             return;
         }
+        Some("install") => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            if let Err(e) = cli_install(&cfg, &args).await {
+                eprintln!("install failed: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        Some("remove") => {
+            let name = std::env::args().nth(2).unwrap_or_default();
+            if !runner::valid_name(&name) {
+                eprintln!("usage: dockwren remove <instance>");
+                std::process::exit(2);
+            }
+            let inst = runner::Instance { dir: cfg.instances_dir().join(&name), name };
+            match runner::take_down(&inst).await {
+                Ok(()) => println!("{} stopped and containers removed (data kept in {})", inst.name, inst.dir.display()),
+                Err(e) => {
+                    eprintln!("remove failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
         Some(other) => {
-            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password]");
+            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | remove <instance>]");
             std::process::exit(2);
         }
     }

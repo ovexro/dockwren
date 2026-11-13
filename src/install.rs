@@ -19,7 +19,7 @@ pub struct Resolved {
 }
 
 /// Replace `${KEY}` in `s` using `env`; an unknown key is an error.
-fn subst(s: &str, env: &BTreeMap<String, String>) -> Result<String, String> {
+pub fn subst(s: &str, env: &BTreeMap<String, String>) -> Result<String, String> {
     let mut out = String::new();
     let mut rest = s;
     while let Some(i) = rest.find("${") {

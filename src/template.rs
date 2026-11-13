@@ -1,6 +1,8 @@
 //! App templates: `apps/<id>/manifest.toml` + `compose.yaml`.
 //! Loading validates the manifest and lints the compose file (see the template spec).
 
+#![allow(dead_code)] // manifest fields are consumed by upcoming UI, post-start and update code
+
 use std::collections::HashSet;
 use std::path::Path;
 

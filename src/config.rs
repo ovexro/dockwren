@@ -13,6 +13,16 @@ pub struct Config {
 }
 
 impl Config {
+    /// Where templates live (`DOCKWREN_APPS`, default `./apps`).
+    pub fn apps_dir(&self) -> PathBuf {
+        std::env::var("DOCKWREN_APPS").map(PathBuf::from).unwrap_or_else(|_| "./apps".into())
+    }
+
+    /// Installed instances live under the data dir.
+    pub fn instances_dir(&self) -> PathBuf {
+        self.data_dir.join("instances")
+    }
+
     pub fn from_env() -> Self {
         Self::from_lookup(|k| std::env::var(k).ok())
     }
