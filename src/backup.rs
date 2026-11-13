@@ -340,12 +340,71 @@ pub async fn restore_instance(
     restore(&cfg.data_dir.join("backups"), &Instance { name: name.to_string(), dir }, t, snap, safety, log).await
 }
 
+/// Is `n` a leftover directory name made by `restore` (`<path>.pre-restore-<epoch>` or `.failed-restore-<epoch>`)?
+fn is_restore_leftover(n: &str) -> bool {
+    ["pre-restore", "failed-restore"].iter().any(|k| {
+        n.split_once(&format!(".{k}-"))
+            .is_some_and(|(base, num)| !base.is_empty() && !base.contains('/') && is_snapshot_name(num))
+    }) && !n.contains('/')
+}
+
+/// Delete the `*.pre-restore-*` / `*.failed-restore-*` directories `restore` leaves in the
+/// instance dir (they are root-owned, so a throwaway container removes them). Returns the names removed.
+pub async fn cleanup_restore_leftovers(inst: &Instance, log: &mut (dyn FnMut(&str) + Send)) -> Result<Vec<String>, String> {
+    let dir = std::fs::canonicalize(&inst.dir).map_err(|e| format!("{}: {e}", inst.dir.display()))?;
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .map_err(|e| format!("{}: {e}", dir.display()))?
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|n| is_restore_leftover(n))
+        .collect();
+    names.sort();
+    if names.is_empty() {
+        return Ok(names);
+    }
+    let image = first_image(inst).await?;
+    for n in &names {
+        log(&format!("removing {n}"));
+        let out = docker_cmd(inst)
+            .args(["run", "--rm", "--network", "none", "--user", "0", "--entrypoint", "rm"])
+            .arg("-v")
+            .arg(format!("{}:/w", dir.display()))
+            .args([image.as_str(), "-rf", "--"])
+            .arg(format!("/w/{n}"))
+            .output()
+            .await
+            .map_err(|e| format!("cannot run docker: {e}"))?;
+        if !out.status.success() {
+            return Err(format!("removing {n}: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        }
+    }
+    Ok(names)
+}
+
+pub async fn cleanup_instance(cfg: &Config, name: &str, log: &mut (dyn FnMut(&str) + Send)) -> Result<Vec<String>, String> {
+    let dir = cfg.instances_dir().join(name);
+    if !dir.join("state.toml").is_file() {
+        return Err(format!("no instance named {name}"));
+    }
+    cleanup_restore_leftovers(&Instance { name: name.to_string(), dir }, log).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn tmp() -> PathBuf {
         std::env::temp_dir().join(format!("dockwren-bak-{}", crate::auth::generate_password()))
+    }
+
+    #[test]
+    fn leftover_names() {
+        assert!(is_restore_leftover("data.pre-restore-1794581095"));
+        assert!(is_restore_leftover("data.failed-restore-17"));
+        for bad in ["data", "data.pre-restore-", "data.pre-restore-x", ".pre-restore-1", "data.pre-restore-1/../x", "compose.yaml"] {
+            assert!(!is_restore_leftover(bad), "{bad}");
+        }
     }
 
     #[test]

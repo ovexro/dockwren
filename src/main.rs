@@ -341,6 +341,22 @@ async fn main() {
             }
             return;
         }
+        Some("cleanup") => {
+            let name = std::env::args().nth(2).unwrap_or_default();
+            if !runner::valid_name(&name) || std::env::args().count() != 3 {
+                eprintln!("usage: dockwren cleanup <instance>   (removes *.pre-restore-* / *.failed-restore-* leftovers)");
+                std::process::exit(2);
+            }
+            match backup::cleanup_instance(&cfg, &name, &mut |s| println!("  {s}")).await {
+                Ok(n) if n.is_empty() => println!("nothing to clean up"),
+                Ok(n) => println!("removed {} leftover director{}", n.len(), if n.len() == 1 { "y" } else { "ies" }),
+                Err(e) => {
+                    eprintln!("cleanup failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
         Some("remove") => {
             let name = std::env::args().nth(2).unwrap_or_default();
             if !runner::valid_name(&name) {
@@ -358,7 +374,7 @@ async fn main() {
             return;
         }
         Some(other) => {
-            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot] | expose <instance> [hostname] [--yes] | remove <instance>]");
+            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot] | cleanup <instance> | expose <instance> [hostname] [--yes] | remove <instance>]");
             std::process::exit(2);
         }
     }
