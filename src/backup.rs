@@ -99,15 +99,16 @@ async fn snapshot_keep(
         .mode(0o700)
         .create(&parent)
         .map_err(|e| format!("{}: {e}", parent.display()))?;
-    let secs = std::time::SystemTime::now()
+    let mut secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_secs();
+    // Ids are epoch seconds; if one already exists (backup right after backup/restore), take the next free second.
+    while parent.join(secs.to_string()).exists() || parent.join(format!("{secs}.partial")).exists() {
+        secs += 1;
+    }
     let tmp = parent.join(format!("{secs}.partial"));
     let fin = parent.join(secs.to_string());
-    if fin.exists() {
-        return Err("a snapshot from this second already exists; retry".into());
-    }
     std::fs::DirBuilder::new().mode(0o700).create(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
 
     // On failure the partial dir is left for inspection; it is never listed or pruned.
