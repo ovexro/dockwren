@@ -4,6 +4,7 @@ mod backup;
 mod config;
 mod docker;
 mod install;
+mod metrics;
 mod public;
 mod runner;
 mod template;
@@ -28,6 +29,13 @@ struct AppState {
     auth: SharedAuth,
     docker: DockerClient,
     apps: apps::Apps,
+    metrics: metrics::Shared,
+}
+
+impl FromRef<AppState> for metrics::Shared {
+    fn from_ref(state: &AppState) -> Self {
+        state.metrics.clone()
+    }
 }
 
 impl FromRef<AppState> for apps::Apps {
@@ -157,9 +165,10 @@ async fn index() -> Html<String> {
     Html(page.render().expect("index template renders"))
 }
 
-fn app(auth: SharedAuth, docker: DockerClient, apps: apps::Apps) -> Router {
+fn app(auth: SharedAuth, docker: DockerClient, apps: apps::Apps, metrics: metrics::Shared) -> Router {
     let protected = Router::new()
         .route("/", get(index))
+        .route("/metrics", get(metrics::page))
         .route("/containers", get(containers))
         .route("/containers/{id}/{action}", post(container_action))
         .route("/containers/{id}/logs", get(container_logs))
@@ -182,7 +191,7 @@ fn app(auth: SharedAuth, docker: DockerClient, apps: apps::Apps) -> Router {
         .route("/static/dockwren.css", get(stylesheet))
         .route("/login", get(auth::login_form).post(auth::login_submit))
         .merge(protected)
-        .with_state(AppState { auth, docker, apps })
+        .with_state(AppState { auth, docker, apps, metrics })
 }
 
 /// `dockwren install <app> [KEY=VALUE...]`: resolve, prepare, bring up.
@@ -467,7 +476,11 @@ async fn main() {
     println!("dockwren listening on http://{}", cfg.bind);
     let templates = apps::catalog(&cfg).unwrap_or_else(|e| panic!("bad template: {e}"));
     let apps = apps::Apps::new(templates, cfg.instances_dir());
-    axum::serve(listener, app(auth, docker, apps))
+    let metrics = metrics::Shared::default();
+    let mut disk_paths = vec![cfg.data_dir.display().to_string()];
+    disk_paths.extend(cfg.disk_paths.iter().cloned());
+    metrics::spawn(metrics.clone(), docker.clone(), disk_paths);
+    axum::serve(listener, app(auth, docker, apps, metrics))
         .await
         .expect("server error");
 }
@@ -488,7 +501,7 @@ mod tests {
         let hash = auth::hash_password(PASSWORD);
         let docker = DockerClient::connect().unwrap();
         let apps = apps::Apps::new(template::catalog(None).unwrap(), std::env::temp_dir().join("dockwren-test-none"));
-        app(Arc::new(auth::Auth::new(&hash, false).unwrap()), docker, apps)
+        app(Arc::new(auth::Auth::new(&hash, false).unwrap()), docker, apps, metrics::Shared::default())
     }
 
     async fn body_of(res: Response<Body>) -> String {
@@ -506,6 +519,21 @@ mod tests {
     fn cookie_of(res: &Response<Body>) -> String {
         let set = res.headers()[header::SET_COOKIE].to_str().unwrap();
         set.split(';').next().unwrap().to_string()
+    }
+
+    #[tokio::test]
+    async fn metrics_needs_a_session_then_renders() {
+        let app = test_app();
+        let res = app.clone().oneshot(Request::get("/metrics").body(Body::empty()).unwrap()).await.unwrap();
+        assert_ne!(res.status(), StatusCode::OK);
+        let login = app.clone().oneshot(login_req(PASSWORD)).await.unwrap();
+        let cookie = cookie_of(&login);
+        let res = app
+            .oneshot(Request::get("/metrics?range=24h").header(header::COOKIE, cookie).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(body_of(res).await.contains("id=\"metrics\""));
     }
 
     #[tokio::test]

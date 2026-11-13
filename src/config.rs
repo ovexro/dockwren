@@ -10,6 +10,8 @@ pub struct Config {
     pub bind: String,
     /// Mark the session cookie `Secure` (set when served over HTTPS).
     pub secure_cookie: bool,
+    /// Extra directories whose disks get a graph (`DOCKWREN_DISKS`, comma separated).
+    pub disk_paths: Vec<String>,
 }
 
 impl Config {
@@ -34,6 +36,9 @@ impl Config {
                 .into(),
             bind: get("DOCKWREN_BIND").unwrap_or_else(|| "127.0.0.1:8080".into()),
             secure_cookie: get("DOCKWREN_SECURE_COOKIE").is_some_and(|v| v == "1"),
+            disk_paths: get("DOCKWREN_DISKS")
+                .map(|v| v.split(',').map(str::trim).filter(|p| !p.is_empty()).map(String::from).collect())
+                .unwrap_or_default(),
         }
     }
 }
@@ -56,10 +61,12 @@ mod tests {
             "DOCKWREN_DATA" => Some("/srv/dw".into()),
             "DOCKWREN_BIND" => Some("0.0.0.0:9000".into()),
             "DOCKWREN_SECURE_COOKIE" => Some("1".into()),
+            "DOCKWREN_DISKS" => Some("/mnt/backup, /srv ,".into()),
             _ => None,
         });
         assert_eq!(c.data_dir, PathBuf::from("/srv/dw"));
         assert_eq!(c.bind, "0.0.0.0:9000");
         assert!(c.secure_cookie);
+        assert_eq!(c.disk_paths, vec!["/mnt/backup", "/srv"]);
     }
 }

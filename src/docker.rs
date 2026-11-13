@@ -3,7 +3,7 @@
 use bollard::{
     Docker,
     models::ContainerSummary,
-    query_parameters::{ListContainersOptionsBuilder, LogsOptionsBuilder},
+    query_parameters::{ListContainersOptionsBuilder, LogsOptionsBuilder, StatsOptionsBuilder},
 };
 use futures_util::StreamExt;
 
@@ -97,6 +97,74 @@ impl DockerClient {
     }
 }
 
+/// Current resource use of one running container.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContainerUsage {
+    pub name: String,
+    /// CPU in percent of one core (can exceed 100 on multi-core use).
+    pub cpu_pct: f64,
+    /// Memory in use, without reclaimable page cache.
+    pub mem_bytes: u64,
+}
+
+/// CPU percent from two consecutive counters (Docker's own formula).
+pub fn cpu_percent(cpu: u64, pre_cpu: u64, sys: u64, pre_sys: u64, cpus: u32) -> f64 {
+    let (dc, ds) = (cpu.saturating_sub(pre_cpu), sys.saturating_sub(pre_sys));
+    if ds == 0 {
+        return 0.0;
+    }
+    dc as f64 / ds as f64 * f64::from(cpus.max(1)) * 100.0
+}
+
+impl DockerClient {
+    /// One stats reading per running container (each takes about a second, so they run together).
+    pub async fn usage(&self) -> Result<Vec<ContainerUsage>, bollard::errors::Error> {
+        let running = ListContainersOptionsBuilder::default().build();
+        let ids: Vec<(String, String)> = self
+            .inner
+            .list_containers(Some(running))
+            .await?
+            .into_iter()
+            .filter_map(|c| {
+                let name = c.names?.into_iter().next()?.trim_start_matches('/').to_string();
+                Some((c.id?, name))
+            })
+            .collect();
+        let reads = ids.into_iter().map(|(id, name)| async move {
+            let options = StatsOptionsBuilder::default().stream(false).build();
+            let r = self.inner.stats(&id, Some(options)).next().await?.ok()?;
+            let cpu = r.cpu_stats.as_ref()?;
+            let pre = r.precpu_stats.as_ref()?;
+            let cpu_pct = cpu_percent(
+                cpu.cpu_usage.as_ref()?.total_usage?,
+                pre.cpu_usage.as_ref().and_then(|u| u.total_usage).unwrap_or(0),
+                cpu.system_cpu_usage?,
+                pre.system_cpu_usage.unwrap_or(0),
+                cpu.online_cpus.unwrap_or(1),
+            );
+            let mem = r.memory_stats.as_ref()?;
+            let cache = mem
+                .stats
+                .as_ref()
+                .and_then(|s| s.get("inactive_file").or_else(|| s.get("cache")))
+                .copied()
+                .unwrap_or(0);
+            Some(ContainerUsage {
+                name,
+                cpu_pct,
+                mem_bytes: mem.usage?.saturating_sub(cache),
+            })
+        });
+        let mut out: Vec<ContainerUsage> = futures_util::future::join_all(reads)
+            .await
+            .into_iter()
+            .flatten()
+            .collect();
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(out)
+    }
+}
+
 /// Keeps at most `max` bytes from the end of `s`, cutting on a character boundary.
 fn limit_tail(s: String, max: usize) -> String {
     if s.len() <= max {
@@ -169,6 +237,13 @@ mod tests {
         assert!(!valid_id("web"));
         assert!(!valid_id("../../images/json"));
         assert!(!valid_id("0123456789ab/stop"));
+    }
+
+    #[test]
+    fn cpu_percent_follows_dockers_formula() {
+        assert_eq!(cpu_percent(200, 100, 2000, 1000, 4), 40.0);
+        assert_eq!(cpu_percent(5, 5, 10, 10, 4), 0.0); // no system delta
+        assert_eq!(cpu_percent(1, 9, 20, 10, 2), 0.0); // counter went backwards
     }
 
     #[test]

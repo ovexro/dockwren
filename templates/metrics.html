@@ -1,0 +1,25 @@
+<div id="metrics" hx-get="/metrics?range={{ range }}" hx-trigger="every 10s" hx-swap="outerHTML">
+  <p class="muted">Last {{ hours }} h · <a href="#" hx-get="/metrics?range={% if hours == 1 %}24h{% else %}1h{% endif %}" hx-target="#metrics" hx-swap="outerHTML">show {% if hours == 1 %}24 h{% else %}1 h{% endif %}</a> · history is kept in memory and resets when Dockwren restarts</p>
+  {% if !ready %}
+  <p class="muted">Collecting the first samples…</p>
+  {% else %}
+  <div class="charts">
+    {% for c in charts %}
+    <figure class="chart{% if c.warn %} warn{% endif %}">
+      <figcaption><strong>{{ c.title }}</strong> <span>{{ c.now }}</span>{% if c.warn %} <b>almost full</b>{% endif %}</figcaption>
+      <svg viewBox="0 0 {{ w }} {{ h }}" preserveAspectRatio="none" role="img" aria-label="{{ c.title }}: {{ c.now }}">
+        <line x1="0" y1="{{ h }}" x2="{{ w }}" y2="{{ h }}" class="axis"/>
+        {% for l in c.lines %}<polyline points="{{ l.points }}" fill="none"{% if l.dashed %} stroke-dasharray="4 3"{% endif %}/>{% endfor %}
+      </svg>
+      <small>{{ c.scale }}</small>
+    </figure>
+    {% endfor %}
+  </div>
+  {% if !containers.is_empty() %}
+  <table>
+    <thead><tr><th>Container</th><th>CPU</th><th>Memory</th></tr></thead>
+    <tbody>{% for c in containers %}<tr><td>{{ c.name }}</td><td>{{ c.cpu }}</td><td>{{ c.mem }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+  {% endif %}
+</div>

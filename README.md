@@ -16,6 +16,7 @@ License: Apache-2.0.
 - Single-admin login: strong generated password, Argon2id hash, `HttpOnly` + `SameSite=Strict`
   session cookie, login rate limit, sessions that survive restarts.
 - Overview: all containers (running or not) with image, state and status, refreshed every 5 s.
+- Resource graphs: CPU, memory, network and disk space as plain one-colour lines (last 1 h or 24 h), plus CPU/memory per running container. Sampled every 10 s and kept in memory only (resets on restart); a disk above 85% is flagged.
 - Start, stop (with confirmation) and restart a container.
 - Log viewer: last 200 lines (stdout + stderr), refreshed every 5 s.
 - `dockwren set-password` to rotate the admin password.
@@ -44,6 +45,7 @@ All settings are environment variables.
 | --- | --- | --- |
 | `DOCKWREN_DATA` | `./data` | Directory for Dockwren's own state (`admin.hash`, `sessions`), created with mode 0700. |
 | `DOCKWREN_BIND` | `127.0.0.1:8080` | Listen address. Local-only by default. |
+| `DOCKWREN_DISKS` | unset | Extra directories (comma separated) whose disks get a graph; the data directory's disk is always shown. |
 | `DOCKWREN_SECURE_COOKIE` | unset | Set to `1` when served over HTTPS so the session cookie is marked `Secure`. |
 
 ## Changing the password

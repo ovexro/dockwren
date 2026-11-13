@@ -11,6 +11,8 @@
   <main>
     <h1>Dockwren</h1>
     <p>Version {{ version }}</p>
+    <h2>Resources</h2>
+    <div id="metrics" hx-get="/metrics" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>Apps</h2>
     <div id="apps" hx-get="/apps" hx-trigger="load" hx-swap="innerHTML">Loading…</div>
     <section id="install"></section>
