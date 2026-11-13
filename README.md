@@ -1,15 +1,40 @@
 # Dockwren
 
-A minimal, Docker-only control panel for your own server. Early development: watch and control
-containers, install apps from Compose templates, update them with automatic rollback, and snapshot
-and restore their data.
+A minimal, Docker-only control panel for your own server. Watch and control containers, install
+apps from Compose templates, update them with automatic rollback, back up and restore their data,
+and optionally publish them on a Cloudflare Tunnel hostname.
 
-- Single Rust binary (axum + bollard), server-rendered UI with a small amount of htmx
+- Single static Rust binary (axum + bollard), server-rendered UI with a small amount of htmx
   (vendored, no CDN, no JS build step).
 - Talks to the local Docker socket. No database, no agents.
-- One-click apps from Compose templates; optional Cloudflare Tunnel hostnames.
+- Bundled apps: Gitea, Memos, Miniflux, Paperless-ngx, Uptime Kuma, Vaultwarden, WordPress.
+  Adding your own takes a manifest and a Compose file.
+- Status: early (v0.1.x). It works and is tested on Debian 13 and Ubuntu 24.04 (x86_64) and on a
+  Raspberry Pi 5 (aarch64), but expect rough edges.
 
 License: Apache-2.0.
+
+## Quick start
+
+On a fresh Debian or Ubuntu server, as root (installs Docker if it is missing):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ovexro/dockwren/main/install.sh | sudo bash
+```
+
+It downloads the latest release binary for your architecture (x86_64 or aarch64), creates a
+`dockwren` system user and a systemd service, and prints the admin password **once**. The panel
+listens on `127.0.0.1:8080` only; reach it with an SSH tunnel:
+
+```sh
+ssh -L 8080:127.0.0.1:8080 you@your-server
+```
+
+then open `http://localhost:8080`. Read the script before piping it to a shell; options are
+described at its top (for example `--binary` to use a binary you copied yourself).
+
+Release binaries and `SHA256SUMS` are on the
+[releases page](https://github.com/ovexro/dockwren/releases).
 
 ## What works today
 
@@ -17,9 +42,16 @@ License: Apache-2.0.
   session cookie, login rate limit, sessions that survive restarts.
 - Overview: all containers (running or not) with image, state and status, refreshed every 5 s.
 - Resource graphs: CPU, memory, network and disk space as plain one-colour lines (last 1 h, 24 h, 7 days or 30 days), plus CPU/memory per running container. Sampled every 10 s; the 1 h and 24 h views live in memory, while 5-minute averages are kept 30 days in `metrics.log` in the data directory and survive restarts. A disk above 85% is flagged.
-- Start, stop (with confirmation) and restart a container.
-- Log viewer: last 200 lines (stdout + stderr), refreshed every 5 s.
+- Start, stop (with confirmation) and restart a container; log viewer (last 200 lines, refreshed every 5 s).
+- App catalog with icons and install forms (generated passwords, per-field hints).
+- Updates with automatic rollback when the new version is not healthy, and optional migration
+  steps per template.
+- Backups (files plus database dumps) and restore, from the UI or the CLI; a safety snapshot is
+  taken before a restore.
+- Cloudflare Tunnel publishing with DNS conflict handling and optional Cloudflare Access (see below).
 - `dockwren set-password` to rotate the admin password.
+
+CLI: `dockwren [serve | set-password | install | backup | update | restore | cleanup | expose | unexpose | remove]`.
 
 ## Requirements
 
@@ -27,7 +59,7 @@ License: Apache-2.0.
   as a user that can read `/var/run/docker.sock`). `DOCKER_HOST` is honoured.
 - Rust (stable, edition 2024) to build from source.
 
-## Build and run
+## Build from source
 
 ```sh
 cargo build --release
@@ -149,4 +181,4 @@ Tests that need Docker talk to the local daemon and skip when it is not reachabl
 
 ## License
 
-Not chosen yet.
+Apache-2.0, see [LICENSE](LICENSE). Security reports: see [SECURITY.md](SECURITY.md).
