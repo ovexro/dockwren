@@ -1,5 +1,6 @@
 mod auth;
 mod config;
+mod docker;
 
 use std::sync::Arc;
 
