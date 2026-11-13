@@ -54,6 +54,35 @@ async fn containers(State(state): State<AppState>) -> Html<String> {
     Html(render_containers(result))
 }
 
+#[derive(Template)]
+#[template(path = "logs.html")]
+struct LogsTemplate {
+    id: String,
+    text: String,
+    error: Option<String>,
+}
+
+async fn container_logs(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    if !docker::valid_id(&id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let (text, error) = match state.docker.logs(&id, LOG_LINES).await {
+        Ok(text) => (text, None),
+        Err(e) => (String::new(), Some(format!("Cannot read logs: {e}"))),
+    };
+    let page = LogsTemplate { id, text, error };
+    Ok(Html(page.render().expect("logs template renders")))
+}
+
+async fn close_logs() -> Html<&'static str> {
+    Html("")
+}
+
+const LOG_LINES: u32 = 200;
+
 /// Rejects cross-origin POSTs (defence in depth on top of the SameSite=Strict session cookie).
 fn same_origin(headers: &HeaderMap) -> bool {
     let Some(origin) = headers.get(header::ORIGIN) else {
@@ -114,6 +143,8 @@ fn app(auth: SharedAuth, docker: DockerClient) -> Router {
         .route("/", get(index))
         .route("/containers", get(containers))
         .route("/containers/{id}/{action}", post(container_action))
+        .route("/containers/{id}/logs", get(container_logs))
+        .route("/logs/close", get(close_logs))
         .route("/static/htmx.min.js", get(htmx_js))
         .route("/logout", post(auth::logout))
         .route_layer(from_fn_with_state(auth.clone(), auth::require_session));
@@ -306,6 +337,43 @@ mod tests {
         }]));
         assert!(html.contains("&#60;web&#62;") && !html.contains("<web>"));
         assert!(html.contains("nginx:1") && html.contains("Up 3 hours"));
+    }
+
+    #[test]
+    fn logs_panel_escapes_output() {
+        let page = LogsTemplate {
+            id: "0123456789ab".into(),
+            text: "<script>alert(1)</script>".into(),
+            error: None,
+        };
+        let html = page.render().unwrap();
+        assert!(!html.contains("<script>") && html.contains("&#60;script&#62;"));
+    }
+
+    #[tokio::test]
+    async fn logs_need_session_and_valid_id() {
+        let app = test_app();
+        let res = app
+            .clone()
+            .oneshot(
+                Request::get("/containers/0123456789ab/logs")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+        let res = app
+            .oneshot(
+                Request::get("/containers/web/logs")
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]

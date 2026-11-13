@@ -12,6 +12,7 @@
     <p>Version {{ version }}</p>
     <h2>Containers</h2>
     <div id="containers" hx-get="/containers" hx-trigger="load, every 5s" hx-swap="innerHTML">Loading…</div>
+    <section id="logs"></section>
     <form method="post" action="/logout"><button type="submit">Sign out</button></form>
   </main>
 </body>

@@ -1,6 +1,14 @@
 //! Thin wrapper over the Docker Engine API (bollard). Only what the UI needs.
 
-use bollard::{Docker, models::ContainerSummary, query_parameters::ListContainersOptionsBuilder};
+use bollard::{
+    Docker,
+    models::ContainerSummary,
+    query_parameters::{ListContainersOptionsBuilder, LogsOptionsBuilder},
+};
+use futures_util::StreamExt;
+
+/// Upper bound for log text sent to the browser (the newest bytes are kept).
+const MAX_LOG_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContainerInfo {
@@ -59,6 +67,21 @@ impl DockerClient {
         }
     }
 
+    /// Returns the last `tail` log lines (stdout and stderr). `id` must pass [`valid_id`].
+    pub async fn logs(&self, id: &str, tail: u32) -> Result<String, bollard::errors::Error> {
+        let options = LogsOptionsBuilder::default()
+            .stdout(true)
+            .stderr(true)
+            .tail(&tail.to_string())
+            .build();
+        let mut stream = self.inner.logs(id, Some(options));
+        let mut out = String::new();
+        while let Some(chunk) = stream.next().await {
+            out.push_str(&chunk?.to_string());
+        }
+        Ok(limit_tail(out, MAX_LOG_BYTES))
+    }
+
     /// Lists all containers, running or not, sorted by name.
     pub async fn containers(&self) -> Result<Vec<ContainerInfo>, bollard::errors::Error> {
         let options = ListContainersOptionsBuilder::default().all(true).build();
@@ -72,6 +95,18 @@ impl DockerClient {
         list.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(list)
     }
+}
+
+/// Keeps at most `max` bytes from the end of `s`, cutting on a character boundary.
+fn limit_tail(s: String, max: usize) -> String {
+    if s.len() <= max {
+        return s;
+    }
+    let mut start = s.len() - max;
+    while !s.is_char_boundary(start) {
+        start += 1;
+    }
+    s[start..].to_string()
 }
 
 impl From<ContainerSummary> for ContainerInfo {
@@ -117,6 +152,13 @@ mod tests {
                 status: "Up 3 hours".into(),
             }
         );
+    }
+
+    #[test]
+    fn limit_tail_keeps_the_end_on_a_char_boundary() {
+        assert_eq!(limit_tail("abcdef".into(), 10), "abcdef");
+        assert_eq!(limit_tail("abcdef".into(), 3), "def");
+        assert_eq!(limit_tail("aéé".into(), 3), "é"); // cut would split a 2-byte char
     }
 
     #[test]

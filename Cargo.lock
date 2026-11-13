@@ -293,6 +293,7 @@ dependencies = [
  "askama",
  "axum",
  "bollard",
+ "futures-util",
  "http-body-util",
  "rand",
  "serde",

@@ -8,6 +8,7 @@ argon2 = "0.6.0"
 askama = "0.16.1"
 axum = { version = "0.8.9", features = ["form"] }
 bollard = "0.21.1"
+futures-util = "0.3.34"
 rand = "0.10.3"
 serde = { version = "1.0.229", features = ["derive"] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }

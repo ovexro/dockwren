@@ -1,0 +1,11 @@
+<div id="logs-panel" hx-get="/containers/{{ id }}/logs" hx-trigger="every 5s" hx-swap="outerHTML">
+  <h3>Logs: {{ id }}</h3>
+  {% if let Some(msg) = error %}
+  <p role="alert">{{ msg }}</p>
+  {% else if text.is_empty() %}
+  <p>No log output.</p>
+  {% else %}
+  <pre>{{ text }}</pre>
+  {% endif %}
+  <button hx-get="/logs/close" hx-target="#logs-panel" hx-swap="outerHTML">Close</button>
+</div>

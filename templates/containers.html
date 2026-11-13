@@ -9,6 +9,7 @@
   {% for c in containers %}
     <tr data-state="{{ c.state }}"><td>{{ c.name }}</td><td>{{ c.image }}</td><td>{{ c.state }}</td><td>{{ c.status }}</td>
       <td>
+        <button hx-get="/containers/{{ c.id }}/logs" hx-target="#logs" hx-swap="innerHTML">Logs</button>
         {% if c.state == "running" %}
         <button hx-post="/containers/{{ c.id }}/restart" hx-target="#containers" hx-swap="innerHTML">Restart</button>
         <button hx-post="/containers/{{ c.id }}/stop" hx-target="#containers" hx-swap="innerHTML" hx-confirm="Stop {{ c.name }}?">Stop</button>
