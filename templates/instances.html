@@ -7,8 +7,8 @@
   <tbody>
   {% for i in instances %}
     <tr><td>{{ i.name }}</td><td>{{ i.app }}</td><td>{{ i.ports }}</td><td>{{ i.status }}</td>
-      <td>{% if let Some(u) = i.update %}<button hx-post="/instances/{{ i.name }}/update" hx-target="#install" hx-swap="innerHTML"
-          hx-confirm="Update {{ i.name }} (version {{ u }})? A snapshot is taken first and the old version is restored if the update fails.">Update available ({{ u }})</button> {% endif %}<button hx-post="/instances/{{ i.name }}/remove" hx-target="#instances" hx-swap="innerHTML"
+      <td>{% if let Some(u) = i.update %}<button class="primary" hx-post="/instances/{{ i.name }}/update" hx-target="#install" hx-swap="innerHTML"
+          hx-confirm="Update {{ i.name }} (version {{ u }})? A snapshot is taken first and the old version is restored if the update fails.">Update available ({{ u }})</button> {% endif %}<button class="danger" hx-post="/instances/{{ i.name }}/remove" hx-target="#instances" hx-swap="innerHTML"
           hx-confirm="Stop {{ i.name }} and remove its containers? Data is kept.">Stop &amp; remove containers</button></td></tr>
   {% endfor %}
   </tbody>

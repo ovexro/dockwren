@@ -129,6 +129,11 @@ async fn container_action(
 }
 
 const HTMX: &str = include_str!("../static/htmx.min.js");
+const CSS: &str = include_str!("../static/dockwren.css");
+
+async fn stylesheet() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "text/css")], CSS)
+}
 
 async fn htmx_js() -> impl IntoResponse {
     ([(header::CONTENT_TYPE, "text/javascript")], HTMX)
@@ -170,6 +175,7 @@ fn app(auth: SharedAuth, docker: DockerClient, apps: apps::Apps) -> Router {
         .route_layer(from_fn_with_state(auth.clone(), auth::require_session));
     Router::new()
         .route("/health", get(health))
+        .route("/static/dockwren.css", get(stylesheet))
         .route("/login", get(auth::login_form).post(auth::login_submit))
         .merge(protected)
         .with_state(AppState { auth, docker, apps })

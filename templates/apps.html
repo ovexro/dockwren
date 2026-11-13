@@ -2,6 +2,6 @@
 {% for a in apps %}
   <li><strong>{{ a.name }}</strong> — {{ a.description }}
     {% if a.https_note %}<em>(needs HTTPS to be usable remotely)</em>{% endif %}
-    <button hx-get="/apps/{{ a.id }}/new" hx-target="#install" hx-swap="innerHTML">Install</button></li>
+    <button class="primary" hx-get="/apps/{{ a.id }}/new" hx-target="#install" hx-swap="innerHTML">Install</button></li>
 {% endfor %}
 </ul>

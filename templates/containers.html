@@ -7,12 +7,12 @@
   <thead><tr><th>Name</th><th>Image</th><th>State</th><th>Status</th><th></th></tr></thead>
   <tbody>
   {% for c in containers %}
-    <tr data-state="{{ c.state }}"><td>{{ c.name }}</td><td>{{ c.image }}</td><td>{{ c.state }}</td><td>{{ c.status }}</td>
+    <tr data-state="{{ c.state }}"><td>{{ c.name }}</td><td>{{ c.image }}</td><td><span class="badge" data-state="{{ c.state }}">{{ c.state }}</span></td><td>{{ c.status }}</td>
       <td>
         <button hx-get="/containers/{{ c.id }}/logs" hx-target="#logs" hx-swap="innerHTML">Logs</button>
         {% if c.state == "running" %}
         <button hx-post="/containers/{{ c.id }}/restart" hx-target="#containers" hx-swap="innerHTML">Restart</button>
-        <button hx-post="/containers/{{ c.id }}/stop" hx-target="#containers" hx-swap="innerHTML" hx-confirm="Stop {{ c.name }}?">Stop</button>
+        <button hx-post="/containers/{{ c.id }}/stop" hx-target="#containers" hx-swap="innerHTML" hx-confirm="Stop {{ c.name }}?" class="danger">Stop</button>
         {% else %}
         <button hx-post="/containers/{{ c.id }}/start" hx-target="#containers" hx-swap="innerHTML">Start</button>
         {% endif %}

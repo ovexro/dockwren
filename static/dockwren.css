@@ -1,0 +1,85 @@
+/* Dockwren UI. One dependency-free stylesheet, served from the binary. */
+:root {
+  --bg: #fafaf8; --surface: #ffffff; --text: #17171a; --muted: #5f5f66; --border: #dcdcd6;
+  --accent: #9a5316; --accent-text: #ffffff;
+  --ok: #276843; --warn: #8f5d10; --bad: #a82d2d;
+  --code-bg: #f0f0ec;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101012; --surface: #18181b; --text: #ececea; --muted: #a0a0a8; --border: #2f2f35;
+    --accent: #d98a45; --accent-text: #101012;
+    --ok: #5cc486; --warn: #e0a84a; --bad: #f07a7a;
+    --code-bg: #0b0b0d;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 var(--font); }
+main { max-width: 64rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+h1 { font-size: 1.75rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+h1::before { content: ""; display: inline-block; width: .6em; height: .6em; border-radius: 50%;
+  background: var(--accent); margin-right: .5em; vertical-align: .05em; }
+h2 { font-size: 1.1rem; margin: 2.5rem 0 .75rem; padding-bottom: .4rem; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1rem; margin: 0 0 .75rem; }
+p { margin: .5rem 0; }
+small, .muted { color: var(--muted); }
+code, pre { font-family: var(--mono); font-size: .875rem; }
+code { background: var(--code-bg); padding: .1em .35em; border-radius: 4px; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: .75rem 1rem;
+  overflow: auto; max-height: 24rem; margin: .5rem 0; white-space: pre-wrap; word-break: break-word; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Lists of apps */
+main ul { list-style: none; margin: 0; padding: 0; }
+main li { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; padding: .75rem 1rem; margin-bottom: .5rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+main li button { margin-left: auto; }
+main li em { color: var(--muted); font-style: normal; font-size: .875rem; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden; font-size: .925rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+th { font-weight: 600; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+tbody tr:last-child td { border-bottom: 0; }
+td:last-child { text-align: right; white-space: nowrap; }
+@media (max-width: 40rem) { table { display: block; overflow-x: auto; } }
+
+/* Status badge */
+.badge { display: inline-block; padding: .05rem .6rem; border-radius: 999px; font-size: .8rem; font-weight: 600;
+  border: 1px solid currentColor; color: var(--muted); }
+.badge[data-state="running"] { color: var(--ok); }
+.badge[data-state="restarting"], .badge[data-state="paused"], .badge[data-state="created"] { color: var(--warn); }
+.badge[data-state="exited"], .badge[data-state="dead"] { color: var(--bad); }
+
+/* Buttons */
+button { font: inherit; font-size: .875rem; padding: .35rem .8rem; border-radius: 6px; cursor: pointer;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+button:hover { border-color: var(--muted); }
+button.primary, form button[type="submit"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+button.danger { color: var(--bad); }
+td button + button, li button + button { margin-left: .35rem; }
+.htmx-request button { opacity: .6; }
+
+/* Forms */
+label { display: block; font-weight: 600; font-size: .9rem; }
+input, select { display: block; width: 100%; max-width: 28rem; margin-top: .25rem; padding: .5rem .7rem; font: inherit;
+  font-weight: 400; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+label small { font-weight: 400; }
+form p { margin: 1rem 0; }
+form button + button { margin-left: .5rem; }
+#install:not(:empty), #logs:not(:empty) { margin-top: 1rem; padding: 1rem 1.25rem; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px; }
+[role="alert"] { color: var(--bad); font-weight: 600; }
+#job li { display: block; padding: .15rem 0; margin: 0; border: 0; background: none; }
+
+/* Sign-in */
+body > main > form[action="/login"] { max-width: 22rem; margin-top: 2rem; padding: 1.5rem; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; }
+form[action="/login"] input { max-width: none; margin-bottom: 1rem; }
+form[action="/logout"] { margin-top: 3rem; }
