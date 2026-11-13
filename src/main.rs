@@ -178,12 +178,13 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     runner::bring_up(&inst, &mut |step| println!("  {step}")).await.map_err(|e| {
         format!("{e}\n(instance kept in {}; `dockwren remove {}` stops it)", inst.dir.display(), inst.name)
     })?;
+    let captured = runner::run_post_start(&inst, t, &resolved.env, &mut |step| println!("  {step}")).await?;
     for key in ["WEB_PORT", "SSH_PORT"] {
         if let Some(p) = resolved.env.get(key) {
             println!("  {key}: 127.0.0.1:{p}");
         }
     }
-    for (k, v) in &resolved.revealed {
+    for (k, v) in captured.iter().chain(&resolved.revealed) {
         println!("  {k} (shown once): {v}");
     }
     println!("up and healthy");

@@ -135,10 +135,17 @@ pub struct PostStart {
     pub run: Vec<String>,
     #[serde(default)]
     pub user: Option<String>,
+    /// Pull a value out of the command's stdout and show it once (not stored).
     #[serde(default)]
-    pub capture: Option<String>,
-    #[serde(default)]
-    pub only_if: Option<String>,
+    pub capture: Option<Capture>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Capture {
+    pub label: String,
+    /// Regex with exactly one capture group, matched against stdout.
+    pub regex: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -284,6 +291,16 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
     for h in &m.post_start {
         if !names.contains(h.service.as_str()) {
             return Err(format!("post_start {}: unknown service {}", h.name, h.service));
+        }
+        if h.run.is_empty() {
+            return Err(format!("post_start {}: empty command", h.name));
+        }
+        if let Some(c) = &h.capture {
+            let re = regex::Regex::new(&c.regex)
+                .map_err(|e| format!("post_start {}: bad capture regex: {e}", h.name))?;
+            if re.captures_len() != 2 {
+                return Err(format!("post_start {}: capture regex needs exactly one group", h.name));
+            }
         }
     }
     for d in &m.backup.dumps {
@@ -457,6 +474,16 @@ mod tests {
         assert!(validate(&manifest(""), &c).unwrap_err().contains("NOPE"));
         let m = manifest("[[post_start]]\nname=\"p\"\nservice=\"ghost\"\nrun=[\"true\"]\n");
         assert!(validate(&m, OK).unwrap_err().contains("ghost"));
+    }
+
+    #[test]
+    fn rejects_bad_capture_regex() {
+        for re in ["(", "no group", "(a)(b)"] {
+            let m = manifest(&format!(
+                "[[post_start]]\nname=\"p\"\nservice=\"web\"\nrun=[\"true\"]\ncapture={{label=\"L\", regex={re:?}}}\n"
+            ));
+            assert!(validate(&m, OK).is_err(), "{re}");
+        }
     }
 
     #[test]

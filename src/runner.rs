@@ -178,6 +178,43 @@ pub async fn wait_healthy(inst: &Instance, timeout: Duration) -> Result<(), Stri
     }
 }
 
+/// Pull the first capture group out of a hook's stdout.
+pub fn extract(regex: &str, stdout: &str) -> Option<String> {
+    regex::Regex::new(regex).ok()?.captures(stdout)?.get(1).map(|m| m.as_str().to_string())
+}
+
+/// Run the template's `post_start` hooks in order via `compose exec`.
+/// Returns captured `(label, value)` pairs, to be shown once and not stored.
+pub async fn run_post_start(
+    inst: &Instance,
+    t: &Template,
+    env: &BTreeMap<String, String>,
+    log: &mut dyn FnMut(&str),
+) -> Result<Vec<(String, String)>, String> {
+    let mut shown = Vec::new();
+    for h in &t.manifest.post_start {
+        log(&format!("running {}", h.name));
+        let cmd: Vec<String> = h
+            .run
+            .iter()
+            .map(|a| crate::install::subst(a, env))
+            .collect::<Result<_, _>>()?;
+        let mut args = vec!["exec", "-T"];
+        if let Some(u) = &h.user {
+            args.extend(["-u", u]);
+        }
+        args.push(&h.service);
+        args.extend(cmd.iter().map(String::as_str));
+        let out = compose(inst, &args).await.map_err(|e| format!("post_start {}: {e}", h.name))?;
+        if let Some(c) = &h.capture {
+            let v = extract(&c.regex, &out)
+                .ok_or_else(|| format!("post_start {}: output did not match the capture pattern", h.name))?;
+            shown.push((c.label.clone(), v));
+        }
+    }
+    Ok(shown)
+}
+
 /// Install steps 3-5 of the spec: validate, pull, start, wait healthy.
 /// `log` receives one line per step.
 pub async fn bring_up(inst: &Instance, log: &mut dyn FnMut(&str)) -> Result<(), String> {
@@ -251,6 +288,13 @@ mod tests {
         let t = tmpl("vaultwarden");
         let env: BTreeMap<_, _> = [("INSTANCE_NAME".to_string(), "../evil".to_string())].into();
         assert!(prepare(&tmp(), &t, &env).unwrap_err().contains("invalid"));
+    }
+
+    #[test]
+    fn extract_takes_first_group() {
+        let out = "generated random password is 'Ab3xyz'\nNew user 'admin' has been successfully created!";
+        assert_eq!(extract("generated random password is '([^']+)'", out).as_deref(), Some("Ab3xyz"));
+        assert_eq!(extract("nope (.)", out), None);
     }
 
     #[test]

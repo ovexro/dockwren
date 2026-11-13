@@ -61,7 +61,7 @@ name = "create-admin"
 service = "gitea"
 run = ["gitea", "admin", "user", "create", "--admin", "--username", "${ADMIN_USER}", "--email", "${ADMIN_EMAIL}", "--random-password"]
 user = "git"
-capture = "password"
+capture = { label = "Admin password", regex = "generated random password is '([^']+)'" }
 
 [backup]
 paths = ["data"]
