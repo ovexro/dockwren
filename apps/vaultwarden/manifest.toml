@@ -3,6 +3,7 @@ id = "vaultwarden"
 name = "Vaultwarden"
 description = "Self-hosted password manager (Bitwarden compatible)"
 version = 1
+note = "Password manager (Bitwarden compatible). Browsers need HTTPS to use it away from this server, so give it a public hostname."
 public_url_field = "PUBLIC_URL"
 needs_public_https = true
 
@@ -12,12 +13,14 @@ label = "Name"
 type = "string"
 default = "vaultwarden"
 pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "Short id for this copy; becomes its folder and container names. Letters, digits, hyphens."
 
 [[fields]]
 key = "WEB_PORT"
 label = "Web port"
 type = "port"
 default = "auto"
+help = "Port on this server only (127.0.0.1). Leave on auto; visitors never type it."
 
 [[fields]]
 key = "PUBLIC_URL"
@@ -30,6 +33,7 @@ key = "SIGNUPS_ALLOWED"
 label = "Allow sign-ups"
 type = "bool"
 default = "true"
+help = "true lets anyone with the link register. Pick false once your own account exists."
 
 [[services]]
 name = "vaultwarden"

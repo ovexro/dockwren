@@ -6,7 +6,7 @@
   <form hx-post="/instances/{{ instance }}/public" hx-target="#install" hx-swap="innerHTML">
     <p><label>Hostname
       <input name="hostname" value="{{ hostname }}" placeholder="app.example.com"></label><br>
-      <small>Leave empty to clear. Dockwren only records it; nothing changes in Cloudflare from here.</small></p>
+      <small>Leave empty to clear. Saving only records it; nothing changes in Cloudflare from here.</small></p>
     <button type="submit">Save</button>
     <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
   </form>
@@ -21,5 +21,22 @@
   <pre>{{ c }}
 {{ c }} --yes</pre>
   {% endif %}
+  <details>
+    <summary>How to create the Cloudflare token</summary>
+    <small>
+    <ol>
+      <li>Cloudflare dashboard: profile icon, My Profile, API Tokens, Create Token, Custom token.</li>
+      <li>Permissions (add three rows): Account / Cloudflare Tunnel / Edit; Zone / DNS / Edit; Zone / Zone / Read.
+          Only for <code>--access</code>: also Account / Access: Apps and Policies / Edit.</li>
+      <li>Account Resources: Include, your account. Zone Resources: Include, Specific zone, the one domain you publish on.</li>
+      <li>Create, copy the token once (Cloudflare never shows it again).</li>
+      <li>Account ID: any zone's Overview page, right column. Tunnel ID: Zero Trust, Networks, Tunnels, open your tunnel
+          (it must be a remotely managed tunnel).</li>
+      <li>Give the three values to the process that runs <code>dockwren</code> as
+          <code>CLOUDFLARE_API_TOKEN</code>, <code>CLOUDFLARE_ACCOUNT_ID</code>, <code>DOCKWREN_TUNNEL_ID</code>.
+          Never paste the token into a chat or a repository.</li>
+    </ol>
+    </small>
+  </details>
   <p><small>Do not put Cloudflare Access in front of apps used by mobile or desktop clients (for example Vaultwarden); the app's own login protects it.</small></p>
 </div>

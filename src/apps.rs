@@ -107,6 +107,7 @@ struct FieldView {
 struct FormPage {
     id: String,
     name: String,
+    note: String,
     https_note: bool,
     fields: Vec<FieldView>,
     error: Option<String>,
@@ -184,9 +185,9 @@ fn form_view(t: &AppTemplate, values: &HashMap<String, String>, error: Option<St
         .collect();
     if url_field.is_some() {
         let help = if crate::public::Settings::from_env().is_some() {
-            "Optional. Dockwren publishes the app at https://<hostname> (Cloudflare Tunnel + DNS). Leave empty to keep it local."
+            "Optional. Publishes the app at https://<hostname> through your Cloudflare tunnel. Empty = local only."
         } else {
-            "Optional. Sets the app's address to https://<hostname> and records it; publish with `dockwren expose` (Cloudflare is not configured in the panel). Leave empty to keep it local."
+            "Optional. Sets the address to https://<hostname>; publish it afterwards with dockwren expose. Empty = local only."
         };
         let at = usize::from(fields.first().is_some_and(|f| f.key == "INSTANCE_NAME"));
         fields.insert(
@@ -206,6 +207,7 @@ fn form_view(t: &AppTemplate, values: &HashMap<String, String>, error: Option<St
     FormPage {
         id: t.manifest.app.id.clone(),
         name: t.manifest.app.name.clone(),
+        note: t.manifest.app.note.clone().unwrap_or_default(),
         https_note: t.manifest.app.needs_public_https,
         fields,
         error,

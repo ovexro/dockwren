@@ -4,6 +4,7 @@ name = "Paperless-ngx"
 description = "Document archive with OCR and full-text search"
 homepage = "https://docs.paperless-ngx.com/"
 version = 1
+note = "Scans and archives documents. First start takes about a minute. Drop files into the consume folder of the instance to import them."
 public_url_field = "PUBLIC_URL"
 needs_public_https = false
 
@@ -13,12 +14,14 @@ label = "Name"
 type = "string"
 default = "paperless"
 pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "Short id for this copy; becomes its folder and container names. Letters, digits, hyphens."
 
 [[fields]]
 key = "WEB_PORT"
 label = "Web port"
 type = "port"
 default = "auto"
+help = "Port on this server only (127.0.0.1). Leave on auto; visitors never type it."
 
 [[fields]]
 key = "PUBLIC_URL"
@@ -34,6 +37,7 @@ label = "Admin user"
 type = "string"
 default = "admin"
 pattern = "^[a-z][a-z0-9_-]{2,30}$"
+help = "Login name. The password is generated and shown once after install."
 
 [[fields]]
 key = "TIME_ZONE"

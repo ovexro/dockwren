@@ -167,3 +167,7 @@ form[action="/logout"] { margin-top: .75rem; }
 }
 
 .app-icon { vertical-align: middle; border-radius: 6px; }
+label small, form p > small { font-size: .78rem; line-height: 1.3; }
+form p > br { display: none; }
+form p > small { display: block; margin-top: .3rem; max-width: 28rem; }
+form p { margin: .9rem 0 1.1rem; }

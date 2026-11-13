@@ -3,6 +3,7 @@ id = "miniflux"
 name = "Miniflux"
 description = "Minimalist self-hosted RSS reader"
 version = 1
+note = "Feed reader with its own database. The admin password is generated and shown once."
 public_url_field = "PUBLIC_URL"
 needs_public_https = false
 
@@ -12,12 +13,14 @@ label = "Name"
 type = "string"
 default = "miniflux"
 pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "Short id for this copy; becomes its folder and container names. Letters, digits, hyphens."
 
 [[fields]]
 key = "WEB_PORT"
 label = "Web port"
 type = "port"
 default = "auto"
+help = "Port on this server only (127.0.0.1). Leave on auto; visitors never type it."
 
 [[fields]]
 key = "PUBLIC_URL"
@@ -31,6 +34,7 @@ label = "Admin user"
 type = "string"
 default = "admin"
 pattern = "^[a-z][a-z0-9_-]{2,30}$"
+help = "Login name. The password is generated and shown once after install."
 
 [[secrets]]
 key = "POSTGRES_PASSWORD"

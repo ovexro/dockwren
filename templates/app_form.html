@@ -1,4 +1,5 @@
 <h3>Install {{ name }}</h3>
+{% if !note.is_empty() %}<p><small>{{ note }}</small></p>{% endif %}
 {% if https_note %}<p><em>{{ name }} only works in a browser over HTTPS (or localhost). Set up the public URL separately.</em></p>{% endif %}
 {% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
 <form hx-post="/apps/{{ id }}/install" hx-target="#install" hx-swap="innerHTML">

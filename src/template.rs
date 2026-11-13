@@ -47,6 +47,9 @@ pub struct App {
     /// hostname, this field is set to `https://<hostname>` and hidden from the form.
     #[serde(default)]
     pub public_url_field: Option<String>,
+    /// One or two sentences shown at the top of the install form.
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]

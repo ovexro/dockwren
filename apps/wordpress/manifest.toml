@@ -4,6 +4,7 @@ name = "WordPress"
 description = "Website and blog platform"
 homepage = "https://wordpress.org/"
 version = 1
+note = "A complete site: database, passwords and keys are created for you. Enter a public hostname to get https://your-name with no port."
 public_url_field = "SITE_URL"
 needs_public_https = false
 
@@ -13,12 +14,14 @@ label = "Name"
 type = "string"
 default = "wordpress"
 pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "Short id for this copy; becomes its folder and container names. Letters, digits, hyphens."
 
 [[fields]]
 key = "WEB_PORT"
 label = "Web port"
 type = "port"
 default = "auto"
+help = "Port on this server only (127.0.0.1). Leave on auto; visitors never type it."
 
 [[fields]]
 key = "SITE_URL"
@@ -34,6 +37,7 @@ label = "Admin user"
 type = "string"
 default = "admin"
 pattern = "^[A-Za-z][A-Za-z0-9_-]{2,30}$"
+help = "Your WordPress login name."
 
 [[fields]]
 key = "ADMIN_PASSWORD"
@@ -46,6 +50,7 @@ help = "At least 12 characters; no spaces, quotes or $."
 key = "ADMIN_EMAIL"
 label = "Admin e-mail"
 type = "email"
+help = "Receives WordPress notices and password resets."
 
 [[fields]]
 key = "SITE_TITLE"
@@ -53,6 +58,7 @@ label = "Site title"
 type = "string"
 default = "My site"
 pattern = "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,60}$"
+help = "Shown in the browser tab and site header. Change it later in WordPress."
 
 [[secrets]]
 key = "DB_PASSWORD"

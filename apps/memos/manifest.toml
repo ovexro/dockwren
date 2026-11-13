@@ -3,6 +3,7 @@ id = "memos"
 name = "Memos"
 description = "Self-hosted notes and micro-blogging, Markdown first"
 version = 1
+note = "Quick notes. Create your account on first visit; the first one becomes the owner."
 needs_public_https = false
 
 [[fields]]
@@ -11,12 +12,14 @@ label = "Name"
 type = "string"
 default = "memos"
 pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "Short id for this copy; becomes its folder and container names. Letters, digits, hyphens."
 
 [[fields]]
 key = "WEB_PORT"
 label = "Web port"
 type = "port"
 default = "auto"
+help = "Port on this server only (127.0.0.1). Leave on auto; visitors never type it."
 
 [[services]]
 name = "memos"

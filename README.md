@@ -70,7 +70,11 @@ CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... DOCKWREN_TUNNEL_ID=... \
                                                  # also put a Cloudflare Access login in front
 ```
 
-The token needs Tunnel edit and DNS edit permissions for the zone. It is read from the environment
+Create the token in the Cloudflare dashboard (My Profile, API Tokens, Create Token, Custom token) with
+Account / Cloudflare Tunnel / Edit, Zone / DNS / Edit and Zone / Zone / Read, limited to your account and
+the one zone (add Account / Access: Apps and Policies / Edit only for `--access`). The Account ID is on
+any zone's Overview page; the Tunnel ID is under Zero Trust, Networks, Tunnels (a remotely managed tunnel).
+The same steps are on the panel's Public URL page. It is read from the environment
 only. Existing routes and DNS records are never overwritten. Do not put Cloudflare Access in front of
 apps used by mobile or desktop clients.
 

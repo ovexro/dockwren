@@ -3,6 +3,7 @@ id = "gitea"
 name = "Gitea"
 description = "Self-hosted Git service"
 version = 1
+note = "Git hosting with issues and pull requests. Data and database are backed up together."
 public_url_field = "PUBLIC_URL"
 needs_public_https = false
 
@@ -12,18 +13,21 @@ label = "Name"
 type = "string"
 default = "gitea"
 pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "Short id for this copy; becomes its folder and container names. Letters, digits, hyphens."
 
 [[fields]]
 key = "WEB_PORT"
 label = "Web port"
 type = "port"
 default = "auto"
+help = "Port on this server only (127.0.0.1). Leave on auto; visitors never type it."
 
 [[fields]]
 key = "SSH_PORT"
 label = "Git SSH port"
 type = "port"
 default = "auto"
+help = "Port for git over SSH. Leave on auto, or set the one you want to clone with."
 
 [[fields]]
 key = "PUBLIC_URL"
@@ -37,11 +41,13 @@ label = "Admin user"
 type = "string"
 default = "admin"
 pattern = "^[a-z][a-z0-9_-]{2,30}$"
+help = "Name of the first administrator. The password is generated and shown once after install."
 
 [[fields]]
 key = "ADMIN_EMAIL"
 label = "Admin e-mail"
 type = "email"
+help = "Used for the admin account and password resets."
 
 [[secrets]]
 key = "POSTGRES_PASSWORD"
