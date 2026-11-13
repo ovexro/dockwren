@@ -354,8 +354,29 @@ async fn main() {
         Some("restore") => {
             let args: Vec<String> = std::env::args().skip(2).collect();
             let safety = !args.iter().any(|a| a == "--no-safety-snapshot");
+            let list = args.iter().any(|a| a == "--list");
             let pos: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
             let name = pos.first().map(|s| s.as_str()).unwrap_or_default();
+            if list {
+                if !runner::valid_name(name) || pos.len() != 1 || args.len() != 2 {
+                    eprintln!("usage: dockwren restore <instance> --list");
+                    std::process::exit(2);
+                }
+                let snaps = backup::list(&cfg.data_dir.join("backups"), name);
+                if snaps.is_empty() {
+                    println!("no snapshots of {name}");
+                }
+                for p in snaps {
+                    let id = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+                    let when = std::process::Command::new("date")
+                        .args(["-d", &format!("@{id}"), "+%F %T"])
+                        .output()
+                        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                        .unwrap_or_default();
+                    println!("{id}  {when}");
+                }
+                return;
+            }
             if !runner::valid_name(name) || pos.len() > 2 || args.len() > pos.len() + usize::from(!safety) {
                 eprintln!("usage: dockwren restore <instance> [snapshot] [--no-safety-snapshot]");
                 std::process::exit(2);
@@ -407,7 +428,7 @@ async fn main() {
             return;
         }
         Some(other) => {
-            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot] | cleanup <instance> | expose <instance> [hostname] [--yes] | unexpose <instance> [--yes] | remove <instance>]");
+            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--yes] | unexpose <instance> [--yes] | remove <instance>]");
             std::process::exit(2);
         }
     }
