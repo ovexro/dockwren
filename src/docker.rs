@@ -14,6 +14,29 @@ pub struct ContainerInfo {
     pub status: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    Start,
+    Stop,
+    Restart,
+}
+
+impl Action {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "start" => Some(Self::Start),
+            "stop" => Some(Self::Stop),
+            "restart" => Some(Self::Restart),
+            _ => None,
+        }
+    }
+}
+
+/// Container ids are hex; anything else (names, paths) is refused before it reaches the API URL.
+pub fn valid_id(id: &str) -> bool {
+    (12..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 #[derive(Clone)]
 pub struct DockerClient {
     inner: Docker,
@@ -25,6 +48,15 @@ impl DockerClient {
         Ok(Self {
             inner: Docker::connect_with_defaults()?,
         })
+    }
+
+    /// Starts, stops or restarts one container. `id` must pass [`valid_id`].
+    pub async fn act(&self, id: &str, action: Action) -> Result<(), bollard::errors::Error> {
+        match action {
+            Action::Start => self.inner.start_container(id, None).await,
+            Action::Stop => self.inner.stop_container(id, None).await,
+            Action::Restart => self.inner.restart_container(id, None).await,
+        }
     }
 
     /// Lists all containers, running or not, sorted by name.
@@ -85,6 +117,16 @@ mod tests {
                 status: "Up 3 hours".into(),
             }
         );
+    }
+
+    #[test]
+    fn parses_actions_and_validates_ids() {
+        assert_eq!(Action::parse("stop"), Some(Action::Stop));
+        assert_eq!(Action::parse("rm"), None);
+        assert!(valid_id("0123456789ab"));
+        assert!(!valid_id("web"));
+        assert!(!valid_id("../../images/json"));
+        assert!(!valid_id("0123456789ab/stop"));
     }
 
     #[test]

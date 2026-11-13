@@ -4,10 +4,18 @@
 <p>No containers yet.</p>
 {% else %}
 <table>
-  <thead><tr><th>Name</th><th>Image</th><th>State</th><th>Status</th></tr></thead>
+  <thead><tr><th>Name</th><th>Image</th><th>State</th><th>Status</th><th></th></tr></thead>
   <tbody>
   {% for c in containers %}
-    <tr data-state="{{ c.state }}"><td>{{ c.name }}</td><td>{{ c.image }}</td><td>{{ c.state }}</td><td>{{ c.status }}</td></tr>
+    <tr data-state="{{ c.state }}"><td>{{ c.name }}</td><td>{{ c.image }}</td><td>{{ c.state }}</td><td>{{ c.status }}</td>
+      <td>
+        {% if c.state == "running" %}
+        <button hx-post="/containers/{{ c.id }}/restart" hx-target="#containers" hx-swap="innerHTML">Restart</button>
+        <button hx-post="/containers/{{ c.id }}/stop" hx-target="#containers" hx-swap="innerHTML" hx-confirm="Stop {{ c.name }}?">Stop</button>
+        {% else %}
+        <button hx-post="/containers/{{ c.id }}/start" hx-target="#containers" hx-swap="innerHTML">Start</button>
+        {% endif %}
+      </td></tr>
   {% endfor %}
   </tbody>
 </table>
