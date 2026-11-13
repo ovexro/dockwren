@@ -332,17 +332,18 @@ pub fn downsample(points: &[(u64, f64)]) -> Vec<(u64, f64)> {
         .collect()
 }
 
-/// SVG `points` attribute: x follows time inside `[start, end]`, y runs 0..`max` bottom to top.
+/// SVG `points` attribute: x follows time from the first point inside the window to `end` (so a
+/// short history fills the chart), y runs 0..`max` bottom to top. A single point becomes a flat line.
 pub fn polyline(points: &[(u64, f64)], start: u64, end: u64, max: f64) -> String {
-    let span = end.saturating_sub(start).max(1) as f64;
-    downsample(points)
-        .iter()
-        .filter(|(t, _)| *t >= start)
-        .map(|(t, v)| {
-            let x = (t - start) as f64 / span * W;
-            let y = H - (v / max).clamp(0.0, 1.0) * H;
-            format!("{x:.1},{y:.1}")
-        })
+    let pts: Vec<(u64, f64)> = downsample(points).into_iter().filter(|(t, _)| *t >= start).collect();
+    let Some(first) = pts.first().map(|p| p.0) else { return String::new() };
+    let span = end.saturating_sub(first).max(1) as f64;
+    let y = |v: f64| H - (v / max).clamp(0.0, 1.0) * H;
+    if let [(_, v)] = pts[..] {
+        return format!("0.0,{0:.1} {W:.1},{0:.1}", y(v));
+    }
+    pts.iter()
+        .map(|(t, v)| format!("{:.1},{:.1}", (t - first) as f64 / span * W, y(*v)))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -408,7 +409,9 @@ tailscale0: 10 1 0 0 0 0 0 0 20 1 0 0 0 0 0 0\n";
         let pts = [(100, 0.0), (150, 50.0), (200, 100.0)];
         assert_eq!(polyline(&pts, 100, 200, 100.0), "0.0,60.0 120.0,30.0 240.0,0.0");
         // points before the window are dropped, values above max are clamped
-        assert_eq!(polyline(&[(50, 5.0), (200, 500.0)], 100, 200, 100.0), "240.0,0.0");
+        assert_eq!(polyline(&[(50, 5.0), (200, 500.0)], 100, 200, 100.0), "0.0,0.0 240.0,0.0");
+        // short history stretches over the chart
+        assert_eq!(polyline(&[(190, 0.0), (200, 100.0)], 0, 200, 100.0), "0.0,60.0 240.0,0.0");
         assert_eq!(polyline(&[], 0, 10, 1.0), "");
     }
 
@@ -463,9 +466,9 @@ pub struct ContainerRow {
 #[template(path = "metrics.html")]
 struct MetricsTemplate {
     range: &'static str,
-    label: &'static str,
     ranges: Vec<(&'static str, &'static str)>,
     ready: bool,
+    fresh: bool,
     charts: Vec<Chart>,
     containers: Vec<ContainerRow>,
     w: f64,
@@ -475,13 +478,15 @@ struct MetricsTemplate {
 #[derive(serde::Deserialize)]
 pub struct RangeQuery {
     range: Option<String>,
+    /// Set by the page's own 10 s refresh; absent on first load and when a range is picked.
+    live: Option<String>,
 }
 
 /// (query value, label, window in seconds)
 const RANGES: [(&str, &str, u64); 4] = [("1h", "1 h", 3600), ("24h", "24 h", 86400), ("7d", "7 days", 7 * 86400), ("30d", "30 days", 30 * 86400)];
 
-fn build(m: &Metrics, now: u64, range: &str) -> MetricsTemplate {
-    let (key, label, window) = *RANGES.iter().find(|r| r.0 == range).unwrap_or(&RANGES[0]);
+fn build(m: &Metrics, now: u64, range: &str, fresh: bool) -> MetricsTemplate {
+    let (key, _, window) = *RANGES.iter().find(|r| r.0 == range).unwrap_or(&RANGES[0]);
     let source = if window > 86400 { &m.long } else { &m.samples };
     let start = now.saturating_sub(window);
     let recent: Vec<&Sample> = source.iter().filter(|s| s.t >= start).collect();
@@ -534,9 +539,9 @@ fn build(m: &Metrics, now: u64, range: &str) -> MetricsTemplate {
         .collect();
     MetricsTemplate {
         range: key,
-        label,
         ranges: RANGES.iter().map(|r| (r.0, r.1)).collect(),
         ready: last.is_some(),
+        fresh,
         charts,
         containers,
         w: W,
@@ -545,7 +550,7 @@ fn build(m: &Metrics, now: u64, range: &str) -> MetricsTemplate {
 }
 
 pub async fn page(State(shared): State<Shared>, Query(q): Query<RangeQuery>) -> Html<String> {
-    let page = build(&shared.lock().unwrap(), now_unix(), q.range.as_deref().unwrap_or("1h"));
+    let page = build(&shared.lock().unwrap(), now_unix(), q.range.as_deref().unwrap_or("1h"), q.live.is_none());
     Html(page.render().expect("metrics template renders"))
 }
 
@@ -559,7 +564,7 @@ mod page_tests {
 
     #[test]
     fn empty_history_says_collecting() {
-        let html = build(&Metrics::default(), 1000, "1h").render().unwrap();
+        let html = build(&Metrics::default(), 1000, "1h", false).render().unwrap();
         assert!(html.contains("Collecting the first samples"));
         assert!(!html.contains("<svg"));
     }
@@ -576,20 +581,20 @@ mod page_tests {
             pct: VecDeque::from([(900, 90.0), (1000, 90.0)]),
         });
         m.containers.push(ContainerUsage { name: "web<1>".into(), cpu_pct: 1.5, mem_bytes: 50 << 20 });
-        let html = build(&m, 1000, "1h").render().unwrap();
+        let html = build(&m, 1000, "1h", false).render().unwrap();
         assert!(html.contains("<polyline points=\"") && html.contains("30%"));
         assert!(html.contains("chart warn") && html.contains("almost full"));
         assert!(html.contains("range=1h") && html.contains("web&#60;1&#62;"));
-        assert!(build(&m, 1000, "24h").render().unwrap().contains("range=24h"));
+        assert!(build(&m, 1000, "24h", false).render().unwrap().contains("range=24h"));
     }
 
     #[test]
     fn long_ranges_use_the_persisted_history() {
         let mut m = Metrics::default();
         m.long.extend([sample(1000, 20.0), sample(300_000, 40.0)]);
-        let html = build(&m, 300_000, "7d").render().unwrap();
+        let html = build(&m, 300_000, "7d", false).render().unwrap();
         assert!(html.contains("range=7d") && html.contains("40%"));
-        assert!(build(&m, 300_000, "1h").render().unwrap().contains("Collecting"));
+        assert!(build(&m, 300_000, "1h", false).render().unwrap().contains("Collecting"));
     }
 
     #[test]

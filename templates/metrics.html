@@ -1,14 +1,14 @@
-<div id="metrics" hx-get="/metrics?range={{ range }}" hx-trigger="every 10s" hx-swap="outerHTML">
-  <p class="muted">Last {{ label }} ·
-    {% for r in ranges %}{% if r.0 == range %}<strong>{{ r.1 }}</strong>{% else %}<a href="#" hx-get="/metrics?range={{ r.0 }}" hx-target="#metrics" hx-swap="outerHTML">{{ r.1 }}</a>{% endif %} {% endfor %}
-    · long ranges use 5-minute averages, kept 30 days</p>
+<div id="metrics"{% if fresh %} class="fresh"{% endif %} hx-get="/metrics?range={{ range }}&live=1" hx-trigger="every 10s" hx-swap="outerHTML transition:true">
+  <p class="muted ranges">
+    {% for r in ranges %}{% if r.0 == range %}<strong>{{ r.1 }}</strong>{% else %}<a href="#" hx-get="/metrics?range={{ r.0 }}" hx-target="#metrics" hx-swap="outerHTML transition:true">{{ r.1 }}</a>{% endif %} {% endfor %}
+    · 7 and 30 days use 5-minute averages</p>
   {% if !ready %}
   <p class="muted">Collecting the first samples…</p>
   {% else %}
   <div class="charts">
     {% for c in charts %}
     <figure class="chart{% if c.warn %} warn{% endif %}">
-      <figcaption><strong>{{ c.title }}</strong> <span>{{ c.now }}</span>{% if c.warn %} <b>almost full</b>{% endif %}</figcaption>
+      <figcaption><strong title="{{ c.title }}">{{ c.title }}</strong>{% if c.warn %}<b>almost full</b>{% endif %}<span title="{{ c.now }}">{{ c.now }}</span></figcaption>
       <svg viewBox="0 0 {{ w }} {{ h }}" preserveAspectRatio="none" role="img" aria-label="{{ c.title }}: {{ c.now }}">
         <line x1="0" y1="{{ h }}" x2="{{ w }}" y2="{{ h }}" class="axis"/>
         {% for l in c.lines %}<polyline points="{{ l.points }}" fill="none"{% if l.dashed %} stroke-dasharray="4 3"{% endif %}/>{% endfor %}

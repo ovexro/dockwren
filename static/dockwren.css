@@ -99,12 +99,27 @@ form[action="/login"] input { max-width: none; margin-bottom: 1rem; }
 form[action="/logout"] { margin-top: 3rem; }
 
 /* Resource graphs: inline SVG, one colour */
+.ranges { display: flex; flex-wrap: wrap; gap: .25rem 1rem; }
+.ranges strong { color: var(--text); }
 .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: .75rem; margin: .75rem 0 1rem; }
-.chart { margin: 0; padding: .75rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
-.chart figcaption { display: flex; flex-wrap: wrap; gap: 0 .6rem; font-size: .875rem; }
-.chart figcaption span { color: var(--muted); font-family: var(--mono); font-size: .8rem; }
+.chart { margin: 0; padding: .75rem 1rem; display: flex; flex-direction: column; min-width: 0;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.chart figcaption { display: grid; grid-template-columns: 1fr auto; gap: 0 .5rem; font-size: .875rem; min-width: 0; }
+.chart figcaption strong, .chart figcaption span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart figcaption span { grid-column: 1 / -1; color: var(--muted); font-family: var(--mono); font-size: .8rem; }
 .chart figcaption b { color: var(--bad); font-weight: 600; }
-.chart svg { width: 100%; height: 4.5rem; display: block; margin: .4rem 0 .2rem; }
+.chart svg { width: 100%; height: 4.5rem; display: block; margin: .5rem 0 .25rem; overflow: visible; }
+.chart small { margin-top: auto; }
 .chart polyline { stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 .chart .axis { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .chart.warn { border-color: var(--bad); }
+#metrics { view-transition-name: metrics; }
+/* Smooth refresh: htmx swaps with the View Transitions API, so the graphs cross-fade instead of jumping. */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .25s; }
+@keyframes chart-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+#metrics.fresh .chart { animation: chart-in .35s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  #metrics.fresh .chart { animation: none; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none; }
+}
+#metrics th:not(:first-child), #metrics td:not(:first-child) { text-align: right; }
