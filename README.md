@@ -70,6 +70,11 @@ The token needs Tunnel edit and DNS edit permissions for the zone. It is read fr
 only; the web panel never holds Cloudflare credentials. Existing routes and DNS records are never
 overwritten. Do not put Cloudflare Access in front of apps used by mobile or desktop clients.
 
+## Support
+
+Dockwren is free and open source. If it saves you time, you can support its development via
+[PayPal](https://www.paypal.com/paypalme/ovexro).
+
 ## Security notes
 
 Access to the Docker socket is equivalent to root on the host. Treat the panel accordingly:
