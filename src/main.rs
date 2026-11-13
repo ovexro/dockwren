@@ -1,6 +1,7 @@
 mod auth;
+mod config;
 
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use askama::Template;
 use auth::SharedAuth;
@@ -42,24 +43,21 @@ fn app(auth: SharedAuth) -> Router {
 
 #[tokio::main]
 async fn main() {
-    let data_dir =
-        PathBuf::from(std::env::var("DOCKWREN_DATA").unwrap_or_else(|_| "./data".into()));
-    let (hash, first_run_password) = auth::load_or_create(&data_dir)
-        .unwrap_or_else(|e| panic!("cannot prepare data dir {}: {e}", data_dir.display()));
-    let secure_cookie = std::env::var("DOCKWREN_SECURE_COOKIE").is_ok_and(|v| v == "1");
-    let auth = Arc::new(auth::Auth::new(&hash, secure_cookie).unwrap_or_else(|e| panic!("{e}")));
+    let cfg = config::Config::from_env();
+    let (hash, first_run_password) = auth::load_or_create(&cfg.data_dir)
+        .unwrap_or_else(|e| panic!("cannot prepare data dir {}: {e}", cfg.data_dir.display()));
+    let auth =
+        Arc::new(auth::Auth::new(&hash, cfg.secure_cookie).unwrap_or_else(|e| panic!("{e}")));
 
     if let Some(password) = first_run_password {
         println!("First run: generated admin password (shown once, not stored):");
         println!("    {password}");
     }
 
-    // Local-only by default; reach it over Tailscale or a tunnel.
-    let addr = std::env::var("DOCKWREN_BIND").unwrap_or_else(|_| "127.0.0.1:8080".into());
-    let listener = tokio::net::TcpListener::bind(&addr)
+    let listener = tokio::net::TcpListener::bind(&cfg.bind)
         .await
-        .unwrap_or_else(|e| panic!("cannot bind {addr}: {e}"));
-    println!("dockwren listening on http://{addr}");
+        .unwrap_or_else(|e| panic!("cannot bind {}: {e}", cfg.bind));
+    println!("dockwren listening on http://{}", cfg.bind);
     axum::serve(listener, app(auth))
         .await
         .expect("server error");
