@@ -203,6 +203,54 @@ pub fn extract(regex: &str, stdout: &str) -> Option<String> {
     regex::Regex::new(regex).ok()?.captures(stdout)?.get(1).map(|m| m.as_str().to_string())
 }
 
+/// Run one hook command in a running service via `compose exec`; returns stdout.
+async fn exec_hook(
+    inst: &Instance,
+    service: &str,
+    user: Option<&str>,
+    run: &[String],
+    env: &BTreeMap<String, String>,
+) -> Result<String, String> {
+    let cmd: Vec<String> = run.iter().map(|a| crate::install::subst(a, env)).collect::<Result<_, _>>()?;
+    let mut args = vec!["exec", "-T"];
+    if let Some(u) = user {
+        args.extend(["-u", u]);
+    }
+    args.push(service);
+    args.extend(cmd.iter().map(String::as_str));
+    compose(inst, &args).await
+}
+
+/// Run the migrations a version jump `from` -> `to` crosses, oldest first.
+pub async fn run_migrations(
+    inst: &Instance,
+    t: &Template,
+    from: u32,
+    to: u32,
+    env: &BTreeMap<String, String>,
+    log: &mut (dyn FnMut(&str) + Send),
+) -> Result<(), String> {
+    let mut todo: Vec<_> = t.manifest.migrations.iter().filter(|g| g.to_version > from && g.to_version <= to).collect();
+    todo.sort_by_key(|g| g.to_version);
+    for g in todo {
+        log(&format!("migration {} (to version {})", g.name, g.to_version));
+        exec_hook(inst, &g.service, g.user.as_deref(), &g.run, env)
+            .await
+            .map_err(|e| format!("migration {}: {e}", g.name))?;
+    }
+    Ok(())
+}
+
+/// Parse an instance `.env` (`KEY=value` or `KEY='value'` lines).
+pub fn read_env(dir: &Path) -> Result<BTreeMap<String, String>, String> {
+    let raw = std::fs::read_to_string(dir.join(".env")).map_err(|e| format!(".env: {e}"))?;
+    Ok(raw
+        .lines()
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, v)| (k.trim().to_string(), v.trim().trim_matches('\'').to_string()))
+        .collect())
+}
+
 /// Run the template's `post_start` hooks in order via `compose exec`.
 /// Returns captured `(label, value)` pairs, to be shown once and not stored.
 pub async fn run_post_start(
@@ -214,18 +262,9 @@ pub async fn run_post_start(
     let mut shown = Vec::new();
     for h in &t.manifest.post_start {
         log(&format!("running {}", h.name));
-        let cmd: Vec<String> = h
-            .run
-            .iter()
-            .map(|a| crate::install::subst(a, env))
-            .collect::<Result<_, _>>()?;
-        let mut args = vec!["exec", "-T"];
-        if let Some(u) = &h.user {
-            args.extend(["-u", u]);
-        }
-        args.push(&h.service);
-        args.extend(cmd.iter().map(String::as_str));
-        let out = compose(inst, &args).await.map_err(|e| format!("post_start {}: {e}", h.name))?;
+        let out = exec_hook(inst, &h.service, h.user.as_deref(), &h.run, env)
+            .await
+            .map_err(|e| format!("post_start {}: {e}", h.name))?;
         if let Some(c) = &h.capture {
             let v = extract(&c.regex, &out)
                 .ok_or_else(|| format!("post_start {}: output did not match the capture pattern", h.name))?;
@@ -308,6 +347,16 @@ mod tests {
         let t = tmpl("vaultwarden");
         let env: BTreeMap<_, _> = [("INSTANCE_NAME".to_string(), "../evil".to_string())].into();
         assert!(prepare(&tmp(), &t, &env).unwrap_err().contains("invalid"));
+    }
+
+    #[test]
+    fn env_file_is_parsed() {
+        let d = tmp();
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join(".env"), "A=1\nB='two words'\nC=\n").unwrap();
+        let e = read_env(&d).unwrap();
+        assert_eq!((e["A"].as_str(), e["B"].as_str(), e["C"].as_str()), ("1", "two words", ""));
+        std::fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]

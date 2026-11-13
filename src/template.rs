@@ -22,6 +22,9 @@ pub struct Manifest {
     pub services: Vec<Service>,
     #[serde(default)]
     pub post_start: Vec<PostStart>,
+    /// Commands run once after an update that crosses `to_version`.
+    #[serde(default)]
+    pub migrations: Vec<Migration>,
     #[serde(default)]
     pub backup: Backup,
     #[serde(default)]
@@ -125,6 +128,19 @@ pub enum Health {
         #[serde(default)]
         start_period: Option<String>,
     },
+}
+
+/// A command run (via `compose exec`) after updating an instance to a
+/// template version `>= to_version`, when the instance was older than that.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Migration {
+    pub to_version: u32,
+    pub name: String,
+    pub service: String,
+    pub run: Vec<String>,
+    #[serde(default)]
+    pub user: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -332,6 +348,20 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
             }
         }
     }
+    for g in &m.migrations {
+        if !names.contains(g.service.as_str()) {
+            return Err(format!("migration {}: unknown service {}", g.name, g.service));
+        }
+        if g.run.is_empty() {
+            return Err(format!("migration {}: empty command", g.name));
+        }
+        if g.to_version < 2 || g.to_version > m.app.version {
+            return Err(format!(
+                "migration {}: to_version {} must be between 2 and the app version {}",
+                g.name, g.to_version, m.app.version
+            ));
+        }
+    }
     for d in &m.backup.dumps {
         if !names.contains(d.service.as_str()) {
             return Err(format!("backup dump: unknown service {}", d.service));
@@ -353,6 +383,9 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
     let mut texts: Vec<&str> = Vec::new();
     for h in &m.post_start {
         texts.extend(h.run.iter().map(String::as_str));
+    }
+    for g in &m.migrations {
+        texts.extend(g.run.iter().map(String::as_str));
     }
     for s in &m.services {
         if let Health::Panel { test, .. } = &s.health {
@@ -518,6 +551,24 @@ mod tests {
         assert!(validate(&manifest(""), &c).unwrap_err().contains("NOPE"));
         let m = manifest("[[post_start]]\nname=\"p\"\nservice=\"ghost\"\nrun=[\"true\"]\n");
         assert!(validate(&m, OK).unwrap_err().contains("ghost"));
+    }
+
+    #[test]
+    fn rejects_bad_migrations() {
+        for bad in [
+            "service=\"ghost\"\nrun=[\"true\"]\nto_version=2\n",
+            "service=\"web\"\nrun=[]\nto_version=2\n",
+            "service=\"web\"\nrun=[\"true\"]\nto_version=1\n",
+            "service=\"web\"\nrun=[\"true\"]\nto_version=99\n",
+            "service=\"web\"\nrun=[\"${NOPE}\"]\nto_version=2\n",
+        ] {
+            let mut m = manifest(&format!("[[migrations]]\nname=\"m\"\n{bad}"));
+            m.app.version = 3;
+            assert!(validate(&m, OK).is_err(), "{bad}");
+        }
+        let mut m = manifest("[[migrations]]\nname=\"m\"\nservice=\"web\"\nrun=[\"true\"]\nto_version=3\n");
+        m.app.version = 3;
+        assert_eq!(validate(&m, OK), Ok(()));
     }
 
     #[test]

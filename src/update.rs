@@ -1,6 +1,6 @@
 //! Update flow: move an instance to the bundled template's newer version.
 //! Snapshot first (per `update.pre_update`), swap compose files, pull, start,
-//! wait healthy; on failure put the old compose files back and restart them.
+//! wait healthy, run any `migrations` the version jump crosses; on failure put the old compose files back and restart them.
 //! Data is never rolled back automatically: the snapshot path is reported.
 
 use std::collections::BTreeMap;
@@ -152,7 +152,13 @@ pub async fn update(
     write_compose(&inst.dir, &t.compose, new_override.as_deref())?;
 
     let to = t.manifest.app.version;
-    match runner::bring_up(inst, log).await {
+    let up = async {
+        runner::bring_up(inst, log).await?;
+        let env = runner::read_env(&inst.dir)?;
+        runner::run_migrations(inst, t, from, to, &env, log).await
+    }
+    .await;
+    match up {
         Ok(()) => {
             let state = format!("template = {:?}\nversion = {to}\n", t.manifest.app.id);
             replace_file(&inst.dir.join("state.toml"), &state, 0o640)?;
