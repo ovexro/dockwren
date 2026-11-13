@@ -309,7 +309,8 @@ fn app(
 /// `dockwren install <app> [KEY=VALUE...]`: resolve, prepare, bring up.
 async fn cli_expose(cfg: &config::Config, args: &[String]) -> Result<(), String> {
     let apply = args.iter().any(|a| a == "--yes");
-    let usage = "usage: dockwren expose <instance> [hostname] [--access EMAIL[,EMAIL...]] [--yes]";
+    let replace_dns = args.iter().any(|a| a == "--replace-dns");
+    let usage = "usage: dockwren expose <instance> [hostname] [--access EMAIL[,EMAIL...]] [--replace-dns] [--yes]";
     let mut access: Vec<String> = Vec::new();
     let mut pos: Vec<&String> = Vec::new();
     let mut it = args.iter();
@@ -349,6 +350,7 @@ async fn cli_expose(cfg: &config::Config, args: &[String]) -> Result<(), String>
         &public::service_url(port),
         &access,
         apply,
+        replace_dns,
         &mut |s| println!("  {s}"),
     )
     .await

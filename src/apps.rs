@@ -753,6 +753,8 @@ struct PublicPage {
     cf_ready: bool,
     /// Outcome of a Publish press: (succeeded, step lines).
     result: Option<(bool, Vec<String>)>,
+    /// The last Publish failed only because another DNS record uses the name.
+    offer_replace: bool,
 }
 
 fn public_page(
@@ -790,6 +792,7 @@ fn public_page(
         saved,
         cf_ready: crate::public::Settings::from_env().is_some(),
         result: None,
+        offer_replace: false,
     }
 }
 
@@ -965,11 +968,13 @@ pub async fn public_publish(
     State(apps): State<Apps>,
     headers: HeaderMap,
     Path(name): Path<String>,
+    Form(values): Form<HashMap<String, String>>,
 ) -> Result<Html<String>, StatusCode> {
     if !crate::same_origin(&headers) {
         return Err(StatusCode::FORBIDDEN);
     }
     known_instance(&apps, &name)?;
+    let replace_dns = values.get("replace").is_some_and(|v| v == "yes");
     let dir = apps.root.join(&name);
     let host = crate::public::read(&dir).unwrap_or_default();
     let mut lines: Vec<String> = Vec::new();
@@ -987,6 +992,7 @@ pub async fn public_publish(
             &crate::public::service_url(port),
             &[],
             true,
+            replace_dns,
             &mut |s| lines.push(s.to_string()),
         )
         .await
@@ -999,6 +1005,7 @@ pub async fn public_publish(
             (true, lines)
         }
         Err(e) => {
+            page.offer_replace = e.starts_with(crate::public::DNS_CONFLICT);
             lines.push(e);
             (false, lines)
         }

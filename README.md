@@ -67,6 +67,7 @@ CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... DOCKWREN_TUNNEL_ID=... \
   dockwren expose <instance> [hostname]          # preview only
   dockwren expose <instance> [hostname] --yes    # apply
   dockwren expose <instance> [hostname] --access you@example.com --yes
+  dockwren expose <instance> [hostname] --replace-dns --yes   # delete other DNS records under that name first
                                                  # also put a Cloudflare Access login in front
 ```
 

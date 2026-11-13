@@ -9,6 +9,13 @@
     <ul>{% for l in lines %}<li>{{ l }}</li>{% endfor %}</ul>
   </div>
   {% endif %}
+  {% if offer_replace %}
+  <form hx-post="/instances/{{ instance }}/public/publish" hx-target="#install" hx-swap="innerHTML">
+    <input type="hidden" name="replace" value="yes">
+    <p>Replacing deletes the old DNS record(s) named above and points {{ hostname }} at this app instead. Whatever used that address (an old website, for example) stops working. The old values are listed in the result.</p>
+    <button type="submit">Replace it</button>
+  </form>
+  {% endif %}
   <form hx-post="/instances/{{ instance }}/public" hx-target="#install" hx-swap="innerHTML">
     <p><label>Public hostname
       <input name="hostname" value="{{ hostname }}" placeholder="blog.example.com"></label><br>

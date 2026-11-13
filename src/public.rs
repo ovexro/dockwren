@@ -385,9 +385,15 @@ pub async fn publish_after_install(
         return;
     };
     log(&format!("publishing https://{host}"));
-    let result = expose(&settings, host, &service_url(port), &[], true, &mut |s| {
-        log(&format!("  {s}"))
-    })
+    let result = expose(
+        &settings,
+        host,
+        &service_url(port),
+        &[],
+        true,
+        false,
+        &mut |s| log(&format!("  {s}")),
+    )
     .await;
     if let Err(e) = result {
         log(&format!(
@@ -396,14 +402,21 @@ pub async fn publish_after_install(
     }
 }
 
+/// Start of the error `expose` returns when another DNS record already uses the name;
+/// the panel offers "Replace it" when it sees this.
+pub const DNS_CONFLICT: &str = "a DNS record for ";
+
 /// Wire `host` to the local `service` through the tunnel. With `apply` false only
-/// reads from Cloudflare and reports what would change.
+/// reads from Cloudflare and reports what would change. `replace_dns` lets it delete
+/// the other DNS records under that name (each is logged first) instead of refusing.
+#[allow(clippy::too_many_arguments)]
 pub async fn expose(
     s: &Settings,
     host: &str,
     service: &str,
     access: &[String],
     apply: bool,
+    replace_dns: bool,
     log: &mut (dyn FnMut(&str) + Send),
 ) -> Result<(), String> {
     if !valid_hostname(host) {
@@ -479,29 +492,45 @@ pub async fn expose(
             None,
         )
         .await?;
-    match dns["result"].as_array().and_then(|a| a.first()) {
-        Some(rec) if rec["type"] == "CNAME" && rec["content"] == target.as_str() => {
-            log("DNS: already points at the tunnel")
+    let records: Vec<Value> = dns["result"].as_array().cloned().unwrap_or_default();
+    let ours = |r: &Value| r["type"] == "CNAME" && r["content"] == target.as_str();
+    let others: Vec<&Value> = records.iter().filter(|r| !ours(r)).collect();
+    if !others.is_empty() && !replace_dns {
+        let r = others[0];
+        return Err(format!(
+            "{DNS_CONFLICT}{host} already exists ({} {}); not overwriting",
+            r["type"].as_str().unwrap_or("?"),
+            r["content"].as_str().unwrap_or("?")
+        ));
+    }
+    for r in &others {
+        let (ty, content) = (
+            r["type"].as_str().unwrap_or("?"),
+            r["content"].as_str().unwrap_or("?"),
+        );
+        log(&format!("DNS: remove old {ty} record {host} -> {content}"));
+        if apply {
+            let id = r["id"].as_str().ok_or("DNS record without an id")?;
+            api.call(
+                "DELETE",
+                &format!("/zones/{zone_id}/dns_records/{id}"),
+                None,
+            )
+            .await?;
         }
-        Some(rec) => {
-            return Err(format!(
-                "a DNS {} record for {host} already exists (content {}); not overwriting",
-                rec["type"].as_str().unwrap_or("?"),
-                rec["content"].as_str().unwrap_or("?")
-            ));
-        }
-        None => {
-            log(&format!("DNS: add proxied CNAME {host} -> {target}"));
-            if apply {
-                let body =
-                    json!({"type": "CNAME", "name": host, "content": target, "proxied": true});
-                api.call(
-                    "POST",
-                    &format!("/zones/{zone_id}/dns_records"),
-                    Some(&body),
-                )
-                .await?;
-            }
+    }
+    if records.iter().any(ours) {
+        log("DNS: already points at the tunnel");
+    } else {
+        log(&format!("DNS: add proxied CNAME {host} -> {target}"));
+        if apply {
+            let body = json!({"type": "CNAME", "name": host, "content": target, "proxied": true});
+            api.call(
+                "POST",
+                &format!("/zones/{zone_id}/dns_records"),
+                Some(&body),
+            )
+            .await?;
         }
     }
     log(if apply {
