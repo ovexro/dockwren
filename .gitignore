@@ -1,0 +1,13 @@
+# secrets
+.env
+.env.*
+*.env
+*.pem
+*.key
+# rust
+/target
+# editor / os
+.idea/
+.vscode/
+*.swp
+.DS_Store
