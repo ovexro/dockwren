@@ -266,6 +266,7 @@ fn app(
             "/instances/{name}/public",
             get(apps::public_form).post(apps::public_submit),
         )
+        .route("/instances/{name}/public/publish", post(apps::public_publish))
         .route(
             "/instances/{name}/restore",
             get(apps::restore_form).post(apps::restore_submit),
@@ -1055,6 +1056,7 @@ mod tests {
             ("POST", "/instances/gt/update"),
             ("GET", "/instances/gt/public"),
             ("POST", "/instances/gt/public"),
+            ("POST", "/instances/gt/public/publish"),
             ("GET", "/instances/gt/restore"),
             ("POST", "/instances/gt/restore"),
             ("POST", "/instances/gt/cleanup"),

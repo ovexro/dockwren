@@ -3,13 +3,28 @@
   {% if https_note %}<p><em>This app only works in a browser over HTTPS, so it needs a public hostname (or localhost).</em></p>{% endif %}
   {% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
   {% if saved %}<p>Saved.</p>{% endif %}
+  {% if let Some((ok, lines)) = result %}
+  <div role="status">
+    <p><strong>{% if *ok %}Success{% else %}Failed{% endif %}</strong></p>
+    <ul>{% for l in lines %}<li>{{ l }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
   <form hx-post="/instances/{{ instance }}/public" hx-target="#install" hx-swap="innerHTML">
-    <p><label>Hostname
-      <input name="hostname" value="{{ hostname }}" placeholder="app.example.com"></label><br>
-      <small>Leave empty to clear. Saving only records it; nothing changes in Cloudflare from here.</small></p>
+    <p><label>Public hostname
+      <input name="hostname" value="{{ hostname }}" placeholder="blog.example.com"></label><br>
+      <small>The web address people type in their browser to open this app. The domain must already be in your Cloudflare account. Leave empty to clear. Saving only records it; press Publish to make it reachable.</small></p>
     <button type="submit">Save</button>
     <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
   </form>
+  {% if command.is_some() %}
+  <p><strong>Cloudflare:</strong> {% if cf_ready %}connected.{% else %}not connected (see the guide below).{% endif %}</p>
+  {% if cf_ready %}
+  <form hx-post="/instances/{{ instance }}/public/publish" hx-target="#install" hx-swap="innerHTML">
+    <button type="submit">Publish https://{{ hostname }}</button>
+    <small>Adds the tunnel route and DNS record. It never overwrites an existing record.</small>
+  </form>
+  {% endif %}
+  {% endif %}
   {% if let Some(s) = snippet %}
   <p>Add this rule to your Cloudflare Tunnel (ingress, above the catch-all):</p>
   <pre>{{ s }}</pre>

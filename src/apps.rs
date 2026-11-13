@@ -184,10 +184,11 @@ fn form_view(t: &AppTemplate, values: &HashMap<String, String>, error: Option<St
         })
         .collect();
     if url_field.is_some() {
+        let base = "The web address people type in their browser to open this app, for example blog.example.com (the domain must already be in your Cloudflare account). Leave it empty to use the app only on this server.";
         let help = if crate::public::Settings::from_env().is_some() {
-            "Optional. Publishes the app at https://<hostname> through your Cloudflare tunnel. Empty = local only."
+            format!("{base} Dockwren will also make it reachable from the internet for you.")
         } else {
-            "Optional. Sets the address to https://<hostname>; publish it afterwards with dockwren expose. Empty = local only."
+            format!("{base} Cloudflare is not connected yet, so after the install press Publish on the app's Public URL page (or run dockwren expose).")
         };
         let at = usize::from(fields.first().is_some_and(|f| f.key == "INSTANCE_NAME"));
         fields.insert(
@@ -198,7 +199,7 @@ fn form_view(t: &AppTemplate, values: &HashMap<String, String>, error: Option<St
                 input: "text",
                 value: values.get("PUBLIC_HOST").cloned().unwrap_or_default(),
                 placeholder: "blog.example.com".into(),
-                help: help.into(),
+                help,
                 options: Vec::new(),
                 required: false,
             },
@@ -747,6 +748,9 @@ struct PublicPage {
     https_note: bool,
     error: Option<String>,
     saved: bool,
+    cf_ready: bool,
+    /// Outcome of a Publish press: (succeeded, step lines).
+    result: Option<(bool, Vec<String>)>,
 }
 
 fn public_page(
@@ -782,6 +786,8 @@ fn public_page(
         https_note,
         error,
         saved,
+        cf_ready: crate::public::Settings::from_env().is_some(),
+        result: None,
     }
 }
 
@@ -811,6 +817,53 @@ pub async fn public_submit(
     let error = crate::public::write(&apps.root.join(&name), &host).err();
     let saved = error.is_none();
     Ok(render(public_page(&apps, &name, host, error, saved)))
+}
+
+/// `POST /instances/{name}/public/publish`: wire the saved hostname to Cloudflare and
+/// show every step plus a clear success or failure line.
+pub async fn public_publish(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let dir = apps.root.join(&name);
+    let host = crate::public::read(&dir).unwrap_or_default();
+    let mut lines: Vec<String> = Vec::new();
+    let outcome: Result<(), String> = async {
+        if host.is_empty() {
+            return Err("save a hostname first".to_string());
+        }
+        let settings = crate::public::Settings::from_env().ok_or(
+            "Cloudflare is not connected: the server needs CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and DOCKWREN_TUNNEL_ID (see the guide below)",
+        )?;
+        let port = crate::public::web_port(&dir).ok_or("this app has no web port to publish")?;
+        crate::public::expose(
+            &settings,
+            &host,
+            &crate::public::service_url(port),
+            &[],
+            true,
+            &mut |s| lines.push(s.to_string()),
+        )
+        .await
+    }
+    .await;
+    let mut page = public_page(&apps, &name, host.clone(), None, false);
+    page.result = Some(match outcome {
+        Ok(()) => {
+            lines.push(format!("Published: https://{host}"));
+            (true, lines)
+        }
+        Err(e) => {
+            lines.push(e);
+            (false, lines)
+        }
+    });
+    Ok(render(page))
 }
 
 #[cfg(test)]
