@@ -1,0 +1,43 @@
+[app]
+id = "vaultwarden"
+name = "Vaultwarden"
+description = "Self-hosted password manager (Bitwarden compatible)"
+version = 1
+needs_public_https = true
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Name"
+type = "string"
+default = "vaultwarden"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+
+[[fields]]
+key = "PUBLIC_URL"
+label = "Public URL"
+type = "url"
+default = "http://127.0.0.1:${WEB_PORT}/"
+
+[[fields]]
+key = "SIGNUPS_ALLOWED"
+label = "Allow sign-ups"
+type = "bool"
+default = "true"
+
+[[services]]
+name = "vaultwarden"
+main = true
+health = { source = "image" }
+
+[backup]
+paths = ["data"]
+
+[update]
+image_pins = ["vaultwarden/server"]
+pre_update = ["backup"]

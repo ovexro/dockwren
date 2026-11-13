@@ -1,6 +1,8 @@
 mod auth;
 mod config;
 mod docker;
+#[allow(dead_code)]
+mod template;
 
 use std::sync::Arc;
 

@@ -1,0 +1,467 @@
+//! App templates: `apps/<id>/manifest.toml` + `compose.yaml`.
+//! Loading validates the manifest and lints the compose file (see the template spec).
+
+use std::collections::HashSet;
+use std::path::Path;
+
+use serde::Deserialize;
+
+const RESERVED_VARS: &[&str] = &["INSTANCE_NAME"];
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Manifest {
+    pub app: App,
+    #[serde(default)]
+    pub fields: Vec<Field>,
+    #[serde(default)]
+    pub secrets: Vec<Secret>,
+    #[serde(default)]
+    pub services: Vec<Service>,
+    #[serde(default)]
+    pub post_start: Vec<PostStart>,
+    #[serde(default)]
+    pub backup: Backup,
+    #[serde(default)]
+    pub update: Update,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct App {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub version: u32,
+    #[serde(default)]
+    pub homepage: Option<String>,
+    #[serde(default)]
+    pub needs_public_https: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FieldType {
+    String,
+    Password,
+    Int,
+    Bool,
+    Port,
+    Url,
+    Email,
+    Select,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Field {
+    pub key: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub kind: FieldType,
+    #[serde(default)]
+    pub default: Option<String>,
+    #[serde(default)]
+    pub pattern: Option<String>,
+    #[serde(default = "yes")]
+    pub required: bool,
+    #[serde(default)]
+    pub help: Option<String>,
+    #[serde(default)]
+    pub options: Vec<String>,
+    #[serde(default)]
+    pub min: Option<i64>,
+    #[serde(default)]
+    pub max: Option<i64>,
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Secret {
+    pub key: String,
+    pub kind: SecretKind,
+    #[serde(default = "default_len")]
+    pub length: usize,
+    #[serde(default)]
+    pub reveal: bool,
+}
+
+fn default_len() -> usize {
+    32
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SecretKind {
+    Password,
+    Hex,
+    Argon2,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Service {
+    pub name: String,
+    #[serde(default)]
+    pub main: bool,
+    pub health: Health,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "source", rename_all = "lowercase", deny_unknown_fields)]
+pub enum Health {
+    Image,
+    Panel {
+        test: Vec<String>,
+        #[serde(default)]
+        interval: Option<String>,
+        #[serde(default)]
+        start_period: Option<String>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PostStart {
+    pub name: String,
+    pub service: String,
+    pub run: Vec<String>,
+    #[serde(default)]
+    pub user: Option<String>,
+    #[serde(default)]
+    pub capture: Option<String>,
+    #[serde(default)]
+    pub only_if: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Backup {
+    #[serde(default)]
+    pub paths: Vec<String>,
+    #[serde(default)]
+    pub dumps: Vec<Dump>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Dump {
+    pub service: String,
+    pub run: Vec<String>,
+    pub output: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Update {
+    #[serde(default)]
+    pub image_pins: Vec<String>,
+    #[serde(default)]
+    pub pre_update: Vec<String>,
+    #[serde(default)]
+    pub pinned_major: Vec<String>,
+}
+
+#[derive(Debug)]
+pub struct Template {
+    pub manifest: Manifest,
+    pub compose: String,
+}
+
+/// Load and validate one template directory.
+pub fn load(dir: &Path) -> Result<Template, String> {
+    let read = |name: &str| {
+        std::fs::read_to_string(dir.join(name))
+            .map_err(|e| format!("{}: {name}: {e}", dir.display()))
+    };
+    let manifest: Manifest =
+        toml::from_str(&read("manifest.toml")?).map_err(|e| format!("manifest.toml: {e}"))?;
+    let compose = read("compose.yaml")?;
+    validate(&manifest, &compose)?;
+    Ok(Template { manifest, compose })
+}
+
+/// Load every template under `root` (one sub-directory each), sorted by id.
+pub fn load_all(root: &Path) -> Result<Vec<Template>, String> {
+    let mut out = Vec::new();
+    let entries = std::fs::read_dir(root).map_err(|e| format!("{}: {e}", root.display()))?;
+    for entry in entries {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        if path.is_dir() {
+            out.push(load(&path)?);
+        }
+    }
+    out.sort_by(|a, b| a.manifest.app.id.cmp(&b.manifest.app.id));
+    Ok(out)
+}
+
+/// All `${NAME}` references in `text`.
+fn var_refs(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(i) = rest.find("${") {
+        rest = &rest[i + 2..];
+        if let Some(j) = rest.find('}') {
+            out.push(&rest[..j]);
+            rest = &rest[j + 1..];
+        }
+    }
+    out
+}
+
+fn valid_key(k: &str) -> bool {
+    !k.is_empty()
+        && k.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+        && !k.starts_with(|c: char| c.is_ascii_digit())
+}
+
+pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
+    let id = &m.app.id;
+    if id.is_empty()
+        || !id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err(format!("app.id {id:?} must match [a-z0-9-]+"));
+    }
+
+    // Names of every variable a template may reference, in definition order.
+    let mut known: HashSet<&str> = RESERVED_VARS.iter().copied().collect();
+    for f in &m.fields {
+        if !valid_key(&f.key) {
+            return Err(format!("field key {:?} must be UPPER_SNAKE_CASE", f.key));
+        }
+        if let Some(d) = &f.default {
+            for r in var_refs(d) {
+                if !known.contains(r) {
+                    return Err(format!("field {}: default uses unknown or later variable ${{{r}}}", f.key));
+                }
+            }
+        }
+        if f.kind == FieldType::Select && f.options.is_empty() {
+            return Err(format!("field {}: select needs options", f.key));
+        }
+        if f.pattern.is_some() && !matches!(f.kind, FieldType::String | FieldType::Password) {
+            return Err(format!("field {}: pattern only applies to string/password", f.key));
+        }
+        // A field may define a reserved variable (the form input for it).
+        if !known.insert(&f.key) && !RESERVED_VARS.contains(&f.key.as_str()) {
+            return Err(format!("duplicate variable {}", f.key));
+        }
+    }
+    for s in &m.secrets {
+        if !valid_key(&s.key) {
+            return Err(format!("secret key {:?} must be UPPER_SNAKE_CASE", s.key));
+        }
+        if s.length < 16 {
+            return Err(format!("secret {}: length must be at least 16", s.key));
+        }
+        if !known.insert(&s.key) {
+            return Err(format!("duplicate variable {}", s.key));
+        }
+    }
+
+    // Services: unique names, exactly one main, panel health needs a test.
+    let mut names = HashSet::new();
+    for s in &m.services {
+        if !names.insert(s.name.as_str()) {
+            return Err(format!("duplicate service {}", s.name));
+        }
+        if let Health::Panel { test, .. } = &s.health
+            && test.is_empty()
+        {
+            return Err(format!("service {}: empty health test", s.name));
+        }
+    }
+    if m.services.iter().filter(|s| s.main).count() != 1 {
+        return Err("exactly one service must have main = true".into());
+    }
+    for h in &m.post_start {
+        if !names.contains(h.service.as_str()) {
+            return Err(format!("post_start {}: unknown service {}", h.name, h.service));
+        }
+    }
+    for d in &m.backup.dumps {
+        if !names.contains(d.service.as_str()) {
+            return Err(format!("backup dump: unknown service {}", d.service));
+        }
+    }
+    for p in &m.backup.paths {
+        if p.starts_with('/') || p.split('/').any(|c| c == "..") {
+            return Err(format!("backup path {p:?} must be relative and inside the instance"));
+        }
+    }
+
+    // Variable references in post_start commands and health tests.
+    let mut texts: Vec<&str> = Vec::new();
+    for h in &m.post_start {
+        texts.extend(h.run.iter().map(String::as_str));
+    }
+    for s in &m.services {
+        if let Health::Panel { test, .. } = &s.health {
+            texts.extend(test.iter().map(String::as_str));
+        }
+    }
+    for t in texts {
+        for r in var_refs(t) {
+            if !known.contains(r) {
+                return Err(format!("unknown variable ${{{r}}} in manifest command"));
+            }
+        }
+    }
+
+    lint_compose(compose, &known, &names)
+}
+
+/// Line-based checks on the compose file. Not a YAML parser: the full structure
+/// is validated later by `docker compose config`; this rejects the dangerous
+/// and sloppy patterns early.
+fn lint_compose(compose: &str, known: &HashSet<&str>, services: &HashSet<&str>) -> Result<(), String> {
+    for r in var_refs(compose) {
+        let name = r.split([':', '-', '?', '+']).next().unwrap_or(r);
+        if !known.contains(name) {
+            return Err(format!("compose.yaml: unknown variable ${{{r}}}"));
+        }
+    }
+    let mut in_ports = false;
+    let mut in_volumes = false;
+    let mut compose_services = HashSet::new();
+    for (n, raw) in compose.lines().enumerate() {
+        let line = raw.trim();
+        let at = |msg: &str| format!("compose.yaml:{}: {msg}", n + 1);
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        // Two-space-indented keys under `services:` are service names.
+        if raw.starts_with("  ") && !raw.starts_with("   ") && line.ends_with(':') {
+            compose_services.insert(line.trim_end_matches(':').to_string());
+        }
+        for bad in ["privileged:", "network_mode:", "docker.sock", "pid: host", "cap_add:"] {
+            if line.contains(bad) {
+                return Err(at(&format!("{bad:?} is not allowed in templates")));
+            }
+        }
+        if let Some(img) = line.strip_prefix("image:") {
+            let img = img.trim();
+            let tag = img.rsplit('/').next().unwrap_or(img).split_once(':').map(|(_, t)| t);
+            if matches!(tag, None | Some("latest")) {
+                return Err(at(&format!("image {img:?} must have a pinned tag (not latest)")));
+            }
+        }
+        if line == "ports:" {
+            in_ports = true;
+            in_volumes = false;
+            continue;
+        }
+        if line == "volumes:" {
+            in_volumes = true;
+            in_ports = false;
+            continue;
+        }
+        if let Some(item) = line.strip_prefix("- ") {
+            let item = item.trim().trim_matches('"').trim_matches('\'');
+            if in_ports && !item.starts_with("127.0.0.1:") {
+                return Err(at("published ports must bind 127.0.0.1"));
+            }
+            if in_volumes {
+                let src = item.split(':').next().unwrap_or("");
+                if src.starts_with('/') || src.starts_with('~') || src.contains("..") {
+                    return Err(at("bind mounts must be relative to the instance dir"));
+                }
+            }
+        } else {
+            in_ports = false;
+            in_volumes = false;
+        }
+        // Literal credentials: any `*PASSWORD*`/`*SECRET*`/`*TOKEN*` env value must be a ${VAR}.
+        if let Some((k, v)) = line.split_once(':') {
+            let ku = k.to_ascii_uppercase();
+            let v = v.trim().trim_matches('"');
+            if (ku.contains("PASSWORD") || ku.contains("PASSWD") || ku.contains("SECRET") || ku.contains("TOKEN"))
+                && !v.is_empty()
+                && !v.starts_with("${")
+            {
+                return Err(at("secret-looking values must come from ${VAR}"));
+            }
+        }
+    }
+    for s in services {
+        if !compose_services.contains(*s) {
+            return Err(format!("manifest service {s} is not defined in compose.yaml"));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn apps() -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("apps")
+    }
+
+    #[test]
+    fn bundled_templates_load() {
+        let all = load_all(&apps()).expect("bundled templates are valid");
+        let ids: Vec<_> = all.iter().map(|t| t.manifest.app.id.as_str()).collect();
+        assert_eq!(ids, ["gitea", "vaultwarden"]);
+    }
+
+    fn manifest(extra: &str) -> Manifest {
+        toml::from_str(&format!(
+            "[app]\nid=\"x\"\nname=\"X\"\nversion=1\n[[services]]\nname=\"web\"\nmain=true\nhealth={{source=\"image\"}}\n{extra}"
+        ))
+        .unwrap()
+    }
+
+    const OK: &str = "services:\n  web:\n    image: nginx:1.27\n    ports:\n      - \"127.0.0.1:8080:80\"\n";
+
+    #[test]
+    fn minimal_template_is_valid() {
+        assert_eq!(validate(&manifest(""), OK), Ok(()));
+    }
+
+    #[test]
+    fn rejects_unpinned_images() {
+        for img in ["nginx", "nginx:latest"] {
+            let c = OK.replace("nginx:1.27", img);
+            assert!(validate(&manifest(""), &c).unwrap_err().contains("pinned"), "{img}");
+        }
+    }
+
+    #[test]
+    fn rejects_public_ports_and_dangerous_options() {
+        let m = manifest("");
+        let cases = [
+            OK.replace("127.0.0.1:8080:80", "8080:80"),
+            OK.replace("    ports:", "    privileged: true\n    ports:"),
+            OK.replace("    ports:", "    network_mode: host\n    ports:"),
+            format!("{OK}    volumes:\n      - /var/run/docker.sock:/s\n"),
+            format!("{OK}    volumes:\n      - /home:/h\n"),
+            format!("{OK}    environment:\n      DB_PASSWORD: hunter2\n"),
+        ];
+        for c in cases {
+            assert!(validate(&m, &c).is_err(), "should reject:\n{c}");
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_variables_and_services() {
+        let c = format!("{OK}    environment:\n      A: ${{NOPE}}\n");
+        assert!(validate(&manifest(""), &c).unwrap_err().contains("NOPE"));
+        let m = manifest("[[post_start]]\nname=\"p\"\nservice=\"ghost\"\nrun=[\"true\"]\n");
+        assert!(validate(&m, OK).unwrap_err().contains("ghost"));
+    }
+
+    #[test]
+    fn rejects_bad_backup_paths_and_short_secrets() {
+        let m = manifest("[backup]\npaths=[\"../etc\"]\n");
+        assert!(validate(&m, OK).is_err());
+        let m = manifest("[[secrets]]\nkey=\"S\"\nkind=\"password\"\nlength=8\n");
+        assert!(validate(&m, OK).is_err());
+    }
+}

@@ -1,0 +1,76 @@
+[app]
+id = "gitea"
+name = "Gitea"
+description = "Self-hosted Git service"
+version = 1
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Name"
+type = "string"
+default = "gitea"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+
+[[fields]]
+key = "SSH_PORT"
+label = "Git SSH port"
+type = "port"
+default = "auto"
+
+[[fields]]
+key = "PUBLIC_URL"
+label = "Public URL"
+type = "url"
+default = "http://127.0.0.1:${WEB_PORT}/"
+
+[[fields]]
+key = "ADMIN_USER"
+label = "Admin user"
+type = "string"
+default = "admin"
+pattern = "^[a-z][a-z0-9_-]{2,30}$"
+
+[[fields]]
+key = "ADMIN_EMAIL"
+label = "Admin e-mail"
+type = "email"
+
+[[secrets]]
+key = "POSTGRES_PASSWORD"
+kind = "password"
+length = 32
+
+[[services]]
+name = "db"
+health = { source = "image" }
+
+[[services]]
+name = "gitea"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/healthz | grep -q pass"], interval = "15s", start_period = "60s" }
+
+[[post_start]]
+name = "create-admin"
+service = "gitea"
+run = ["gitea", "admin", "user", "create", "--admin", "--username", "${ADMIN_USER}", "--email", "${ADMIN_EMAIL}", "--random-password"]
+user = "git"
+capture = "password"
+
+[backup]
+paths = ["data"]
+[[backup.dumps]]
+service = "db"
+run = ["pg_dump", "-U", "gitea", "gitea"]
+output = "db.sql"
+
+[update]
+image_pins = ["gitea/gitea", "postgres"]
+pre_update = ["backup"]
+pinned_major = ["postgres"]
