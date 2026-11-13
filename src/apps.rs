@@ -85,7 +85,7 @@ struct AppView {
 }
 
 #[derive(Template)]
-#[template(path = "apps.html")]
+#[template(path = "catalog.html")]
 struct AppsPage {
     apps: Vec<AppView>,
 }

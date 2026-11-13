@@ -170,10 +170,37 @@ async fn htmx_js() -> impl IntoResponse {
 }
 
 #[derive(Template)]
-#[template(path = "index.html")]
-struct IndexTemplate {
+#[template(path = "page.html")]
+struct PageTemplate {
+    title: &'static str,
+    active: &'static str,
+    nav: &'static [(&'static str, &'static str, &'static str)],
     version: &'static str,
     assets: String,
+}
+
+/// (href, key, label) of the sidebar entries.
+const NAV: [(&str, &str, &str); 5] = [
+    ("/", "overview", "Overview"),
+    ("/apps", "apps", "Apps"),
+    ("/containers", "containers", "Containers"),
+    ("/resources", "resources", "Resources"),
+    ("/settings", "settings", "Settings"),
+];
+
+fn page(active: &'static str) -> Html<String> {
+    let title = NAV
+        .iter()
+        .find(|n| n.1 == active)
+        .map_or("Dockwren", |n| n.2);
+    let page = PageTemplate {
+        title,
+        active,
+        nav: &NAV,
+        version: env!("CARGO_PKG_VERSION"),
+        assets: asset_version(),
+    };
+    Html(page.render().expect("page template renders"))
 }
 
 async fn health() -> &'static str {
@@ -181,11 +208,19 @@ async fn health() -> &'static str {
 }
 
 async fn index() -> Html<String> {
-    let page = IndexTemplate {
-        version: env!("CARGO_PKG_VERSION"),
-        assets: asset_version(),
-    };
-    Html(page.render().expect("index template renders"))
+    page("overview")
+}
+async fn apps_page() -> Html<String> {
+    page("apps")
+}
+async fn containers_page() -> Html<String> {
+    page("containers")
+}
+async fn resources_page() -> Html<String> {
+    page("resources")
+}
+async fn settings_page() -> Html<String> {
+    page("settings")
 }
 
 fn app(
@@ -197,15 +232,19 @@ fn app(
     let protected = Router::new()
         .route("/", get(index))
         .route("/metrics", get(metrics::page))
-        .route("/containers", get(containers))
+        .route("/apps", get(apps_page))
+        .route("/containers", get(containers_page))
+        .route("/resources", get(resources_page))
+        .route("/settings", get(settings_page))
+        .route("/containers/list", get(containers))
         .route("/containers/{id}/{action}", post(container_action))
         .route("/containers/{id}/logs", get(container_logs))
         .route("/logs/close", get(close_logs))
-        .route("/apps", get(apps::list))
+        .route("/catalog", get(apps::list))
         .route("/apps/{id}/new", get(apps::new_form))
         .route("/apps/{id}/install", post(apps::install_submit))
         .route("/jobs/{id}", get(apps::job))
-        .route("/instances", get(apps::instances))
+        .route("/instances/list", get(apps::instances))
         .route("/instances/{name}/remove", post(apps::instance_remove))
         .route("/instances/{name}/update", post(apps::instance_update))
         .route(
@@ -905,12 +944,45 @@ mod tests {
 
     #[tokio::test]
     async fn containers_and_assets_require_session() {
-        for path in ["/containers", "/static/htmx.min.js"] {
+        for path in [
+            "/containers",
+            "/containers/list",
+            "/resources",
+            "/settings",
+            "/static/htmx.min.js",
+        ] {
             let res = test_app()
                 .oneshot(Request::get(path).body(Body::empty()).unwrap())
                 .await
                 .unwrap();
             assert_eq!(res.status(), StatusCode::SEE_OTHER, "{path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn every_page_renders_with_its_nav_entry_active() {
+        let app = test_app();
+        let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+        for (path, title) in [
+            ("/", "Overview"),
+            ("/apps", "Apps"),
+            ("/containers", "Containers"),
+            ("/resources", "Resources"),
+            ("/settings", "Settings"),
+        ] {
+            let req = Request::get(path)
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap();
+            let res = app.clone().oneshot(req).await.unwrap();
+            assert_eq!(res.status(), StatusCode::OK, "{path}");
+            let html = body_of(res).await;
+            assert!(html.contains(&format!("<h1>{title}</h1>")), "{path}");
+            assert_eq!(html.matches("aria-current=\"page\"").count(), 1, "{path}");
+            assert!(
+                html.contains(&format!("href=\"{path}\" aria-current")),
+                "{path}"
+            );
         }
     }
 
@@ -921,7 +993,7 @@ mod tests {
         let cookie = cookie_of(&res);
         let res = app
             .oneshot(
-                Request::get("/containers")
+                Request::get("/containers/list")
                     .header(header::COOKIE, &cookie)
                     .body(Body::empty())
                     .unwrap(),
@@ -953,10 +1025,11 @@ mod tests {
     async fn app_routes_need_a_session() {
         for (method, uri) in [
             ("GET", "/apps"),
+            ("GET", "/catalog"),
             ("GET", "/apps/gitea/new"),
             ("POST", "/apps/gitea/install"),
             ("GET", "/jobs/x"),
-            ("GET", "/instances"),
+            ("GET", "/instances/list"),
             ("POST", "/instances/gt/remove"),
             ("POST", "/instances/gt/update"),
             ("GET", "/instances/gt/public"),
@@ -1000,7 +1073,7 @@ mod tests {
             r.body(Body::from(body.to_string())).unwrap()
         };
 
-        let res = app.clone().oneshot(get("/apps")).await.unwrap();
+        let res = app.clone().oneshot(get("/catalog")).await.unwrap();
         let html = body_of(res).await;
         assert!(html.contains("Gitea") && html.contains("Vaultwarden"));
 
@@ -1046,7 +1119,7 @@ mod tests {
         assert!(html.contains("not-an-email"), "entered values are kept");
         assert!(!std::env::temp_dir().join("dockwren-test-none").exists());
 
-        let res = app.clone().oneshot(get("/instances")).await.unwrap();
+        let res = app.clone().oneshot(get("/instances/list")).await.unwrap();
         assert!(body_of(res).await.contains("No apps installed"));
         let res = app
             .clone()
