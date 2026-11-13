@@ -774,6 +774,108 @@ fn build(m: &Metrics, now: u64, range: &str, fresh: bool) -> MetricsTemplate {
     }
 }
 
+/// One tile of the Overview page: a headline number linking to its detail page.
+pub struct Tile {
+    pub title: &'static str,
+    pub value: String,
+    pub detail: String,
+    pub warn: bool,
+}
+
+/// CPU, memory, network and the fullest disk, from the latest sample.
+pub fn tiles(m: &Metrics) -> Vec<Tile> {
+    let Some(s) = m.samples.back() else {
+        return Vec::new();
+    };
+    let mut out = vec![
+        Tile {
+            title: "CPU",
+            value: format!("{:.0}%", s.cpu),
+            detail: "now".into(),
+            warn: false,
+        },
+        Tile {
+            title: "Memory",
+            value: format!("{:.0}%", s.mem),
+            detail: format!(
+                "{} of {}",
+                fmt_bytes(m.mem_used as f64),
+                fmt_bytes(m.mem_total as f64)
+            ),
+            warn: false,
+        },
+        Tile {
+            title: "Network",
+            value: format!("{}/s", fmt_bytes(s.rx)),
+            detail: format!("in, out {}/s", fmt_bytes(s.tx)),
+            warn: false,
+        },
+    ];
+    let worst = m
+        .disks
+        .iter()
+        .filter(|d| d.total > 0)
+        .map(|d| (d, d.used as f64 / d.total as f64 * 100.0))
+        .max_by(|a, b| a.1.total_cmp(&b.1));
+    if let Some((d, pct)) = worst {
+        out.push(Tile {
+            title: "Disk",
+            value: format!("{pct:.0}%"),
+            detail: format!(
+                "{} · {} free",
+                d.label,
+                fmt_bytes((d.total - d.used) as f64)
+            ),
+            warn: pct >= DISK_WARN_PCT,
+        });
+    }
+    out
+}
+
+#[derive(Template)]
+#[template(path = "overview.html")]
+pub struct OverviewTemplate {
+    pub tiles: Vec<Tile>,
+    pub running: usize,
+    pub total: usize,
+    pub warnings: Vec<String>,
+    pub docker_error: Option<String>,
+}
+
+pub fn overview(
+    m: &Metrics,
+    containers: Result<&[(String, String, String)], String>,
+) -> OverviewTemplate {
+    let tiles = tiles(m);
+    let mut warnings: Vec<String> = tiles
+        .iter()
+        .filter(|t| t.warn)
+        .map(|t| format!("{} is almost full ({}, {})", t.title, t.value, t.detail))
+        .collect();
+    let (mut running, mut total, mut docker_error) = (0, 0, None);
+    match containers {
+        Ok(list) => {
+            total = list.len();
+            for (name, state, status) in list {
+                if state == "running" {
+                    running += 1;
+                }
+                if status.contains("unhealthy") {
+                    warnings.push(format!("{name} is unhealthy"));
+                }
+            }
+        }
+        Err(e) => docker_error = Some(format!("Docker is not reachable: {e}")),
+    }
+    OverviewTemplate {
+        tiles,
+        running,
+        total,
+        warnings,
+        docker_error,
+    }
+}
+
 #[derive(Template)]
 #[template(path = "container_graphs.html")]
 struct ContainerGraphsTemplate {
@@ -860,6 +962,45 @@ pub async fn page(State(shared): State<Shared>, Query(q): Query<RangeQuery>) -> 
 #[cfg(test)]
 mod page_tests {
     use super::*;
+
+    #[test]
+    fn overview_shows_tiles_and_warnings() {
+        let mut m = Metrics::default();
+        assert!(overview(&m, Ok(&[])).tiles.is_empty());
+        m.samples.push_back(Sample {
+            t: 1,
+            cpu: 12.0,
+            mem: 40.0,
+            rx: 10.0,
+            tx: 5.0,
+        });
+        m.disks.push(DiskSeries {
+            label: "/".into(),
+            fs: "x".into(),
+            total: 100 << 30,
+            used: 90 << 30,
+            pct: VecDeque::new(),
+        });
+        let list = [
+            (
+                "a".to_string(),
+                "running".to_string(),
+                "Up 1 hour (unhealthy)".to_string(),
+            ),
+            ("b".to_string(), "exited".to_string(), "Exited".to_string()),
+        ];
+        let o = overview(&m, Ok(&list));
+        assert_eq!((o.tiles.len(), o.running, o.total), (4, 1, 2));
+        assert_eq!(o.warnings.len(), 2);
+        let html = o.render().unwrap();
+        assert!(html.contains("12%") && html.contains("a is unhealthy"));
+        assert!(
+            overview(&m, Err("boom".into()))
+                .render()
+                .unwrap()
+                .contains("boom")
+        );
+    }
 
     fn sample(t: u64, cpu: f64) -> Sample {
         Sample {

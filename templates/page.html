@@ -18,7 +18,7 @@
   <main>
     <h1>{{ title }}</h1>
     {% if active == "overview" %}
-    <div id="metrics" hx-get="/metrics" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    <div id="overview" hx-get="/overview" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     {% else if active == "apps" %}
     <h2>Installed apps</h2>
     <div id="instances" hx-get="/instances/list" hx-trigger="load, every 10s" hx-swap="innerHTML">Loading…</div>

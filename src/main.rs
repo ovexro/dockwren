@@ -207,6 +207,17 @@ async fn health() -> &'static str {
     "ok"
 }
 
+async fn overview(State(state): State<AppState>) -> Html<String> {
+    let list = state.docker.containers().await.map_err(|e| e.to_string());
+    let rows: Result<Vec<(String, String, String)>, String> =
+        list.map(|l| l.into_iter().map(|c| (c.name, c.state, c.status)).collect());
+    let page = metrics::overview(
+        &state.metrics.lock().unwrap(),
+        rows.as_ref().map(|v| v.as_slice()).map_err(|e| e.clone()),
+    );
+    Html(page.render().expect("overview template renders"))
+}
+
 async fn index() -> Html<String> {
     page("overview")
 }
@@ -236,6 +247,7 @@ fn app(
         .route("/containers", get(containers_page))
         .route("/resources", get(resources_page))
         .route("/settings", get(settings_page))
+        .route("/overview", get(overview))
         .route("/containers/list", get(containers))
         .route("/containers/{id}/{action}", post(container_action))
         .route("/containers/{id}/logs", get(container_logs))
@@ -948,6 +960,7 @@ mod tests {
         for path in [
             "/containers",
             "/containers/list",
+            "/overview",
             "/containers/web/graphs",
             "/resources",
             "/settings",

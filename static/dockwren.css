@@ -113,6 +113,14 @@ form[action="/logout"] { margin-top: .75rem; }
 .chart polyline { stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 .chart .axis { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .chart.warn { border-color: var(--bad); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .75rem; margin: .75rem 0 1rem; }
+.tile { display: flex; flex-direction: column; gap: .15rem; min-width: 0; padding: .75rem 1rem; color: var(--text); text-decoration: none;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.tile:hover { border-color: var(--accent); }
+.tile strong { font-size: 1.6rem; font-weight: 600; }
+.tile small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile.warn { border-color: var(--bad); }
+.warnings { list-style: none; margin: .75rem 0; padding: .6rem .9rem; border: 1px solid var(--bad); border-radius: 8px; color: var(--bad); }
 .clist { display: grid; gap: .5rem; }
 .crow { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
 .crow summary { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .75rem; padding: .6rem .75rem; cursor: pointer; }
