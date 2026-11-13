@@ -11,4 +11,9 @@
     <button class="danger" type="submit">Restore selected snapshot</button>
   </form>
   {% endif %}
+  {% if leftovers > 0 %}
+  <p>{{ leftovers }} old copy folder(s) from earlier restores take up disk space.</p>
+  <button hx-post="/instances/{{ instance }}/cleanup" hx-target="#install" hx-swap="innerHTML"
+          hx-confirm="Permanently delete the old copies kept aside by earlier restores of {{ instance }}? Snapshots are not touched.">Delete old copies</button>
+  {% endif %}
 </div>

@@ -350,9 +350,9 @@ fn is_restore_leftover(n: &str) -> bool {
 
 /// Delete the `*.pre-restore-*` / `*.failed-restore-*` directories `restore` leaves in the
 /// instance dir (they are root-owned, so a throwaway container removes them). Returns the names removed.
-pub async fn cleanup_restore_leftovers(inst: &Instance, log: &mut (dyn FnMut(&str) + Send)) -> Result<Vec<String>, String> {
-    let dir = std::fs::canonicalize(&inst.dir).map_err(|e| format!("{}: {e}", inst.dir.display()))?;
-    let mut names: Vec<String> = std::fs::read_dir(&dir)
+/// Names of the restore leftovers in an instance dir, sorted.
+pub fn restore_leftover_names(dir: &Path) -> Result<Vec<String>, String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
@@ -360,6 +360,12 @@ pub async fn cleanup_restore_leftovers(inst: &Instance, log: &mut (dyn FnMut(&st
         .filter(|n| is_restore_leftover(n))
         .collect();
     names.sort();
+    Ok(names)
+}
+
+pub async fn cleanup_restore_leftovers(inst: &Instance, log: &mut (dyn FnMut(&str) + Send)) -> Result<Vec<String>, String> {
+    let dir = std::fs::canonicalize(&inst.dir).map_err(|e| format!("{}: {e}", inst.dir.display()))?;
+    let names = restore_leftover_names(&dir)?;
     if names.is_empty() {
         return Ok(names);
     }

@@ -173,6 +173,7 @@ fn app(auth: SharedAuth, docker: DockerClient, apps: apps::Apps) -> Router {
         .route("/instances/{name}/update", post(apps::instance_update))
         .route("/instances/{name}/public", get(apps::public_form).post(apps::public_submit))
         .route("/instances/{name}/restore", get(apps::restore_form).post(apps::restore_submit))
+        .route("/instances/{name}/cleanup", post(apps::cleanup_submit))
         .route("/static/htmx.min.js", get(htmx_js))
         .route("/logout", post(auth::logout))
         .route_layer(from_fn_with_state(auth.clone(), auth::require_session));
@@ -778,6 +779,7 @@ mod tests {
             ("POST", "/instances/gt/public"),
             ("GET", "/instances/gt/restore"),
             ("POST", "/instances/gt/restore"),
+            ("POST", "/instances/gt/cleanup"),
         ] {
             let res = test_app()
                 .oneshot(Request::builder().method(method).uri(uri).body(Body::empty()).unwrap())

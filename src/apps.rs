@@ -480,6 +480,7 @@ struct SnapshotView {
 struct RestorePage {
     instance: String,
     snapshots: Vec<SnapshotView>,
+    leftovers: usize,
 }
 
 fn known_instance(apps: &Apps, name: &str) -> Result<(), StatusCode> {
@@ -502,7 +503,8 @@ pub async fn restore_form(State(apps): State<Apps>, Path(name): Path<String>) ->
             Some(SnapshotView { name: n, when })
         })
         .collect();
-    Ok(render(RestorePage { instance: name, snapshots }))
+    let leftovers = crate::backup::restore_leftover_names(&apps.root.join(&name)).map(|v| v.len()).unwrap_or(0);
+    Ok(render(RestorePage { instance: name, snapshots, leftovers }))
 }
 
 /// Start a restore job. A safety snapshot is always taken first and current
@@ -546,6 +548,32 @@ pub async fn restore_submit(
         task_apps.with_job(&task_id, |j| match result {
             Ok(p) => {
                 j.log.push(format!("restored from {}", p.display()));
+                j.state = JobState::Done;
+            }
+            Err(e) => j.state = JobState::Failed(e),
+        });
+    });
+    job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// Start a job that deletes the `.pre-restore-*` / `.failed-restore-*` copies a restore leaves behind.
+pub async fn cleanup_submit(State(apps): State<Apps>, headers: HeaderMap, Path(name): Path<String>) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let job_id = new_job(&apps, &name, "Cleaning up")?;
+    let task_apps = apps.clone();
+    let task_id = job_id.clone();
+    tokio::spawn(async move {
+        let inst = runner::Instance { name: name.clone(), dir: task_apps.root.join(&name) };
+        let result = crate::backup::cleanup_restore_leftovers(&inst, &mut |s| {
+            task_apps.with_job(&task_id, |j| j.log.push(s.to_string()));
+        })
+        .await;
+        task_apps.with_job(&task_id, |j| match result {
+            Ok(v) => {
+                j.log.push(format!("removed {} leftover folder(s)", v.len()));
                 j.state = JobState::Done;
             }
             Err(e) => j.state = JobState::Failed(e),
