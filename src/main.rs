@@ -170,6 +170,7 @@ fn app(auth: SharedAuth, docker: DockerClient, apps: apps::Apps) -> Router {
         .route("/instances", get(apps::instances))
         .route("/instances/{name}/remove", post(apps::instance_remove))
         .route("/instances/{name}/update", post(apps::instance_update))
+        .route("/instances/{name}/restore", get(apps::restore_form).post(apps::restore_submit))
         .route("/static/htmx.min.js", get(htmx_js))
         .route("/logout", post(auth::logout))
         .route_layer(from_fn_with_state(auth.clone(), auth::require_session));
@@ -665,6 +666,8 @@ mod tests {
             ("GET", "/instances"),
             ("POST", "/instances/gt/remove"),
             ("POST", "/instances/gt/update"),
+            ("GET", "/instances/gt/restore"),
+            ("POST", "/instances/gt/restore"),
         ] {
             let res = test_app()
                 .oneshot(Request::builder().method(method).uri(uri).body(Body::empty()).unwrap())
@@ -731,7 +734,11 @@ mod tests {
         assert!(body_of(res).await.contains("No apps installed"));
         let res = app.clone().oneshot(post("/instances/..%2Fx/remove", None, "")).await.unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
-        let res = app.oneshot(post("/instances/ghost/remove", None, "")).await.unwrap();
+        let res = app.clone().oneshot(post("/instances/ghost/remove", None, "")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        let res = app.clone().oneshot(get("/instances/ghost/restore")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        let res = app.oneshot(post("/instances/ghost/restore", None, "snapshot=1")).await.unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 }

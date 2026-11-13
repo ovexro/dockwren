@@ -42,6 +42,10 @@ impl Apps {
         self.templates.iter().find(|t| t.manifest.app.id == id)
     }
 
+    fn backups_root(&self) -> PathBuf {
+        self.root.parent().map(|d| d.join("backups")).unwrap_or_else(|| self.root.join("backups"))
+    }
+
     fn with_job<R>(&self, id: &str, f: impl FnOnce(&mut Job) -> R) -> Option<R> {
         let mut jobs = self.jobs.lock().unwrap();
         jobs.iter_mut().find(|(j, _)| j == id).map(|(_, job)| f(job))
@@ -123,6 +127,7 @@ struct InstanceView {
     status: String,
     /// "1 → 2" when the bundled template is newer than the instance.
     update: Option<String>,
+    snapshots: usize,
 }
 
 #[derive(Template)]
@@ -351,7 +356,8 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             .template(&state.template)
             .filter(|t| t.manifest.app.version > state.version)
             .map(|t| format!("{} → {}", state.version, t.manifest.app.version));
-        out.push(InstanceView { name, app: state.template, ports: instance_ports(&dir), status, update });
+        let snapshots = crate::backup::list(&apps.backups_root(), &name).len();
+out.push(InstanceView { name, app: state.template, ports: instance_ports(&dir), status, update, snapshots });
     }
     out
 }
@@ -396,33 +402,11 @@ pub async fn instance_update(
     if !runner::valid_name(&name) || !apps.root.join(&name).join("state.toml").is_file() {
         return Err(StatusCode::NOT_FOUND);
     }
-    let job_id = crate::auth::generate_password();
-    {
-        let mut jobs = apps.jobs.lock().unwrap();
-        if jobs.iter().any(|(_, j)| j.instance == name && j.state == JobState::Running) {
-            return Err(StatusCode::CONFLICT);
-        }
-        if jobs.len() >= KEEP_JOBS
-            && let Some(i) = jobs.iter().position(|(_, j)| j.state != JobState::Running)
-        {
-            jobs.remove(i);
-        }
-        jobs.push((
-            job_id.clone(),
-            Job {
-                instance: name.clone(),
-                verb: "Updating",
-                log: Vec::new(),
-                state: JobState::Running,
-                secrets: Vec::new(),
-                ports: Vec::new(),
-            },
-        ));
-    }
+    let job_id = new_job(&apps, &name, "Updating")?;
     let task_apps = apps.clone();
     let task_id = job_id.clone();
     tokio::spawn(async move {
-        let backups = task_apps.root.parent().map(|d| d.join("backups")).unwrap_or_else(|| task_apps.root.join("backups"));
+        let backups = task_apps.backups_root();
         let result = crate::update::update_instance(&task_apps.root, &backups, &task_apps.templates, &name, &mut |s| {
             task_apps.with_job(&task_id, |j| j.log.push(s.to_string()));
         })
@@ -440,4 +424,143 @@ pub async fn instance_update(
         });
     });
     job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// Register a running job for `name`; CONFLICT if one is already running for it.
+fn new_job(apps: &Apps, name: &str, verb: &'static str) -> Result<String, StatusCode> {
+    let job_id = crate::auth::generate_password();
+    let mut jobs = apps.jobs.lock().unwrap();
+    if jobs.iter().any(|(_, j)| j.instance == name && j.state == JobState::Running) {
+        return Err(StatusCode::CONFLICT);
+    }
+    if jobs.len() >= KEEP_JOBS
+        && let Some(i) = jobs.iter().position(|(_, j)| j.state != JobState::Running)
+    {
+        jobs.remove(i);
+    }
+    jobs.push((
+        job_id.clone(),
+        Job {
+            instance: name.to_string(),
+            verb,
+            log: Vec::new(),
+            state: JobState::Running,
+            secrets: Vec::new(),
+            ports: Vec::new(),
+        },
+    ));
+    Ok(job_id)
+}
+
+/// "2026-11-13 15:11 UTC" from epoch seconds (no time crate needed).
+fn utc_stamp(epoch: u64) -> String {
+    let days = (epoch / 86400) as i64;
+    let rem = epoch % 86400;
+    // civil-from-days (Howard Hinnant)
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02} {:02}:{:02} UTC", rem / 3600, rem % 3600 / 60)
+}
+
+struct SnapshotView {
+    name: String,
+    when: String,
+}
+
+#[derive(Template)]
+#[template(path = "restore.html")]
+struct RestorePage {
+    instance: String,
+    snapshots: Vec<SnapshotView>,
+}
+
+fn known_instance(apps: &Apps, name: &str) -> Result<(), StatusCode> {
+    if runner::valid_name(name) && apps.root.join(name).join("state.toml").is_file() {
+        Ok(())
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+/// Form listing the snapshots of an instance (newest first, newest preselected).
+pub async fn restore_form(State(apps): State<Apps>, Path(name): Path<String>) -> Result<Html<String>, StatusCode> {
+    known_instance(&apps, &name)?;
+    let snapshots = crate::backup::list(&apps.backups_root(), &name)
+        .iter()
+        .rev()
+        .filter_map(|p| {
+            let n = p.file_name()?.to_str()?.to_string();
+            let when = utc_stamp(n.parse().ok()?);
+            Some(SnapshotView { name: n, when })
+        })
+        .collect();
+    Ok(render(RestorePage { instance: name, snapshots }))
+}
+
+/// Start a restore job. A safety snapshot is always taken first and current
+/// data is moved aside, never deleted.
+pub async fn restore_submit(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Form(values): Form<HashMap<String, String>>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let snap = values.get("snapshot").cloned().ok_or(StatusCode::BAD_REQUEST)?;
+    let state: InstanceState = std::fs::read_to_string(apps.root.join(&name).join("state.toml"))
+        .ok()
+        .and_then(|s| toml::from_str(&s).ok())
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let t_idx = apps
+        .templates
+        .iter()
+        .position(|t| t.manifest.app.id == state.template)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let job_id = new_job(&apps, &name, "Restoring")?;
+    let task_apps = apps.clone();
+    let task_id = job_id.clone();
+    tokio::spawn(async move {
+        let inst = runner::Instance { name: name.clone(), dir: task_apps.root.join(&name) };
+        let result = crate::backup::restore(
+            &task_apps.backups_root(),
+            &inst,
+            &task_apps.templates[t_idx],
+            Some(&snap),
+            true,
+            &mut |s| {
+                task_apps.with_job(&task_id, |j| j.log.push(s.to_string()));
+            },
+        )
+        .await;
+        task_apps.with_job(&task_id, |j| match result {
+            Ok(p) => {
+                j.log.push(format!("restored from {}", p.display()));
+                j.state = JobState::Done;
+            }
+            Err(e) => j.state = JobState::Failed(e),
+        });
+    });
+    job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::utc_stamp;
+
+    #[test]
+    fn utc_stamps() {
+        assert_eq!(utc_stamp(0), "1970-01-01 00:00 UTC");
+        assert_eq!(utc_stamp(951_782_400), "2000-02-29 00:00 UTC");
+        assert_eq!(utc_stamp(1_794_582_685), "2026-11-13 15:11 UTC");
+    }
 }

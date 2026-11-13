@@ -1,0 +1,14 @@
+<div id="restore">
+  <h3>Restore {{ instance }}</h3>
+  {% if snapshots.is_empty() %}
+  <p>No snapshots yet.</p>
+  {% else %}
+  <form hx-post="/instances/{{ instance }}/restore" hx-target="#install" hx-swap="innerHTML"
+        hx-confirm="Restore {{ instance }} from the chosen snapshot? A safety snapshot of the current state is taken first and current data is kept aside, not deleted.">
+    {% for s in snapshots %}
+    <label><input type="radio" name="snapshot" value="{{ s.name }}"{% if loop.first %} checked{% endif %}> {{ s.when }}{% if loop.first %} (newest){% endif %}</label><br>
+    {% endfor %}
+    <button class="danger" type="submit">Restore selected snapshot</button>
+  </form>
+  {% endif %}
+</div>
