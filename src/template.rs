@@ -163,6 +163,9 @@ pub struct Dump {
     pub service: String,
     pub run: Vec<String>,
     pub output: String,
+    /// Command that reads the dump on stdin to restore it (via `compose exec`).
+    #[serde(default)]
+    pub restore: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -341,7 +344,7 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
         }
     }
     for p in &m.backup.paths {
-        if p.starts_with('/') || p.split('/').any(|c| c == "..") {
+        if p.is_empty() || p.starts_with('/') || p.split('/').any(|c| c.is_empty() || c == ".." || c == ".") {
             return Err(format!("backup path {p:?} must be relative and inside the instance"));
         }
     }

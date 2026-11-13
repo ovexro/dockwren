@@ -273,6 +273,29 @@ async fn main() {
             }
             return;
         }
+        Some("restore") => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            let safety = !args.iter().any(|a| a == "--no-safety-snapshot");
+            let pos: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
+            let name = pos.first().map(|s| s.as_str()).unwrap_or_default();
+            if !runner::valid_name(name) || pos.len() > 2 || args.len() > pos.len() + usize::from(!safety) {
+                eprintln!("usage: dockwren restore <instance> [snapshot] [--no-safety-snapshot]");
+                std::process::exit(2);
+            }
+            let result = async {
+                let templates = apps::catalog(&cfg)?;
+                backup::restore_instance(&cfg, &templates, name, pos.get(1).map(|s| s.as_str()), safety, &mut |s| println!("  {s}")).await
+            }
+            .await;
+            match result {
+                Ok(snap) => println!("restored from {}, up and healthy", snap.display()),
+                Err(e) => {
+                    eprintln!("restore failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
         Some("remove") => {
             let name = std::env::args().nth(2).unwrap_or_default();
             if !runner::valid_name(&name) {
@@ -290,7 +313,7 @@ async fn main() {
             return;
         }
         Some(other) => {
-            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | remove <instance>]");
+            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot] | remove <instance>]");
             std::process::exit(2);
         }
     }

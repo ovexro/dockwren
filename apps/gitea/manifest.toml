@@ -67,7 +67,8 @@ capture = { label = "Admin password", regex = "generated random password is '([^
 paths = ["data"]
 [[backup.dumps]]
 service = "db"
-run = ["pg_dump", "-U", "gitea", "gitea"]
+run = ["pg_dump", "--clean", "--if-exists", "-U", "gitea", "gitea"]
+restore = ["psql", "-v", "ON_ERROR_STOP=1", "-q", "-U", "gitea", "gitea"]
 output = "db.sql"
 
 [update]

@@ -108,7 +108,19 @@ pub fn claimed_ports(root: &Path) -> std::collections::HashSet<u16> {
 
 /// Run `docker compose` for an instance; returns stdout, or stderr on failure.
 pub async fn compose(inst: &Instance, args: &[&str]) -> Result<String, String> {
+    compose_with_stdin(inst, args, None).await
+}
+
+/// Like `compose`, with a file piped to stdin (for `exec -T` restores).
+pub async fn compose_with_stdin(
+    inst: &Instance,
+    args: &[&str],
+    stdin: Option<std::fs::File>,
+) -> Result<String, String> {
     let mut cmd = Command::new("docker");
+    if let Some(f) = stdin {
+        cmd.stdin(std::process::Stdio::from(f));
+    }
     // The Docker CLI refuses to load plugins when it cannot read ~/.docker (e.g.
     // under systemd ProtectHome), so give it a config dir inside our data dir.
     if std::env::var_os("DOCKER_CONFIG").is_none()
