@@ -1,0 +1,228 @@
+//! Instance snapshots: run the template's `backup.dumps`, tar its `backup.paths`
+//! and keep the newest few under `<data>/backups/<instance>/<epoch-seconds>/`.
+//! The nightly restic job picks the whole data dir up, so snapshots end up
+//! on the backup disk too.
+
+use std::io::Write;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::path::{Path, PathBuf};
+
+use serde::Deserialize;
+use tokio::process::Command;
+
+use crate::config::Config;
+use crate::runner::{self, Instance};
+use crate::template::Template;
+
+/// Snapshots kept per instance; older ones are pruned after a successful run.
+pub const KEEP: usize = 7;
+
+#[derive(Deserialize)]
+struct State {
+    template: String,
+}
+
+fn write_private(path: &Path, content: &[u8]) -> std::io::Result<()> {
+    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+    f.write_all(content)
+}
+
+/// Snapshot directory names are plain epoch seconds: sortable, no time crate needed.
+fn is_snapshot_name(n: &str) -> bool {
+    !n.is_empty() && n.len() <= 12 && n.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// Existing snapshots of an instance, oldest first.
+pub fn list(backups_root: &Path, instance: &str) -> Vec<PathBuf> {
+    let Ok(rd) = std::fs::read_dir(backups_root.join(instance)) else { return Vec::new() };
+    let mut v: Vec<(u64, PathBuf)> = rd
+        .flatten()
+        .filter_map(|e| {
+            let n = e.file_name().into_string().ok()?;
+            if !is_snapshot_name(&n) {
+                return None;
+            }
+            Some((n.parse().ok()?, e.path()))
+        })
+        .collect();
+    v.sort();
+    v.into_iter().map(|(_, p)| p).collect()
+}
+
+/// Remove all but the newest `keep` snapshots. Only directories that `list`
+/// returned (digits-only names inside this instance's backup dir) are touched.
+pub fn prune(backups_root: &Path, instance: &str, keep: usize) -> Result<usize, String> {
+    let all = list(backups_root, instance);
+    let old = all.len().saturating_sub(keep);
+    for p in &all[..old] {
+        std::fs::remove_dir_all(p).map_err(|e| format!("prune {}: {e}", p.display()))?;
+    }
+    Ok(old)
+}
+
+/// An image of the instance that is already pulled; it only supplies `tar`.
+async fn first_image(inst: &Instance) -> Result<String, String> {
+    let out = runner::compose(inst, &["config", "--images"]).await?;
+    out.lines().map(str::trim).find(|l| !l.is_empty()).map(String::from).ok_or_else(|| "instance has no images".into())
+}
+
+/// Take one snapshot of `inst` described by `t`. Returns the snapshot directory.
+pub async fn snapshot(
+    backups_root: &Path,
+    inst: &Instance,
+    t: &Template,
+    log: &mut (dyn FnMut(&str) + Send),
+) -> Result<PathBuf, String> {
+    let b = &t.manifest.backup;
+    if b.paths.is_empty() && b.dumps.is_empty() {
+        return Err("this app declares nothing to back up".into());
+    }
+    for p in &b.paths {
+        if !inst.dir.join(p).exists() {
+            return Err(format!("backup path {p} does not exist in {}", inst.dir.display()));
+        }
+    }
+    let parent = backups_root.join(&inst.name);
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&parent)
+        .map_err(|e| format!("{}: {e}", parent.display()))?;
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
+    let tmp = parent.join(format!("{secs}.partial"));
+    let fin = parent.join(secs.to_string());
+    if fin.exists() {
+        return Err("a snapshot from this second already exists; retry".into());
+    }
+    std::fs::DirBuilder::new().mode(0o700).create(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
+
+    // On failure the partial dir is left for inspection; it is never listed or pruned.
+    for d in &b.dumps {
+        log(&format!("dumping {} ({})", d.output, d.service));
+        let args: Vec<&str> = ["exec", "-T", d.service.as_str()]
+            .into_iter()
+            .chain(d.run.iter().map(String::as_str))
+            .collect();
+        let out = runner::compose(inst, &args).await.map_err(|e| format!("dump {}: {e}", d.output))?;
+        if out.trim().is_empty() {
+            return Err(format!("dump {} produced no output (partial snapshot in {})", d.output, tmp.display()));
+        }
+        write_private(&tmp.join(&d.output), out.as_bytes()).map_err(|e| format!("{}: {e}", d.output))?;
+    }
+    if !b.paths.is_empty() {
+        log("archiving files");
+        let image = first_image(inst).await?;
+        let dir = std::fs::canonicalize(&inst.dir).map_err(|e| format!("{}: {e}", inst.dir.display()))?;
+        let archive = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(tmp.join("files.tar.gz"))
+            .map_err(|e| format!("files.tar.gz: {e}"))?;
+        // Root inside a throwaway container so root-owned app data is readable;
+        // the archive streams out through stdout, so the file stays ours.
+        let mut cmd = Command::new("docker");
+        if std::env::var_os("DOCKER_CONFIG").is_none()
+            && let Some(data) = inst.dir.parent().and_then(Path::parent)
+        {
+            cmd.env("DOCKER_CONFIG", data.join("docker-config"));
+        }
+        let out = cmd
+            .args(["run", "--rm", "--network", "none", "--user", "0", "--entrypoint", "tar"])
+            .arg("-v")
+            .arg(format!("{}:/src:ro", dir.display()))
+            .args(["-w", "/src", &image, "--numeric-owner", "-czf", "-", "--"])
+            .args(&b.paths)
+            .stdout(std::process::Stdio::from(archive))
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("cannot run docker: {e}"))?
+            .wait_with_output()
+            .await
+            .map_err(|e| format!("docker: {e}"))?;
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr);
+            let tail: Vec<&str> = err.lines().take(5).collect();
+            return Err(format!("archiving failed (partial snapshot in {}): {}", tmp.display(), tail.join("; ")));
+        }
+        if std::fs::metadata(tmp.join("files.tar.gz")).map(|m| m.len()).unwrap_or(0) == 0 {
+            return Err(format!("archive is empty (partial snapshot in {})", tmp.display()));
+        }
+    }
+    std::fs::rename(&tmp, &fin).map_err(|e| format!("finalise snapshot: {e}"))?;
+    let pruned = prune(backups_root, &inst.name, KEEP)?;
+    if pruned > 0 {
+        log(&format!("pruned {pruned} old snapshot(s), keeping {KEEP}"));
+    }
+    Ok(fin)
+}
+
+/// CLI entry: look the instance up, find its template and snapshot it.
+pub async fn snapshot_instance(
+    cfg: &Config,
+    templates: &[Template],
+    name: &str,
+    log: &mut (dyn FnMut(&str) + Send),
+) -> Result<PathBuf, String> {
+    let dir = cfg.instances_dir().join(name);
+    let state = std::fs::read_to_string(dir.join("state.toml"))
+        .map_err(|_| format!("no instance named {name}"))?;
+    let state: State = toml::from_str(&state).map_err(|e| format!("state.toml: {e}"))?;
+    let t = templates
+        .iter()
+        .find(|t| t.manifest.app.id == state.template)
+        .ok_or_else(|| format!("template {} is not available", state.template))?;
+    snapshot(&cfg.data_dir.join("backups"), &Instance { name: name.to_string(), dir }, t, log).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp() -> PathBuf {
+        std::env::temp_dir().join(format!("dockwren-bak-{}", crate::auth::generate_password()))
+    }
+
+    #[test]
+    fn snapshot_names() {
+        assert!(is_snapshot_name("1731500000"));
+        for bad in ["", "17.partial", "../1", "a1", "1234567890123"] {
+            assert!(!is_snapshot_name(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn prune_keeps_newest_and_ignores_foreign_entries() {
+        let root = tmp();
+        let inst = root.join("app");
+        for n in ["100", "300", "200", "400"] {
+            std::fs::create_dir_all(inst.join(n)).unwrap();
+        }
+        std::fs::create_dir_all(inst.join("500.partial")).unwrap();
+        std::fs::write(inst.join("notes"), "x").unwrap();
+        assert_eq!(prune(&root, "app", 2).unwrap(), 2);
+        let left: Vec<String> =
+            list(&root, "app").iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(left, ["300", "400"]);
+        assert!(inst.join("500.partial").exists() && inst.join("notes").exists());
+        assert_eq!(prune(&root, "app", 7).unwrap(), 0);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn snapshot_refuses_missing_paths_without_leaving_files() {
+        let t = crate::template::load(&Path::new(env!("CARGO_MANIFEST_DIR")).join("apps/vaultwarden")).unwrap();
+        let root = tmp();
+        let inst = Instance { name: "vw".into(), dir: root.join("instances/vw") };
+        std::fs::create_dir_all(&inst.dir).unwrap();
+        let backups = root.join("backups");
+        let mut l = |_: &str| {};
+        let err = snapshot(&backups, &inst, &t, &mut l).await.unwrap_err();
+        assert!(err.contains("does not exist"), "{err}");
+        assert!(!backups.exists());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+}

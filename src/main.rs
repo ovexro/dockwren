@@ -1,5 +1,6 @@
 mod apps;
 mod auth;
+mod backup;
 mod config;
 mod docker;
 mod install;
@@ -227,6 +228,26 @@ async fn main() {
             }
             return;
         }
+        Some("backup") => {
+            let name = std::env::args().nth(2).unwrap_or_default();
+            if !runner::valid_name(&name) {
+                eprintln!("usage: dockwren backup <instance>");
+                std::process::exit(2);
+            }
+            let result = async {
+                let templates = apps::catalog(&cfg)?;
+                backup::snapshot_instance(&cfg, &templates, &name, &mut |s| println!("  {s}")).await
+            }
+            .await;
+            match result {
+                Ok(dir) => println!("backup written to {}", dir.display()),
+                Err(e) => {
+                    eprintln!("backup failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
         Some("remove") => {
             let name = std::env::args().nth(2).unwrap_or_default();
             if !runner::valid_name(&name) {
@@ -244,7 +265,7 @@ async fn main() {
             return;
         }
         Some(other) => {
-            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | remove <instance>]");
+            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | remove <instance>]");
             std::process::exit(2);
         }
     }

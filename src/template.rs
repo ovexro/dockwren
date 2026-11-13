@@ -333,6 +333,12 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
         if !names.contains(d.service.as_str()) {
             return Err(format!("backup dump: unknown service {}", d.service));
         }
+        if d.run.is_empty() {
+            return Err("backup dump: empty command".into());
+        }
+        if d.output.is_empty() || d.output.contains('/') || d.output.starts_with('.') {
+            return Err(format!("backup dump output {:?} must be a plain file name", d.output));
+        }
     }
     for p in &m.backup.paths {
         if p.starts_with('/') || p.split('/').any(|c| c == "..") {
