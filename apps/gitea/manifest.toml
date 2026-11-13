@@ -13,21 +13,21 @@ label = "Internal name"
 type = "string"
 default = "gitea"
 pattern = "^[a-z][a-z0-9-]{1,30}$"
-help = "Only a label for this installation on your server (used for its folder and container names); visitors never see it. Short, lower-case, for example blog. You can run several copies of the same app by giving each its own name."
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
 
 [[fields]]
 key = "WEB_PORT"
 label = "Web port"
 type = "port"
 default = "auto"
-help = "Port on this server only (127.0.0.1). Leave on auto; visitors never type it."
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
 
 [[fields]]
 key = "SSH_PORT"
 label = "Git SSH port"
 type = "port"
 default = "auto"
-help = "Port for git over SSH. Leave on auto, or set the one you want to clone with."
+help = "A second door used only for git over SSH (git clone with an ssh:// address). Leave on auto unless you need a specific number."
 
 [[fields]]
 key = "PUBLIC_URL"
@@ -41,13 +41,13 @@ label = "Admin user"
 type = "string"
 default = "admin"
 pattern = "^[a-z][a-z0-9_-]{2,30}$"
-help = "Name of the first administrator. The password is generated and shown once after install."
+help = "The username you will sign in with. Dockwren creates a strong password for you and shows it once after the install, so copy it then."
 
 [[fields]]
 key = "ADMIN_EMAIL"
 label = "Admin e-mail"
 type = "email"
-help = "Used for the admin account and password resets."
+help = "Your e-mail address, used for the administrator account and for password-reset messages."
 
 [[secrets]]
 key = "POSTGRES_PASSWORD"

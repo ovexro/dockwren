@@ -12,14 +12,14 @@ label = "Internal name"
 type = "string"
 default = "uptime-kuma"
 pattern = "^[a-z][a-z0-9-]{1,30}$"
-help = "Only a label for this installation on your server (used for its folder and container names); visitors never see it. Short, lower-case, for example blog. You can run several copies of the same app by giving each its own name."
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
 
 [[fields]]
 key = "WEB_PORT"
 label = "Web port"
 type = "port"
 default = "auto"
-help = "Port on this server only (127.0.0.1). Leave on auto; visitors never type it."
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
 
 [[services]]
 name = "uptime-kuma"

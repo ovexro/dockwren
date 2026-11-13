@@ -14,14 +14,14 @@ label = "Internal name"
 type = "string"
 default = "paperless"
 pattern = "^[a-z][a-z0-9-]{1,30}$"
-help = "Only a label for this installation on your server (used for its folder and container names); visitors never see it. Short, lower-case, for example blog. You can run several copies of the same app by giving each its own name."
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
 
 [[fields]]
 key = "WEB_PORT"
 label = "Web port"
 type = "port"
 default = "auto"
-help = "Port on this server only (127.0.0.1). Leave on auto; visitors never type it."
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
 
 [[fields]]
 key = "PUBLIC_URL"
@@ -29,7 +29,7 @@ label = "Public URL"
 type = "string"
 default = "http://127.0.0.1:${WEB_PORT}"
 pattern = "^https?://[^/\\s]+$"
-help = "Origin only, no trailing slash or path (Paperless rejects a path)."
+help = "The full web address of the app, for example https://docs.example.com, with nothing after the domain. Normally filled in for you from Public hostname."
 
 [[fields]]
 key = "ADMIN_USER"
@@ -37,7 +37,7 @@ label = "Admin user"
 type = "string"
 default = "admin"
 pattern = "^[a-z][a-z0-9_-]{2,30}$"
-help = "Login name. The password is generated and shown once after install."
+help = "The username you will sign in with. Dockwren creates a strong password for you and shows it once after the install, so copy it then."
 
 [[fields]]
 key = "TIME_ZONE"
@@ -45,7 +45,7 @@ label = "Time zone"
 type = "string"
 default = "UTC"
 pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
-help = "IANA name, for example Europe/Bucharest."
+help = "Your region, so dates and times are right. For example Europe/Bucharest."
 
 [[fields]]
 key = "OCR_LANGUAGE"
@@ -53,7 +53,7 @@ label = "OCR language"
 type = "string"
 default = "eng"
 pattern = "^[a-z]{3}(\\+[a-z]{3})*$"
-help = "Tesseract codes joined with +, for example ron+eng."
+help = "The language of your documents, so text can be read from scans. Use three-letter codes joined with +, for example ron+eng for Romanian and English."
 
 [[secrets]]
 key = "POSTGRES_PASSWORD"

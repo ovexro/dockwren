@@ -134,3 +134,7 @@ dockwren remove hello --yes
 
 Check three things before sharing a template: the app's web UI answers, data written after a backup is
 gone after a restore, and a bad image tag rolls an update back instead of leaving it broken.
+
+## Writing field help
+
+Write `help` for someone who has never used Docker. Say what the value is for, what the user sees or types, and whether it can be changed later. Avoid jargon (origin, IANA, ingress); give a concrete example. Say what a field is **not** when it is easy to confuse (for example the internal name is not part of the website address).

@@ -14,14 +14,14 @@ label = "Internal name"
 type = "string"
 default = "wordpress"
 pattern = "^[a-z][a-z0-9-]{1,30}$"
-help = "Only a label for this installation on your server (used for its folder and container names); visitors never see it. Short, lower-case, for example blog. You can run several copies of the same app by giving each its own name."
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
 
 [[fields]]
 key = "WEB_PORT"
 label = "Web port"
 type = "port"
 default = "auto"
-help = "Port on this server only (127.0.0.1). Leave on auto; visitors never type it."
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
 
 [[fields]]
 key = "SITE_URL"
@@ -29,7 +29,7 @@ label = "Site address"
 type = "string"
 default = "http://127.0.0.1:${WEB_PORT}"
 pattern = "^https?://[^/\\s]+$"
-help = "Origin only, no trailing slash, for example https://blog.example.com."
+help = "The full web address of the site, for example https://blog.example.com, with nothing after the domain. Normally filled in for you from Public hostname."
 
 [[fields]]
 key = "ADMIN_USER"
@@ -37,20 +37,20 @@ label = "Admin user"
 type = "string"
 default = "admin"
 pattern = "^[A-Za-z][A-Za-z0-9_-]{2,30}$"
-help = "Your WordPress login name."
+help = "The username you will use to log in to WordPress."
 
 [[fields]]
 key = "ADMIN_PASSWORD"
 label = "Admin password"
 type = "password"
 pattern = "^[^\\s'\"$]{12,64}$"
-help = "At least 12 characters; no spaces, quotes or $."
+help = "Your WordPress password. At least 12 characters; no spaces, quotes or $ sign."
 
 [[fields]]
 key = "ADMIN_EMAIL"
 label = "Admin e-mail"
 type = "email"
-help = "Receives WordPress notices and password resets."
+help = "Your e-mail address. WordPress sends notices and password-reset messages here."
 
 [[fields]]
 key = "SITE_TITLE"
@@ -58,7 +58,7 @@ label = "Site title"
 type = "string"
 default = "My site"
 pattern = "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,60}$"
-help = "Shown in the browser tab and site header. Change it later in WordPress."
+help = "The name of your website, shown at the top of the page and in the browser tab. Not the same as Internal name. You can change it later in WordPress."
 
 [[secrets]]
 key = "DB_PASSWORD"
