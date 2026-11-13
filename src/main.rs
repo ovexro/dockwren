@@ -188,8 +188,22 @@ fn app(auth: SharedAuth, docker: DockerClient, apps: apps::Apps) -> Router {
 /// `dockwren install <app> [KEY=VALUE...]`: resolve, prepare, bring up.
 async fn cli_expose(cfg: &config::Config, args: &[String]) -> Result<(), String> {
     let apply = args.iter().any(|a| a == "--yes");
-    let pos: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
-    let name = pos.first().ok_or("usage: dockwren expose <instance> [hostname] [--yes]")?;
+    let usage = "usage: dockwren expose <instance> [hostname] [--access EMAIL[,EMAIL...]] [--yes]";
+    let mut access: Vec<String> = Vec::new();
+    let mut pos: Vec<&String> = Vec::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--access" {
+            let v = it.next().ok_or(usage)?;
+            access = v.split(',').map(str::to_string).collect();
+            if let Some(bad) = access.iter().find(|e| !public::valid_email(e)) {
+                return Err(format!("not an e-mail address: {bad}"));
+            }
+        } else if !a.starts_with("--") {
+            pos.push(a);
+        }
+    }
+    let name = pos.first().ok_or(usage)?;
     if !runner::valid_name(name) {
         return Err("invalid instance name".into());
     }
@@ -211,7 +225,7 @@ async fn cli_expose(cfg: &config::Config, args: &[String]) -> Result<(), String>
         account: env("CLOUDFLARE_ACCOUNT_ID")?,
         tunnel: env("DOCKWREN_TUNNEL_ID")?,
     };
-    public::expose(&settings, &host, &public::service_url(port), apply, &mut |s| println!("  {s}")).await
+    public::expose(&settings, &host, &public::service_url(port), &access, apply, &mut |s| println!("  {s}")).await
 }
 
 /// `dockwren unexpose <instance> [--yes]`: remove the tunnel route and DNS record, then forget the hostname.
@@ -429,7 +443,7 @@ async fn main() {
             return;
         }
         Some(other) => {
-            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--yes] | unexpose <instance> [--yes] | remove <instance>]");
+            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance>]");
             std::process::exit(2);
         }
     }

@@ -64,6 +64,8 @@ add. To let Dockwren create the tunnel route and the proxied DNS record, run on 
 CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... DOCKWREN_TUNNEL_ID=... \
   dockwren expose <instance> [hostname]          # preview only
   dockwren expose <instance> [hostname] --yes    # apply
+  dockwren expose <instance> [hostname] --access you@example.com --yes
+                                                 # also put a Cloudflare Access login in front
 ```
 
 The token needs Tunnel edit and DNS edit permissions for the zone. It is read from the environment

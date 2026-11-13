@@ -124,6 +124,53 @@ impl Api {
     }
 }
 
+/// Name of the Access application we create for `host`; used to recognise our own on removal.
+fn access_name(host: &str) -> String {
+    format!("Dockwren: {host}")
+}
+
+/// Plausible e-mail address (one `@`, no spaces or quotes); Cloudflare does the real check.
+pub fn valid_email(e: &str) -> bool {
+    let Some((local, domain)) = e.split_once('@') else { return false };
+    !local.is_empty()
+        && domain.contains('.')
+        && !domain.contains('@')
+        && !e.chars().any(|c| c.is_whitespace() || c == '"' || c == '\\')
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum AccessPlan {
+    Create,
+    Present,
+}
+
+/// Decide what to do about the Access application for `host`. Never touches one we did not create.
+fn plan_access(apps: &[Value], host: &str) -> Result<AccessPlan, String> {
+    match apps.iter().find(|a| a["domain"] == host) {
+        None => Ok(AccessPlan::Create),
+        Some(a) if a["name"] == access_name(host).as_str() => Ok(AccessPlan::Present),
+        Some(a) => Err(format!(
+            "an Access application ({}) already covers {host}; not touching it",
+            a["name"].as_str().unwrap_or("?")
+        )),
+    }
+}
+
+/// Body for a new self-hosted Access application that lets only `emails` in.
+fn access_body(host: &str, emails: &[String]) -> Value {
+    json!({
+        "name": access_name(host),
+        "domain": host,
+        "type": "self_hosted",
+        "session_duration": "24h",
+        "policies": [{
+            "name": "Owner only",
+            "decision": "allow",
+            "include": emails.iter().map(|e| json!({"email": {"email": e}})).collect::<Vec<_>>(),
+        }],
+    })
+}
+
 pub struct Settings {
     pub token: String,
     pub account: String,
@@ -132,7 +179,14 @@ pub struct Settings {
 
 /// Wire `host` to the local `service` through the tunnel. With `apply` false only
 /// reads from Cloudflare and reports what would change.
-pub async fn expose(s: &Settings, host: &str, service: &str, apply: bool, log: &mut dyn FnMut(&str)) -> Result<(), String> {
+pub async fn expose(
+    s: &Settings,
+    host: &str,
+    service: &str,
+    access: &[String],
+    apply: bool,
+    log: &mut dyn FnMut(&str),
+) -> Result<(), String> {
     if !valid_hostname(host) {
         return Err(format!("{host} is not a valid hostname"));
     }
@@ -163,6 +217,21 @@ pub async fn expose(s: &Settings, host: &str, service: &str, apply: bool, log: &
             if apply {
                 config["ingress"] = Value::Array(new);
                 api.call("PUT", &cfg_path, Some(&json!({"config": config}))).await?;
+            }
+        }
+    }
+
+    // Access goes in before the DNS record so the app is never reachable unprotected.
+    if !access.is_empty() {
+        let apps = api.call("GET", &format!("/accounts/{}/access/apps", s.account), None).await?;
+        let apps: Vec<Value> = apps["result"].as_array().cloned().unwrap_or_default();
+        match plan_access(&apps, host)? {
+            AccessPlan::Present => log("Access: application already in place (not changed)"),
+            AccessPlan::Create => {
+                log(&format!("Access: only {} may sign in", access.join(", ")));
+                if apply {
+                    api.call("POST", &format!("/accounts/{}/access/apps", s.account), Some(&access_body(host, access))).await?;
+                }
             }
         }
     }
@@ -241,6 +310,21 @@ pub async fn unexpose(s: &Settings, host: &str, apply: bool, log: &mut dyn FnMut
             rec["content"].as_str().unwrap_or("?")
         )),
     }
+
+    // Last, so the app is not exposed unprotected while this runs.
+    let apps = api.call("GET", &format!("/accounts/{}/access/apps", s.account), None).await?;
+    let apps: Vec<Value> = apps["result"].as_array().cloned().unwrap_or_default();
+    match apps.iter().find(|a| a["domain"] == host) {
+        None => log("Access: no application"),
+        Some(a) if a["name"] == access_name(host).as_str() => {
+            log("Access: delete our application");
+            if apply {
+                let id = a["id"].as_str().ok_or("Access application has no id")?;
+                api.call("DELETE", &format!("/accounts/{}/access/apps/{id}", s.account), None).await?;
+            }
+        }
+        Some(a) => log(&format!("Access: leaving {} alone, it is not ours", a["name"].as_str().unwrap_or("?"))),
+    }
     log(if apply { "done" } else { "dry run only; re-run with --yes to apply" });
     Ok(())
 }
@@ -298,6 +382,31 @@ mod tests {
         let new = plan_removal(&ex, "v.x.dev").unwrap();
         assert_eq!(new, vec![ex[0].clone(), ex[2].clone()]);
         assert!(plan_removal(&ex, "gone.x.dev").is_none());
+    }
+
+    #[test]
+    fn access_plan_never_touches_foreign_apps() {
+        let ours = json!({"name": "Dockwren: a.example.com", "domain": "a.example.com"});
+        let foreign = json!({"name": "Hand made", "domain": "b.example.com"});
+        assert_eq!(plan_access(&[], "a.example.com"), Ok(AccessPlan::Create));
+        assert_eq!(plan_access(&[ours.clone(), foreign.clone()], "a.example.com"), Ok(AccessPlan::Present));
+        assert!(plan_access(&[foreign], "b.example.com").is_err());
+    }
+
+    #[test]
+    fn access_body_lists_each_email() {
+        let b = access_body("a.example.com", &["x@example.com".into(), "y@example.com".into()]);
+        assert_eq!(b["domain"], "a.example.com");
+        assert_eq!(b["policies"][0]["decision"], "allow");
+        assert_eq!(b["policies"][0]["include"][1]["email"]["email"], "y@example.com");
+    }
+
+    #[test]
+    fn emails() {
+        assert!(valid_email("a@b.co"));
+        for bad in ["", "a", "a@b", "@b.co", "a@@b.co", "a b@c.de", "a\"@b.co"] {
+            assert!(!valid_email(bad), "{bad}");
+        }
     }
 
     #[test]
