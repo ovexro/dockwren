@@ -8,9 +8,9 @@
   {% if f.input == "select" %}
     <select name="{{ f.key }}">{% for o in f.options %}<option value="{{ o }}"{% if o == &f.value %} selected{% endif %}>{{ o }}</option>{% endfor %}</select>
   {% else %}
-    <input type="{{ f.input }}" name="{{ f.key }}" value="{{ f.value }}" placeholder="{{ f.placeholder }}"{% if f.required %} required{% endif %}>
+    <input type="{{ f.input }}" name="{{ f.key }}" value="{{ f.value }}" placeholder="{{ f.placeholder }}"{% if f.required %} required{% endif %}{% if f.key == "PUBLIC_HOST" %} hx-get="/apps/check-host" hx-trigger="change, keyup changed delay:700ms" hx-target="next .hostcheck" hx-swap="innerHTML"{% endif %}>
   {% endif %}
-  </label>{% if !f.help.is_empty() %}<br><small>{{ f.help }}</small>{% endif %}</p>
+  </label>{% if !f.help.is_empty() %}<br><small>{{ f.help }}</small>{% endif %}{% if f.key == "PUBLIC_HOST" %}<br><span class="hostcheck"></span>{% endif %}</p>
 {% endfor %}
   <button type="submit">Install</button>
   <button type="button" onclick="document.getElementById('install').innerHTML=''">Cancel</button>

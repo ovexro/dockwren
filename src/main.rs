@@ -272,6 +272,7 @@ fn app(
         .route("/logs/close", get(close_logs))
         .route("/catalog", get(apps::list))
         .route("/apps/{id}/icon.svg", get(apps::icon))
+        .route("/apps/check-host", get(apps::check_host))
         .route("/apps/{id}/new", get(apps::new_form))
         .route("/apps/{id}/install", post(apps::install_submit))
         .route("/jobs/{id}", get(apps::job))
@@ -1088,6 +1089,7 @@ mod tests {
             ("GET", "/apps"),
             ("GET", "/catalog"),
             ("GET", "/apps/gitea/new"),
+            ("GET", "/apps/check-host?PUBLIC_HOST=x.example.com"),
             ("POST", "/apps/gitea/install"),
             ("GET", "/jobs/x"),
             ("GET", "/instances/list"),

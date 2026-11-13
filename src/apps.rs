@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use askama::Template;
 use axum::{
-    extract::{Form, Path, State},
+    extract::{Form, Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
 };
@@ -799,21 +799,42 @@ fn public_page(
     }
 }
 
-/// Warn when Cloudflare is connected but the saved hostname is under none of its domains.
-async fn with_zone_warning(mut page: PublicPage) -> PublicPage {
-    if page.cf_ready
-        && crate::public::valid_hostname(&page.hostname)
-        && let Some(s) = crate::public::Settings::from_env()
-        && let Ok(zones) = crate::public::zone_names(&s).await
-        && crate::public::outside_zones(&page.hostname, &zones)
-    {
-        page.zone_warning = Some(format!(
-            "Warning: {} is not under any domain this Cloudflare token can manage ({}). Publishing will fail. Use a hostname under one of those domains, or give the token access to this domain in Cloudflare.",
-            page.hostname,
+/// Warning text when Cloudflare is connected but `host` is under none of its domains.
+async fn zone_warning_for(host: &str) -> Option<String> {
+    if !crate::public::valid_hostname(host) {
+        return None;
+    }
+    let s = crate::public::Settings::from_env()?;
+    let zones = crate::public::zone_names(&s).await.ok()?;
+    crate::public::outside_zones(host, &zones).then(|| {
+        format!(
+            "Warning: {host} is not under any domain this Cloudflare token can manage ({}). Publishing will fail. Use a hostname under one of those domains, or give the token access to this domain in Cloudflare.",
             zones.join(", ")
-        ));
+        )
+    })
+}
+
+async fn with_zone_warning(mut page: PublicPage) -> PublicPage {
+    if page.cf_ready {
+        page.zone_warning = zone_warning_for(&page.hostname).await;
     }
     page
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// `GET /apps/check-host?PUBLIC_HOST=..`: the install form asks this as the hostname is typed.
+pub async fn check_host(Query(q): Query<HashMap<String, String>>) -> Html<String> {
+    let host = q.get("PUBLIC_HOST").map(|h| h.trim()).unwrap_or_default();
+    Html(match zone_warning_for(host).await {
+        Some(w) => format!("<small role=\"alert\">{}</small>", html_escape(&w)),
+        None => String::new(),
+    })
 }
 
 pub async fn public_form(
