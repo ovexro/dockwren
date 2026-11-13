@@ -9,7 +9,12 @@ template there replaces a bundled one with the same `id`.
 apps/<id>/
   manifest.toml
   compose.yaml
+  icon.svg          # optional
 ```
+
+`icon.svg` is shown in the catalog and the installed-apps list. Use a square `viewBox` (the bundled
+ones are 64x64 with rounded corners) and plain shapes: it is served as an image with a locked-down
+Content-Security-Policy, so scripts and external references do nothing. Bundled templates must have one.
 
 Compose does the variable substitution. Dockwren writes the values to the instance's `.env` (mode 0600)
 and runs `docker compose --env-file .env`, so `compose.yaml` is copied verbatim and stays runnable by hand.
