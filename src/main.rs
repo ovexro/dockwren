@@ -399,6 +399,10 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
         })?;
     let captured =
         runner::run_post_start(&inst, t, &resolved.env, &mut |step| println!("  {step}")).await?;
+    if let Some(host) = &resolved.public_host {
+        public::publish_after_install(&inst.dir, &inst.name, host, &mut |s| println!("  {s}"))
+            .await;
+    }
     for key in ["WEB_PORT", "SSH_PORT"] {
         if let Some(p) = resolved.env.get(key) {
             println!("  {key}: 127.0.0.1:{p}");

@@ -43,6 +43,10 @@ pub struct App {
     pub homepage: Option<String>,
     #[serde(default)]
     pub needs_public_https: bool,
+    /// Key of the field that holds the app's address. When the installer gives a public
+    /// hostname, this field is set to `https://<hostname>` and hidden from the form.
+    #[serde(default)]
+    pub public_url_field: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -331,6 +335,17 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
         return Err(format!("app.id {id:?} must match [a-z0-9-]+"));
     }
 
+    if let Some(k) = &m.app.public_url_field
+        && !m
+            .fields
+            .iter()
+            .any(|f| &f.key == k && matches!(f.kind, FieldType::Url | FieldType::String))
+    {
+        return Err(format!(
+            "app.public_url_field {k} must name a url or string field"
+        ));
+    }
+
     // Names of every variable a template may reference, in definition order.
     let mut known: HashSet<&str> = RESERVED_VARS.iter().copied().collect();
     for f in &m.fields {
@@ -594,7 +609,15 @@ mod tests {
             .collect();
         assert_eq!(
             ids,
-            ["gitea", "memos", "miniflux", "paperless-ngx", "uptime-kuma", "vaultwarden", "wordpress"]
+            [
+                "gitea",
+                "memos",
+                "miniflux",
+                "paperless-ngx",
+                "uptime-kuma",
+                "vaultwarden",
+                "wordpress"
+            ]
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
@@ -606,7 +629,11 @@ mod tests {
         for t in catalog(None).unwrap() {
             let svg = t.icon.unwrap_or_default();
             assert!(svg.starts_with("<svg"), "{} has no icon", t.manifest.app.id);
-            assert!(!svg.contains("<script"), "{} icon has a script", t.manifest.app.id);
+            assert!(
+                !svg.contains("<script"),
+                "{} icon has a script",
+                t.manifest.app.id
+            );
         }
     }
 
@@ -616,7 +643,15 @@ mod tests {
         let ids: Vec<_> = all.iter().map(|t| t.manifest.app.id.as_str()).collect();
         assert_eq!(
             ids,
-            ["gitea", "memos", "miniflux", "paperless-ngx", "uptime-kuma", "vaultwarden", "wordpress"]
+            [
+                "gitea",
+                "memos",
+                "miniflux",
+                "paperless-ngx",
+                "uptime-kuma",
+                "vaultwarden",
+                "wordpress"
+            ]
         );
     }
 
@@ -633,6 +668,13 @@ mod tests {
     #[test]
     fn minimal_template_is_valid() {
         assert_eq!(validate(&manifest(""), OK), Ok(()));
+    }
+
+    #[test]
+    fn public_url_field_must_name_a_url_or_string_field() {
+        let mut m = manifest("");
+        m.app.public_url_field = Some("NOPE".into());
+        assert!(validate(&m, OK).unwrap_err().contains("public_url_field"));
     }
 
     #[test]

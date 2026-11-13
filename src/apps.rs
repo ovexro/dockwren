@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use askama::Template;
 use axum::{
     extract::{Form, Path, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
 };
 use serde::Deserialize;
@@ -144,10 +144,12 @@ struct InstancesPage {
 }
 
 fn form_view(t: &AppTemplate, values: &HashMap<String, String>, error: Option<String>) -> FormPage {
-    let fields = t
+    let url_field = t.manifest.app.public_url_field.as_deref();
+    let mut fields: Vec<FieldView> = t
         .manifest
         .fields
         .iter()
+        .filter(|f| Some(f.key.as_str()) != url_field)
         .map(|f| {
             let bool_or_select = matches!(f.kind, FieldType::Bool | FieldType::Select);
             let options = match f.kind {
@@ -180,6 +182,27 @@ fn form_view(t: &AppTemplate, values: &HashMap<String, String>, error: Option<St
             }
         })
         .collect();
+    if url_field.is_some() {
+        let help = if crate::public::Settings::from_env().is_some() {
+            "Optional. Dockwren publishes the app at https://<hostname> (Cloudflare Tunnel + DNS). Leave empty to keep it local."
+        } else {
+            "Optional. Sets the app's address to https://<hostname> and records it; publish with `dockwren expose` (Cloudflare is not configured in the panel). Leave empty to keep it local."
+        };
+        let at = usize::from(fields.first().is_some_and(|f| f.key == "INSTANCE_NAME"));
+        fields.insert(
+            at,
+            FieldView {
+                key: "PUBLIC_HOST".into(),
+                label: "Public hostname".into(),
+                input: "text",
+                value: values.get("PUBLIC_HOST").cloned().unwrap_or_default(),
+                placeholder: "blog.example.com".into(),
+                help: help.into(),
+                options: Vec::new(),
+                required: false,
+            },
+        );
+    }
     FormPage {
         id: t.manifest.app.id.clone(),
         name: t.manifest.app.name.clone(),
@@ -311,6 +334,10 @@ pub async fn install_submit(
             let mut shown =
                 runner::run_post_start(&inst, t, &resolved.env, &mut |s| push(s)).await?;
             shown.extend(resolved.revealed.iter().cloned());
+            if let Some(host) = &resolved.public_host {
+                crate::public::publish_after_install(&inst.dir, &inst.name, host, &mut |s| push(s))
+                    .await;
+            }
             Ok::<_, String>(shown)
         }
         .await;

@@ -16,6 +16,8 @@ pub struct Resolved {
     pub env: BTreeMap<String, String>,
     /// Plaintext of secrets with `reveal = true`, shown once and not stored.
     pub revealed: Vec<(String, String)>,
+    /// Public hostname given in the form (`PUBLIC_HOST`), already validated.
+    pub public_host: Option<String>,
 }
 
 /// Replace `${KEY}` in `s` using `env`; an unknown key is an error.
@@ -122,13 +124,35 @@ pub fn resolve(
     claimed: &HashSet<u16>,
     free: &dyn Fn(u16) -> bool,
 ) -> Result<Resolved, String> {
+    let public_host = input
+        .get("PUBLIC_HOST")
+        .map(|v| v.trim().to_lowercase())
+        .filter(|v| !v.is_empty());
+    if let Some(h) = &public_host {
+        if t.manifest.app.public_url_field.is_none() {
+            return Err("this app cannot be given a public hostname at install".into());
+        }
+        if !crate::public::valid_hostname(h) {
+            return Err(
+                "Public hostname: lower-case letters, digits, hyphens, at least one dot".into(),
+            );
+        }
+    }
+    let derived_url = public_host.as_ref().map(|h| format!("https://{h}"));
     let mut env = BTreeMap::new();
     let mut taken = claimed.clone();
     for f in &t.manifest.fields {
-        let given = input
-            .get(&f.key)
-            .map(|v| v.trim())
-            .filter(|v| !v.is_empty());
+        let given = if t.manifest.app.public_url_field.as_deref() == Some(f.key.as_str()) {
+            derived_url.as_deref()
+        } else {
+            None
+        }
+        .or_else(|| {
+            input
+                .get(&f.key)
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+        });
         let raw = match (given, &f.default) {
             (Some(v), _) => v.to_string(),
             (None, Some(d)) => subst(d, &env)?,
@@ -185,7 +209,11 @@ pub fn resolve(
         }
         env.insert(s.key.clone(), stored);
     }
-    Ok(Resolved { env, revealed })
+    Ok(Resolved {
+        env,
+        revealed,
+        public_host,
+    })
 }
 
 // Manual Debug so secrets can never end up in logs or panic messages.
@@ -250,6 +278,57 @@ mod tests {
         assert_eq!(r.env["WEB_PORT"], "8100");
         assert_eq!(r.env["PUBLIC_URL"], "http://127.0.0.1:8100/");
         assert_eq!(r.env["SIGNUPS_ALLOWED"], "true");
+    }
+
+    #[test]
+    fn public_host_sets_the_address_field() {
+        let r = resolve(
+            &tmpl("vaultwarden"),
+            &input(&[
+                ("PUBLIC_HOST", " Vault.Example.com "),
+                ("PUBLIC_URL", "http://ignored/"),
+            ]),
+            &HashSet::new(),
+            &all_free,
+        )
+        .unwrap();
+        assert_eq!(r.env["PUBLIC_URL"], "https://vault.example.com/");
+        assert_eq!(r.public_host.as_deref(), Some("vault.example.com"));
+        let r = resolve(
+            &tmpl("vaultwarden"),
+            &input(&[]),
+            &HashSet::new(),
+            &all_free,
+        )
+        .unwrap();
+        assert_eq!(r.public_host, None);
+    }
+
+    #[test]
+    fn bad_public_host_and_apps_without_an_address_field_are_refused() {
+        for bad in [
+            "nodot",
+            "a b.example.com",
+            "-x.example.com",
+            "x.example.com/path",
+        ] {
+            let e = resolve(
+                &tmpl("vaultwarden"),
+                &input(&[("PUBLIC_HOST", bad)]),
+                &HashSet::new(),
+                &all_free,
+            )
+            .unwrap_err();
+            assert!(e.contains("Public hostname"), "{bad}: {e}");
+        }
+        let e = resolve(
+            &tmpl("memos"),
+            &input(&[("PUBLIC_HOST", "memo.example.com")]),
+            &HashSet::new(),
+            &all_free,
+        )
+        .unwrap_err();
+        assert!(e.contains("cannot be given"), "{e}");
     }
 
     #[test]

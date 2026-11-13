@@ -4,6 +4,7 @@ name = "WordPress"
 description = "Website and blog platform"
 homepage = "https://wordpress.org/"
 version = 1
+public_url_field = "SITE_URL"
 needs_public_https = false
 
 [[fields]]

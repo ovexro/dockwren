@@ -224,6 +224,53 @@ pub struct Settings {
     pub tunnel: String,
 }
 
+impl Settings {
+    /// Cloudflare settings from the environment; `None` unless all three are set (opt-in).
+    pub fn from_env() -> Option<Self> {
+        let get = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        Some(Self {
+            token: get("CLOUDFLARE_API_TOKEN")?,
+            account: get("CLOUDFLARE_ACCOUNT_ID")?,
+            tunnel: get("DOCKWREN_TUNNEL_ID")?,
+        })
+    }
+}
+
+/// After an install that was given a public hostname: record it and, when Cloudflare
+/// settings are configured, publish it. A publishing failure is logged, never fatal
+/// (the app is installed and running; `dockwren expose` can be retried).
+pub async fn publish_after_install(
+    dir: &Path,
+    name: &str,
+    host: &str,
+    log: &mut (dyn FnMut(&str) + Send),
+) {
+    if let Err(e) = write(dir, host) {
+        log(&format!("could not record hostname: {e}"));
+        return;
+    }
+    let Some(settings) = Settings::from_env() else {
+        log(&format!(
+            "hostname recorded; Cloudflare is not configured here. Publish it with: dockwren expose {name} --yes"
+        ));
+        return;
+    };
+    let Some(port) = web_port(dir) else {
+        log("this app has no WEB_PORT to publish");
+        return;
+    };
+    log(&format!("publishing https://{host}"));
+    let result = expose(&settings, host, &service_url(port), &[], true, &mut |s| {
+        log(&format!("  {s}"))
+    })
+    .await;
+    if let Err(e) = result {
+        log(&format!(
+            "publishing failed: {e}. The app is installed; retry with: dockwren expose {name} --yes"
+        ));
+    }
+}
+
 /// Wire `host` to the local `service` through the tunnel. With `apply` false only
 /// reads from Cloudflare and reports what would change.
 pub async fn expose(
@@ -232,7 +279,7 @@ pub async fn expose(
     service: &str,
     access: &[String],
     apply: bool,
-    log: &mut dyn FnMut(&str),
+    log: &mut (dyn FnMut(&str) + Send),
 ) -> Result<(), String> {
     if !valid_hostname(host) {
         return Err(format!("{host} is not a valid hostname"));

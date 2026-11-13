@@ -30,6 +30,8 @@ name = "Hello"
 description = "Tiny static web server"
 version = 1                        # bump when the manifest or compose file changes
 needs_public_https = false         # true = unusable remotely without HTTPS (shows a note)
+public_url_field = "PUBLIC_URL"    # optional: field holding the app's address; the install form's
+                                   # "Public hostname" fills it with https://<host> and hides it
 
 [[fields]]
 key = "INSTANCE_NAME"

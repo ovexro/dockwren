@@ -71,8 +71,17 @@ CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... DOCKWREN_TUNNEL_ID=... \
 ```
 
 The token needs Tunnel edit and DNS edit permissions for the zone. It is read from the environment
-only; the web panel never holds Cloudflare credentials. Existing routes and DNS records are never
-overwritten. Do not put Cloudflare Access in front of apps used by mobile or desktop clients.
+only. Existing routes and DNS records are never overwritten. Do not put Cloudflare Access in front of
+apps used by mobile or desktop clients.
+
+**One-step install and publish (opt-in).** Apps with an address setting (WordPress, Paperless-ngx,
+Gitea, Vaultwarden, Miniflux) have an optional "Public hostname" field on the install form (CLI:
+`PUBLIC_HOST=blog.example.com`). It sets the app's address to `https://<hostname>` and records the
+hostname. If the three variables above are also in the panel's own environment (for example via a
+systemd `EnvironmentFile` with mode 0600), the panel publishes it right after the install. By
+default they are not set, the panel holds no Cloudflare credentials, and you publish with
+`dockwren expose`. Enabling the variables gives anyone who can log in to the panel the power to edit
+that tunnel and those DNS records, so use a token scoped to the one zone.
 
 ## Adding apps
 
