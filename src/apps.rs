@@ -407,6 +407,20 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
     out
 }
 
+/// Number of installed apps (instance folders with a state file); cheap, no Docker calls.
+pub fn instance_count(apps: &Apps) -> usize {
+    std::fs::read_dir(&apps.root)
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| {
+                    e.file_name().to_str().is_some_and(runner::valid_name)
+                        && e.path().join("state.toml").is_file()
+                })
+                .count()
+        })
+        .unwrap_or(0)
+}
+
 pub async fn instances(State(apps): State<Apps>) -> Html<String> {
     render(InstancesPage {
         instances: instance_views(&apps).await,

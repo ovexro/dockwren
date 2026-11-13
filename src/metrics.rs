@@ -836,6 +836,7 @@ pub fn tiles(m: &Metrics) -> Vec<Tile> {
 #[template(path = "overview.html")]
 pub struct OverviewTemplate {
     pub tiles: Vec<Tile>,
+    pub apps: usize,
     pub running: usize,
     pub total: usize,
     pub warnings: Vec<String>,
@@ -869,6 +870,7 @@ pub fn overview(
     }
     OverviewTemplate {
         tiles,
+        apps: 0,
         running,
         total,
         warnings,

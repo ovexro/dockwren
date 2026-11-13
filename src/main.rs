@@ -211,10 +211,11 @@ async fn overview(State(state): State<AppState>) -> Html<String> {
     let list = state.docker.containers().await.map_err(|e| e.to_string());
     let rows: Result<Vec<(String, String, String)>, String> =
         list.map(|l| l.into_iter().map(|c| (c.name, c.state, c.status)).collect());
-    let page = metrics::overview(
+    let mut page = metrics::overview(
         &state.metrics.lock().unwrap(),
         rows.as_ref().map(|v| v.as_slice()).map_err(|e| e.clone()),
     );
+    page.apps = apps::instance_count(&state.apps);
     Html(page.render().expect("overview template renders"))
 }
 

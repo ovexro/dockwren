@@ -19,6 +19,6 @@
   </div>
   {% endif %}
   {% if docker_error.is_none() %}
-  <p><a href="/containers"><strong>{{ running }}</strong> of {{ total }} containers running</a></p>
+  <p><a href="/apps"><strong>{{ apps }}</strong> {% if apps == 1 %}app{% else %}apps{% endif %} installed</a> · <a href="/containers"><strong>{{ running }}</strong> of {{ total }} containers running</a></p>
   {% endif %}
 </div>
