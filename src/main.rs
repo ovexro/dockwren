@@ -340,12 +340,9 @@ async fn cli_expose(cfg: &config::Config, args: &[String]) -> Result<(), String>
         None => public::read(&dir).ok_or("no hostname set: pass one, or set it in the web UI")?,
     };
     let port = public::web_port(&dir).ok_or("this app has no WEB_PORT to publish")?;
-    let env = |k: &str| std::env::var(k).map_err(|_| format!("{k} is not set"));
-    let settings = public::Settings {
-        token: env("CLOUDFLARE_API_TOKEN")?,
-        account: env("CLOUDFLARE_ACCOUNT_ID")?,
-        tunnel: env("DOCKWREN_TUNNEL_ID")?,
-    };
+    let settings = public::Settings::from_env().ok_or(
+        "Cloudflare is not connected: set CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and DOCKWREN_TUNNEL_ID, or paste a token in the panel's Cloudflare tab (and run this with the same DOCKWREN_DATA)",
+    )?;
     public::expose(
         &settings,
         &host,
@@ -372,12 +369,9 @@ async fn cli_unexpose(cfg: &config::Config, args: &[String]) -> Result<(), Strin
         return Err(format!("no instance named {name}"));
     }
     let host = public::read(&dir).ok_or("this instance has no public hostname")?;
-    let env = |k: &str| std::env::var(k).map_err(|_| format!("{k} is not set"));
-    let settings = public::Settings {
-        token: env("CLOUDFLARE_API_TOKEN")?,
-        account: env("CLOUDFLARE_ACCOUNT_ID")?,
-        tunnel: env("DOCKWREN_TUNNEL_ID")?,
-    };
+    let settings = public::Settings::from_env().ok_or(
+        "Cloudflare is not connected: set CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and DOCKWREN_TUNNEL_ID, or paste a token in the panel's Cloudflare tab (and run this with the same DOCKWREN_DATA)",
+    )?;
     public::unexpose(&settings, &host, apply, &mut |s| println!("  {s}")).await?;
     if apply {
         public::write(&dir, "")?;
