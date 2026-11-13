@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build a static (musl) release binary for this machine's CPU into dist/ with a checksum.
 # Runs on any Linux distro regardless of glibc. Needs: rustup target add <arch>-unknown-linux-musl
-# Cross-builds (aarch64) are done on an aarch64 host for now.
+# aarch64 is built by the release workflow on a native ARM runner.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 case "$(uname -m)" in
