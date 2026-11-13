@@ -1,0 +1,31 @@
+[app]
+id = "memos"
+name = "Memos"
+description = "Self-hosted notes and micro-blogging, Markdown first"
+version = 1
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Name"
+type = "string"
+default = "memos"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+
+[[services]]
+name = "memos"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "wget -q --spider http://127.0.0.1:5230/healthz"], interval = "15s", start_period = "20s" }
+
+[backup]
+paths = ["data"]
+
+[update]
+image_pins = ["neosmemo/memos"]
+pre_update = ["backup"]

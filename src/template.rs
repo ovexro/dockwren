@@ -236,6 +236,8 @@ pub fn load_all(root: &Path) -> Result<Vec<Template>, String> {
 const BUNDLED: &[(&str, &str)] = &[
     (include_str!("../apps/gitea/manifest.toml"), include_str!("../apps/gitea/compose.yaml")),
     (include_str!("../apps/vaultwarden/manifest.toml"), include_str!("../apps/vaultwarden/compose.yaml")),
+    (include_str!("../apps/uptime-kuma/manifest.toml"), include_str!("../apps/uptime-kuma/compose.yaml")),
+    (include_str!("../apps/memos/manifest.toml"), include_str!("../apps/memos/compose.yaml")),
 ];
 
 /// Bundled templates plus (optionally) a directory of extra or overriding ones.
@@ -494,17 +496,17 @@ mod tests {
     #[test]
     fn embedded_catalog_matches_apps_dir_and_dir_overrides() {
         let ids: Vec<_> = catalog(None).unwrap().iter().map(|t| t.manifest.app.id.clone()).collect();
-        assert_eq!(ids, ["gitea", "vaultwarden"]);
+        assert_eq!(ids, ["gitea", "memos", "uptime-kuma", "vaultwarden"]);
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 2);
+        assert_eq!(c.len(), 4);
     }
 
     #[test]
     fn bundled_templates_load() {
         let all = load_all(&apps()).expect("bundled templates are valid");
         let ids: Vec<_> = all.iter().map(|t| t.manifest.app.id.as_str()).collect();
-        assert_eq!(ids, ["gitea", "vaultwarden"]);
+        assert_eq!(ids, ["gitea", "memos", "uptime-kuma", "vaultwarden"]);
     }
 
     fn manifest(extra: &str) -> Manifest {

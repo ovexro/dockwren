@@ -1,0 +1,8 @@
+services:
+  memos:
+    image: neosmemo/memos:26.11.0
+    restart: unless-stopped
+    volumes:
+      - ./data:/var/opt/memos
+    ports:
+      - "127.0.0.1:${WEB_PORT}:5230"

@@ -1,0 +1,31 @@
+[app]
+id = "uptime-kuma"
+name = "Uptime Kuma"
+description = "Self-hosted uptime monitoring with status pages and alerts"
+version = 1
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Name"
+type = "string"
+default = "uptime-kuma"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+
+[[services]]
+name = "uptime-kuma"
+main = true
+health = { source = "image" }
+
+[backup]
+paths = ["data"]
+
+[update]
+image_pins = ["louislam/uptime-kuma"]
+pre_update = ["backup"]
