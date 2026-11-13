@@ -3,12 +3,17 @@
 {% else if containers.is_empty() %}
 <p>No containers yet.</p>
 {% else %}
-<table>
-  <thead><tr><th>Name</th><th>Image</th><th>State</th><th>Status</th><th></th></tr></thead>
-  <tbody>
+<div class="clist">
   {% for c in containers %}
-    <tr data-state="{{ c.state }}"><td>{{ c.name }}</td><td>{{ c.image }}</td><td><span class="badge" data-state="{{ c.state }}">{{ c.state }}</span></td><td>{{ c.status }}</td>
-      <td>
+  <details class="crow" data-state="{{ c.state }}">
+    <summary>
+      <span class="cname" title="{{ c.name }}">{{ c.name }}</span>
+      <span class="badge" data-state="{{ c.state }}">{{ c.state }}</span>
+      <span class="cimg muted" title="{{ c.image }}">{{ c.image }}</span>
+      <span class="cstatus muted">{{ c.status }}</span>
+    </summary>
+    <div class="cbody">
+      <div class="cactions">
         <button hx-get="/containers/{{ c.id }}/logs" hx-target="#logs" hx-swap="innerHTML">Logs</button>
         {% if c.state == "running" %}
         <button hx-post="/containers/{{ c.id }}/restart" hx-target="#containers" hx-swap="innerHTML">Restart</button>
@@ -16,8 +21,10 @@
         {% else %}
         <button hx-post="/containers/{{ c.id }}/start" hx-target="#containers" hx-swap="innerHTML">Start</button>
         {% endif %}
-      </td></tr>
+      </div>
+      <div class="gslot" hx-get="/containers/{{ c.name }}/graphs" hx-trigger="toggle from:closest details once" hx-swap="innerHTML"><p class="muted">Loading…</p></div>
+    </div>
+  </details>
   {% endfor %}
-  </tbody>
-</table>
+</div>
 {% endif %}

@@ -658,11 +658,6 @@ pub struct Chart {
     pub warn: bool,
 }
 
-pub struct ContainerCard {
-    pub name: String,
-    pub charts: Vec<Chart>,
-}
-
 #[derive(Template)]
 #[template(path = "metrics.html")]
 struct MetricsTemplate {
@@ -671,7 +666,6 @@ struct MetricsTemplate {
     ready: bool,
     fresh: bool,
     charts: Vec<Chart>,
-    containers: Vec<ContainerCard>,
     w: f64,
     h: f64,
 }
@@ -769,60 +763,88 @@ fn build(m: &Metrics, now: u64, range: &str, fresh: bool) -> MetricsTemplate {
             warn: pct >= DISK_WARN_PCT,
         });
     }
-    let containers = m
-        .containers
-        .iter()
-        .map(|c| {
-            let hist = m
-                .per
-                .get(&c.name)
-                .map(|p| if window > 86400 { &p.long } else { &p.short });
-            let pts: Vec<&(u64, f64, f64)> = hist
-                .into_iter()
-                .flatten()
-                .filter(|p| p.0 >= start)
-                .collect();
-            let cpu: Vec<(u64, f64)> = pts.iter().map(|p| (p.0, p.1)).collect();
-            let mem: Vec<(u64, f64)> = pts.iter().map(|p| (p.0, p.2)).collect();
-            let cpu_top = nice_pct(cpu.iter().map(|p| p.1).fold(0.0, f64::max));
-            let mem_top = nice_max(mem.iter().map(|p| p.1).fold(0.0, f64::max));
-            ContainerCard {
-                name: c.name.clone(),
-                charts: vec![
-                    Chart {
-                        title: "CPU".into(),
-                        now: format!("{:.1}%", c.cpu_pct),
-                        scale: format!("0–{cpu_top:.0}%"),
-                        lines: vec![Line {
-                            points: polyline(&cpu, start, now, cpu_top),
-                            dashed: false,
-                        }],
-                        warn: false,
-                    },
-                    Chart {
-                        title: "Memory".into(),
-                        now: fmt_bytes(c.mem_bytes as f64),
-                        scale: format!("0–{}", fmt_bytes(mem_top)),
-                        lines: vec![Line {
-                            points: polyline(&mem, start, now, mem_top),
-                            dashed: false,
-                        }],
-                        warn: false,
-                    },
-                ],
-            }
-        })
-        .collect();
     MetricsTemplate {
         range: key,
         ranges: RANGES.iter().map(|r| (r.0, r.1)).collect(),
         ready: last.is_some(),
         fresh,
         charts,
-        containers,
         w: W,
         h: H,
     }
+}
+
+#[derive(Template)]
+#[template(path = "container_graphs.html")]
+struct ContainerGraphsTemplate {
+    name: String,
+    range: &'static str,
+    ranges: Vec<(&'static str, &'static str)>,
+    charts: Vec<Chart>,
+    w: f64,
+    h: f64,
+}
+
+fn build_container(m: &Metrics, name: &str, now: u64, range: &str) -> ContainerGraphsTemplate {
+    let (key, _, window) = *RANGES.iter().find(|r| r.0 == range).unwrap_or(&RANGES[0]);
+    let start = now.saturating_sub(window);
+    let hist = m
+        .per
+        .get(name)
+        .map(|p| if window > 86400 { &p.long } else { &p.short });
+    let pts: Vec<&(u64, f64, f64)> = hist
+        .into_iter()
+        .flatten()
+        .filter(|p| p.0 >= start)
+        .collect();
+    let cpu: Vec<(u64, f64)> = pts.iter().map(|p| (p.0, p.1)).collect();
+    let mem: Vec<(u64, f64)> = pts.iter().map(|p| (p.0, p.2)).collect();
+    let cpu_top = nice_pct(cpu.iter().map(|p| p.1).fold(0.0, f64::max));
+    let mem_top = nice_max(mem.iter().map(|p| p.1).fold(0.0, f64::max));
+    let usage = m.containers.iter().find(|c| c.name == name);
+    ContainerGraphsTemplate {
+        name: name.to_string(),
+        range: key,
+        ranges: RANGES.iter().map(|r| (r.0, r.1)).collect(),
+        charts: vec![
+            Chart {
+                title: "CPU".into(),
+                now: usage.map_or("–".into(), |c| format!("{:.1}%", c.cpu_pct)),
+                scale: format!("0–{cpu_top:.0}%"),
+                lines: vec![Line {
+                    points: polyline(&cpu, start, now, cpu_top),
+                    dashed: false,
+                }],
+                warn: false,
+            },
+            Chart {
+                title: "Memory".into(),
+                now: usage.map_or("–".into(), |c| fmt_bytes(c.mem_bytes as f64)),
+                scale: format!("0–{}", fmt_bytes(mem_top)),
+                lines: vec![Line {
+                    points: polyline(&mem, start, now, mem_top),
+                    dashed: false,
+                }],
+                warn: false,
+            },
+        ],
+        w: W,
+        h: H,
+    }
+}
+
+pub async fn container_graphs(
+    State(shared): State<Shared>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+    Query(q): Query<RangeQuery>,
+) -> Html<String> {
+    let page = build_container(
+        &shared.lock().unwrap(),
+        &name,
+        now_unix(),
+        q.range.as_deref().unwrap_or("1h"),
+    );
+    Html(page.render().expect("container graphs template renders"))
 }
 
 pub async fn page(State(shared): State<Shared>, Query(q): Query<RangeQuery>) -> Html<String> {
@@ -881,7 +903,7 @@ mod page_tests {
         let html = build(&m, 1000, "1h", false).render().unwrap();
         assert!(html.contains("<polyline points=\"") && html.contains("30%"));
         assert!(html.contains("chart warn") && html.contains("almost full"));
-        assert!(html.contains("range=1h") && html.contains("web&#60;1&#62;"));
+        assert!(html.contains("range=1h") && !html.contains("web&#60;1&#62;"));
         assert!(
             build(&m, 1000, "24h", false)
                 .render()
@@ -960,7 +982,7 @@ mod page_tests {
     }
 
     #[test]
-    fn container_cards_draw_history() {
+    fn container_graphs_draw_history() {
         let mut m = Metrics::default();
         m.samples.push_back(sample(1000, 10.0));
         m.containers.push(ContainerUsage {
@@ -973,11 +995,11 @@ mod page_tests {
             .or_default()
             .short
             .extend([(900, 1.0, 5e6), (1000, 2.0, 1e7)]);
-        let html = build(&m, 1000, "1h", false).render().unwrap();
-        assert!(
-            html.contains("class=\"card\"") && html.contains("web") && html.contains("10.0 MB")
-        );
-        assert_eq!(html.matches("<polyline").count(), 4 + 2);
+        let host = build(&m, 1000, "1h", false).render().unwrap();
+        assert!(!host.contains("web"));
+        let html = build_container(&m, "web", 1000, "1h").render().unwrap();
+        assert!(html.contains("/containers/web/graphs?range=1h") && html.contains("10.0 MB"));
+        assert_eq!(html.matches("<polyline").count(), 2);
     }
 
     #[test]

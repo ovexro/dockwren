@@ -239,6 +239,7 @@ fn app(
         .route("/containers/list", get(containers))
         .route("/containers/{id}/{action}", post(container_action))
         .route("/containers/{id}/logs", get(container_logs))
+        .route("/containers/{name}/graphs", get(metrics::container_graphs))
         .route("/logs/close", get(close_logs))
         .route("/catalog", get(apps::list))
         .route("/apps/{id}/new", get(apps::new_form))
@@ -947,6 +948,7 @@ mod tests {
         for path in [
             "/containers",
             "/containers/list",
+            "/containers/web/graphs",
             "/resources",
             "/settings",
             "/static/htmx.min.js",

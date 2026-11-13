@@ -26,7 +26,7 @@
     <h2>Add an app</h2>
     <div id="catalog"><button class="primary" hx-get="/catalog" hx-target="#catalog" hx-swap="innerHTML">Browse apps</button></div>
     {% else if active == "containers" %}
-    <div id="containers" hx-get="/containers/list" hx-trigger="load, every 5s" hx-swap="innerHTML">Loading…</div>
+    <div id="containers" hx-get="/containers/list" hx-trigger="load, every 5s [!document.querySelector('#containers details[open]')]" hx-swap="innerHTML">Loading…</div>
     <section id="logs"></section>
     {% else if active == "resources" %}
     <div id="metrics" hx-get="/metrics" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
