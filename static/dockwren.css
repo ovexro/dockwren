@@ -60,7 +60,7 @@ td:last-child { text-align: right; white-space: nowrap; }
 button { font: inherit; font-size: .875rem; padding: .35rem .8rem; border-radius: 6px; cursor: pointer;
   background: var(--surface); color: var(--text); border: 1px solid var(--border); }
 button:hover { border-color: var(--muted); }
-button.primary, form button[type="submit"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+button.primary, form[action="/login"] button[type="submit"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
 button.danger { color: var(--bad); }
 td button + button, li button + button { margin-left: .35rem; }
 .htmx-request button { opacity: .6; }
@@ -79,7 +79,7 @@ form button + button { margin-left: .5rem; }
 #job li { display: block; padding: .15rem 0; margin: 0; border: 0; background: none; }
 
 /* Sign-in */
-body > main > form[action="/login"] { max-width: 22rem; margin-top: 2rem; padding: 1.5rem; background: var(--surface);
+body > main > form[action="/login"] { max-width: 22rem; margin: 2rem auto 0; padding: 1.5rem; background: var(--surface);
   border: 1px solid var(--border); border-radius: 10px; }
 form[action="/login"] input { max-width: none; margin-bottom: 1rem; }
 form[action="/logout"] { margin-top: 3rem; }
