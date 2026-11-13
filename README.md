@@ -1,12 +1,15 @@
 # Dockwren
 
-A minimal, Docker-only control panel for your own server. Early development: usable for
-watching and controlling containers, but not yet for installing apps.
+A minimal, Docker-only control panel for your own server. Early development: watch and control
+containers, install apps from Compose templates, update them with automatic rollback, and snapshot
+and restore their data.
 
 - Single Rust binary (axum + bollard), server-rendered UI with a small amount of htmx
   (vendored, no CDN, no JS build step).
 - Talks to the local Docker socket. No database, no agents.
-- Planned: one-click apps from Compose templates, Cloudflare Tunnel / DNS integration.
+- One-click apps from Compose templates; optional Cloudflare Tunnel hostnames.
+
+License: Apache-2.0.
 
 ## What works today
 
