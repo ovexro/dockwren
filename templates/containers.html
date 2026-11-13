@@ -1,0 +1,14 @@
+{% if let Some(msg) = error %}
+<p role="alert">{{ msg }}</p>
+{% else if containers.is_empty() %}
+<p>No containers yet.</p>
+{% else %}
+<table>
+  <thead><tr><th>Name</th><th>Image</th><th>State</th><th>Status</th></tr></thead>
+  <tbody>
+  {% for c in containers %}
+    <tr data-state="{{ c.state }}"><td>{{ c.name }}</td><td>{{ c.image }}</td><td>{{ c.state }}</td><td>{{ c.status }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}

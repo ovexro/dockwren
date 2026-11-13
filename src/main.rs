@@ -8,10 +8,57 @@ use askama::Template;
 use auth::SharedAuth;
 use axum::{
     Router,
+    extract::{FromRef, State},
+    http::header,
     middleware::from_fn_with_state,
-    response::Html,
+    response::{Html, IntoResponse},
     routing::{get, post},
 };
+use docker::{ContainerInfo, DockerClient};
+
+#[derive(Clone)]
+struct AppState {
+    auth: SharedAuth,
+    docker: DockerClient,
+}
+
+impl FromRef<AppState> for SharedAuth {
+    fn from_ref(state: &AppState) -> Self {
+        state.auth.clone()
+    }
+}
+
+#[derive(Template)]
+#[template(path = "containers.html")]
+struct ContainersTemplate {
+    containers: Vec<ContainerInfo>,
+    error: Option<String>,
+}
+
+fn render_containers(result: Result<Vec<ContainerInfo>, String>) -> String {
+    let page = match result {
+        Ok(containers) => ContainersTemplate {
+            containers,
+            error: None,
+        },
+        Err(e) => ContainersTemplate {
+            containers: Vec::new(),
+            error: Some(format!("Docker is not reachable: {e}")),
+        },
+    };
+    page.render().expect("containers template renders")
+}
+
+async fn containers(State(state): State<AppState>) -> Html<String> {
+    let result = state.docker.containers().await.map_err(|e| e.to_string());
+    Html(render_containers(result))
+}
+
+const HTMX: &str = include_str!("../static/htmx.min.js");
+
+async fn htmx_js() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "text/javascript")], HTMX)
+}
 
 #[derive(Template)]
 #[template(path = "index.html")]
@@ -30,16 +77,18 @@ async fn index() -> Html<String> {
     Html(page.render().expect("index template renders"))
 }
 
-fn app(auth: SharedAuth) -> Router {
+fn app(auth: SharedAuth, docker: DockerClient) -> Router {
     let protected = Router::new()
         .route("/", get(index))
+        .route("/containers", get(containers))
+        .route("/static/htmx.min.js", get(htmx_js))
         .route("/logout", post(auth::logout))
         .route_layer(from_fn_with_state(auth.clone(), auth::require_session));
     Router::new()
         .route("/health", get(health))
         .route("/login", get(auth::login_form).post(auth::login_submit))
         .merge(protected)
-        .with_state(auth)
+        .with_state(AppState { auth, docker })
 }
 
 #[tokio::main]
@@ -55,11 +104,14 @@ async fn main() {
         println!("    {password}");
     }
 
+    let docker =
+        DockerClient::connect().unwrap_or_else(|e| panic!("cannot set up Docker client: {e}"));
+
     let listener = tokio::net::TcpListener::bind(&cfg.bind)
         .await
         .unwrap_or_else(|e| panic!("cannot bind {}: {e}", cfg.bind));
     println!("dockwren listening on http://{}", cfg.bind);
-    axum::serve(listener, app(auth))
+    axum::serve(listener, app(auth, docker))
         .await
         .expect("server error");
 }
@@ -78,7 +130,8 @@ mod tests {
 
     fn test_app() -> Router {
         let hash = auth::hash_password(PASSWORD);
-        app(Arc::new(auth::Auth::new(&hash, false).unwrap()))
+        let docker = DockerClient::connect().unwrap();
+        app(Arc::new(auth::Auth::new(&hash, false).unwrap()), docker)
     }
 
     async fn body_of(res: Response<Body>) -> String {
@@ -207,6 +260,54 @@ mod tests {
         }
         let res = app.oneshot(login_req(PASSWORD)).await.unwrap();
         assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[test]
+    fn containers_table_lists_rows_and_escapes() {
+        let html = render_containers(Ok(vec![ContainerInfo {
+            id: "abc".into(),
+            name: "<web>".into(),
+            image: "nginx:1".into(),
+            state: "running".into(),
+            status: "Up 3 hours".into(),
+        }]));
+        assert!(html.contains("&#60;web&#62;") && !html.contains("<web>"));
+        assert!(html.contains("nginx:1") && html.contains("Up 3 hours"));
+    }
+
+    #[test]
+    fn containers_empty_and_error_states() {
+        assert!(render_containers(Ok(vec![])).contains("No containers yet"));
+        let err = render_containers(Err("boom".into()));
+        assert!(err.contains("Docker is not reachable: boom"));
+    }
+
+    #[tokio::test]
+    async fn containers_and_assets_require_session() {
+        for path in ["/containers", "/static/htmx.min.js"] {
+            let res = test_app()
+                .oneshot(Request::get(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::SEE_OTHER, "{path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn containers_fragment_renders_for_signed_in_user() {
+        let app = test_app();
+        let res = app.clone().oneshot(login_req(PASSWORD)).await.unwrap();
+        let cookie = cookie_of(&res);
+        let res = app
+            .oneshot(
+                Request::get("/containers")
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
     }
 
     #[test]

@@ -4,11 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dockwren</title>
+  <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
   <main>
     <h1>Dockwren</h1>
     <p>Version {{ version }}</p>
+    <h2>Containers</h2>
+    <div id="containers" hx-get="/containers" hx-trigger="load, every 5s" hx-swap="innerHTML">Loading…</div>
     <form method="post" action="/logout"><button type="submit">Sign out</button></form>
   </main>
 </body>

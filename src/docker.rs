@@ -1,5 +1,4 @@
 //! Thin wrapper over the Docker Engine API (bollard). Only what the UI needs.
-#![allow(dead_code)] // wired into the Overview page next; remove then.
 
 use bollard::{Docker, models::ContainerSummary, query_parameters::ListContainersOptionsBuilder};
 
