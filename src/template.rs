@@ -205,7 +205,10 @@ pub struct Template {
 pub fn parse(manifest: &str, compose: &str) -> Result<Template, String> {
     let manifest: Manifest = toml::from_str(manifest).map_err(|e| format!("manifest.toml: {e}"))?;
     validate(&manifest, compose)?;
-    Ok(Template { manifest, compose: compose.to_string() })
+    Ok(Template {
+        manifest,
+        compose: compose.to_string(),
+    })
 }
 
 /// Load and validate one template directory.
@@ -234,11 +237,26 @@ pub fn load_all(root: &Path) -> Result<Vec<Template>, String> {
 
 /// Templates shipped inside the binary.
 const BUNDLED: &[(&str, &str)] = &[
-    (include_str!("../apps/gitea/manifest.toml"), include_str!("../apps/gitea/compose.yaml")),
-    (include_str!("../apps/vaultwarden/manifest.toml"), include_str!("../apps/vaultwarden/compose.yaml")),
-    (include_str!("../apps/uptime-kuma/manifest.toml"), include_str!("../apps/uptime-kuma/compose.yaml")),
-    (include_str!("../apps/miniflux/manifest.toml"), include_str!("../apps/miniflux/compose.yaml")),
-    (include_str!("../apps/memos/manifest.toml"), include_str!("../apps/memos/compose.yaml")),
+    (
+        include_str!("../apps/gitea/manifest.toml"),
+        include_str!("../apps/gitea/compose.yaml"),
+    ),
+    (
+        include_str!("../apps/vaultwarden/manifest.toml"),
+        include_str!("../apps/vaultwarden/compose.yaml"),
+    ),
+    (
+        include_str!("../apps/uptime-kuma/manifest.toml"),
+        include_str!("../apps/uptime-kuma/compose.yaml"),
+    ),
+    (
+        include_str!("../apps/miniflux/manifest.toml"),
+        include_str!("../apps/miniflux/compose.yaml"),
+    ),
+    (
+        include_str!("../apps/memos/manifest.toml"),
+        include_str!("../apps/memos/compose.yaml"),
+    ),
 ];
 
 /// Bundled templates plus (optionally) a directory of extra or overriding ones.
@@ -273,14 +291,17 @@ fn var_refs(text: &str) -> Vec<&str> {
 
 fn valid_key(k: &str) -> bool {
     !k.is_empty()
-        && k.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+        && k.chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
         && !k.starts_with(|c: char| c.is_ascii_digit())
 }
 
 pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
     let id = &m.app.id;
     if id.is_empty()
-        || !id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
     {
         return Err(format!("app.id {id:?} must match [a-z0-9-]+"));
     }
@@ -294,7 +315,10 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
         if let Some(d) = &f.default {
             for r in var_refs(d) {
                 if !known.contains(r) {
-                    return Err(format!("field {}: default uses unknown or later variable ${{{r}}}", f.key));
+                    return Err(format!(
+                        "field {}: default uses unknown or later variable ${{{r}}}",
+                        f.key
+                    ));
                 }
             }
         }
@@ -302,7 +326,10 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
             return Err(format!("field {}: select needs options", f.key));
         }
         if f.pattern.is_some() && !matches!(f.kind, FieldType::String | FieldType::Password) {
-            return Err(format!("field {}: pattern only applies to string/password", f.key));
+            return Err(format!(
+                "field {}: pattern only applies to string/password",
+                f.key
+            ));
         }
         // A field may define a reserved variable (the form input for it).
         if !known.insert(&f.key) && !RESERVED_VARS.contains(&f.key.as_str()) {
@@ -338,7 +365,10 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
     }
     for h in &m.post_start {
         if !names.contains(h.service.as_str()) {
-            return Err(format!("post_start {}: unknown service {}", h.name, h.service));
+            return Err(format!(
+                "post_start {}: unknown service {}",
+                h.name, h.service
+            ));
         }
         if h.run.is_empty() {
             return Err(format!("post_start {}: empty command", h.name));
@@ -347,13 +377,19 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
             let re = regex::Regex::new(&c.regex)
                 .map_err(|e| format!("post_start {}: bad capture regex: {e}", h.name))?;
             if re.captures_len() != 2 {
-                return Err(format!("post_start {}: capture regex needs exactly one group", h.name));
+                return Err(format!(
+                    "post_start {}: capture regex needs exactly one group",
+                    h.name
+                ));
             }
         }
     }
     for g in &m.migrations {
         if !names.contains(g.service.as_str()) {
-            return Err(format!("migration {}: unknown service {}", g.name, g.service));
+            return Err(format!(
+                "migration {}: unknown service {}",
+                g.name, g.service
+            ));
         }
         if g.run.is_empty() {
             return Err(format!("migration {}: empty command", g.name));
@@ -373,12 +409,20 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
             return Err("backup dump: empty command".into());
         }
         if d.output.is_empty() || d.output.contains('/') || d.output.starts_with('.') {
-            return Err(format!("backup dump output {:?} must be a plain file name", d.output));
+            return Err(format!(
+                "backup dump output {:?} must be a plain file name",
+                d.output
+            ));
         }
     }
     for p in &m.backup.paths {
-        if p.is_empty() || p.starts_with('/') || p.split('/').any(|c| c.is_empty() || c == ".." || c == ".") {
-            return Err(format!("backup path {p:?} must be relative and inside the instance"));
+        if p.is_empty()
+            || p.starts_with('/')
+            || p.split('/').any(|c| c.is_empty() || c == ".." || c == ".")
+        {
+            return Err(format!(
+                "backup path {p:?} must be relative and inside the instance"
+            ));
         }
     }
 
@@ -409,7 +453,11 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
 /// Line-based checks on the compose file. Not a YAML parser: the full structure
 /// is validated later by `docker compose config`; this rejects the dangerous
 /// and sloppy patterns early.
-fn lint_compose(compose: &str, known: &HashSet<&str>, services: &HashSet<&str>) -> Result<(), String> {
+fn lint_compose(
+    compose: &str,
+    known: &HashSet<&str>,
+    services: &HashSet<&str>,
+) -> Result<(), String> {
     for r in var_refs(compose) {
         let name = r.split([':', '-', '?', '+']).next().unwrap_or(r);
         if !known.contains(name) {
@@ -429,16 +477,29 @@ fn lint_compose(compose: &str, known: &HashSet<&str>, services: &HashSet<&str>) 
         if raw.starts_with("  ") && !raw.starts_with("   ") && line.ends_with(':') {
             compose_services.insert(line.trim_end_matches(':').to_string());
         }
-        for bad in ["privileged:", "network_mode:", "docker.sock", "pid: host", "cap_add:"] {
+        for bad in [
+            "privileged:",
+            "network_mode:",
+            "docker.sock",
+            "pid: host",
+            "cap_add:",
+        ] {
             if line.contains(bad) {
                 return Err(at(&format!("{bad:?} is not allowed in templates")));
             }
         }
         if let Some(img) = line.strip_prefix("image:") {
             let img = img.trim();
-            let tag = img.rsplit('/').next().unwrap_or(img).split_once(':').map(|(_, t)| t);
+            let tag = img
+                .rsplit('/')
+                .next()
+                .unwrap_or(img)
+                .split_once(':')
+                .map(|(_, t)| t);
             if matches!(tag, None | Some("latest")) {
-                return Err(at(&format!("image {img:?} must have a pinned tag (not latest)")));
+                return Err(at(&format!(
+                    "image {img:?} must have a pinned tag (not latest)"
+                )));
             }
         }
         if line == "ports:" {
@@ -470,7 +531,10 @@ fn lint_compose(compose: &str, known: &HashSet<&str>, services: &HashSet<&str>) 
         if let Some((k, v)) = line.split_once(':') {
             let ku = k.to_ascii_uppercase();
             let v = v.trim().trim_matches('"');
-            if (ku.contains("PASSWORD") || ku.contains("PASSWD") || ku.contains("SECRET") || ku.contains("TOKEN"))
+            if (ku.contains("PASSWORD")
+                || ku.contains("PASSWD")
+                || ku.contains("SECRET")
+                || ku.contains("TOKEN"))
                 && !v.is_empty()
                 && !v.starts_with("${")
             {
@@ -480,7 +544,9 @@ fn lint_compose(compose: &str, known: &HashSet<&str>, services: &HashSet<&str>) 
     }
     for s in services {
         if !compose_services.contains(*s) {
-            return Err(format!("manifest service {s} is not defined in compose.yaml"));
+            return Err(format!(
+                "manifest service {s} is not defined in compose.yaml"
+            ));
         }
     }
     Ok(())
@@ -496,8 +562,15 @@ mod tests {
 
     #[test]
     fn embedded_catalog_matches_apps_dir_and_dir_overrides() {
-        let ids: Vec<_> = catalog(None).unwrap().iter().map(|t| t.manifest.app.id.clone()).collect();
-        assert_eq!(ids, ["gitea", "memos", "miniflux", "uptime-kuma", "vaultwarden"]);
+        let ids: Vec<_> = catalog(None)
+            .unwrap()
+            .iter()
+            .map(|t| t.manifest.app.id.clone())
+            .collect();
+        assert_eq!(
+            ids,
+            ["gitea", "memos", "miniflux", "uptime-kuma", "vaultwarden"]
+        );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
         assert_eq!(c.len(), 5);
@@ -507,7 +580,10 @@ mod tests {
     fn bundled_templates_load() {
         let all = load_all(&apps()).expect("bundled templates are valid");
         let ids: Vec<_> = all.iter().map(|t| t.manifest.app.id.as_str()).collect();
-        assert_eq!(ids, ["gitea", "memos", "miniflux", "uptime-kuma", "vaultwarden"]);
+        assert_eq!(
+            ids,
+            ["gitea", "memos", "miniflux", "uptime-kuma", "vaultwarden"]
+        );
     }
 
     fn manifest(extra: &str) -> Manifest {
@@ -517,7 +593,8 @@ mod tests {
         .unwrap()
     }
 
-    const OK: &str = "services:\n  web:\n    image: nginx:1.27\n    ports:\n      - \"127.0.0.1:8080:80\"\n";
+    const OK: &str =
+        "services:\n  web:\n    image: nginx:1.27\n    ports:\n      - \"127.0.0.1:8080:80\"\n";
 
     #[test]
     fn minimal_template_is_valid() {
@@ -528,7 +605,10 @@ mod tests {
     fn rejects_unpinned_images() {
         for img in ["nginx", "nginx:latest"] {
             let c = OK.replace("nginx:1.27", img);
-            assert!(validate(&manifest(""), &c).unwrap_err().contains("pinned"), "{img}");
+            assert!(
+                validate(&manifest(""), &c).unwrap_err().contains("pinned"),
+                "{img}"
+            );
         }
     }
 
@@ -569,7 +649,8 @@ mod tests {
             m.app.version = 3;
             assert!(validate(&m, OK).is_err(), "{bad}");
         }
-        let mut m = manifest("[[migrations]]\nname=\"m\"\nservice=\"web\"\nrun=[\"true\"]\nto_version=3\n");
+        let mut m =
+            manifest("[[migrations]]\nname=\"m\"\nservice=\"web\"\nrun=[\"true\"]\nto_version=3\n");
         m.app.version = 3;
         assert_eq!(validate(&m, OK), Ok(()));
     }

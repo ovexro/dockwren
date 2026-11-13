@@ -27,7 +27,10 @@ pub fn subst(s: &str, env: &BTreeMap<String, String>) -> Result<String, String> 
         let after = &rest[i + 2..];
         let j = after.find('}').ok_or("unterminated ${")?;
         let key = &after[..j];
-        out.push_str(env.get(key).ok_or_else(|| format!("unknown variable {key}"))?);
+        out.push_str(
+            env.get(key)
+                .ok_or_else(|| format!("unknown variable {key}"))?,
+        );
         rest = &after[j + 1..];
     }
     out.push_str(rest);
@@ -86,7 +89,11 @@ fn validate_field(f: &Field, value: &str) -> Result<String, String> {
             if !ok {
                 return Err(bad("must be an http(s) URL"));
             }
-            Ok(if value.ends_with('/') { value.into() } else { format!("{value}/") })
+            Ok(if value.ends_with('/') {
+                value.into()
+            } else {
+                format!("{value}/")
+            })
         }
         FieldType::Email => {
             let ok = value.split_once('@').is_some_and(|(u, d)| {
@@ -118,7 +125,10 @@ pub fn resolve(
     let mut env = BTreeMap::new();
     let mut taken = claimed.clone();
     for f in &t.manifest.fields {
-        let given = input.get(&f.key).map(|v| v.trim()).filter(|v| !v.is_empty());
+        let given = input
+            .get(&f.key)
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty());
         let raw = match (given, &f.default) {
             (Some(v), _) => v.to_string(),
             (None, Some(d)) => subst(d, &env)?,
@@ -217,7 +227,10 @@ mod tests {
     }
 
     fn input(pairs: &[(&str, &str)]) -> HashMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     fn all_free(_: u16) -> bool {
@@ -226,7 +239,13 @@ mod tests {
 
     #[test]
     fn defaults_and_auto_ports_for_vaultwarden() {
-        let r = resolve(&tmpl("vaultwarden"), &input(&[]), &HashSet::new(), &all_free).unwrap();
+        let r = resolve(
+            &tmpl("vaultwarden"),
+            &input(&[]),
+            &HashSet::new(),
+            &all_free,
+        )
+        .unwrap();
         assert_eq!(r.env["INSTANCE_NAME"], "vaultwarden");
         assert_eq!(r.env["WEB_PORT"], "8100");
         assert_eq!(r.env["PUBLIC_URL"], "http://127.0.0.1:8100/");
@@ -237,7 +256,13 @@ mod tests {
     fn auto_ports_skip_claimed_busy_and_each_other() {
         let claimed: HashSet<u16> = [8100].into();
         let free = |p: u16| p != 8101;
-        let r = resolve(&tmpl("gitea"), &input(&[("ADMIN_EMAIL", "a@b.io")]), &claimed, &free).unwrap();
+        let r = resolve(
+            &tmpl("gitea"),
+            &input(&[("ADMIN_EMAIL", "a@b.io")]),
+            &claimed,
+            &free,
+        )
+        .unwrap();
         assert_eq!(r.env["WEB_PORT"], "8102");
         assert_eq!(r.env["SSH_PORT"], "8103");
     }
@@ -248,9 +273,21 @@ mod tests {
         let claimed: HashSet<u16> = [9500].into();
         let e = resolve(&t, &input(&[("WEB_PORT", "9500")]), &claimed, &all_free).unwrap_err();
         assert!(e.contains("in use"), "{e}");
-        let e = resolve(&t, &input(&[("WEB_PORT", "80")]), &HashSet::new(), &all_free).unwrap_err();
+        let e = resolve(
+            &t,
+            &input(&[("WEB_PORT", "80")]),
+            &HashSet::new(),
+            &all_free,
+        )
+        .unwrap_err();
         assert!(e.contains("1024"), "{e}");
-        let e = resolve(&t, &input(&[("WEB_PORT", "9501")]), &HashSet::new(), &|_| false).unwrap_err();
+        let e = resolve(
+            &t,
+            &input(&[("WEB_PORT", "9501")]),
+            &HashSet::new(),
+            &|_| false,
+        )
+        .unwrap_err();
         assert!(e.contains("in use"), "{e}");
     }
 
@@ -258,7 +295,11 @@ mod tests {
     fn required_and_validation_errors() {
         let t = tmpl("gitea");
         let none = HashSet::new();
-        assert!(resolve(&t, &input(&[]), &none, &all_free).unwrap_err().contains("e-mail"));
+        assert!(
+            resolve(&t, &input(&[]), &none, &all_free)
+                .unwrap_err()
+                .contains("e-mail")
+        );
         for (k, v) in [
             ("ADMIN_EMAIL", "nope"),
             ("INSTANCE_NAME", "Bad Name"),
@@ -275,7 +316,10 @@ mod tests {
     fn url_is_normalised_and_bool_accepts_form_values() {
         let r = resolve(
             &tmpl("vaultwarden"),
-            &input(&[("PUBLIC_URL", "https://vault.example.com"), ("SIGNUPS_ALLOWED", "off")]),
+            &input(&[
+                ("PUBLIC_URL", "https://vault.example.com"),
+                ("SIGNUPS_ALLOWED", "off"),
+            ]),
             &HashSet::new(),
             &all_free,
         )
@@ -298,12 +342,20 @@ mod tests {
     #[test]
     fn env_file_is_quoted_private_and_not_overwritten() {
         use std::os::unix::fs::PermissionsExt;
-        let env: BTreeMap<_, _> = [("B".to_string(), "x$y".to_string()), ("A".to_string(), "1".to_string())].into();
+        let env: BTreeMap<_, _> = [
+            ("B".to_string(), "x$y".to_string()),
+            ("A".to_string(), "1".to_string()),
+        ]
+        .into();
         assert_eq!(render_env(&env), "A='1'\nB='x$y'\n");
-        let dir = std::env::temp_dir().join(format!("dockwren-env-{}", crate::auth::generate_password()));
+        let dir =
+            std::env::temp_dir().join(format!("dockwren-env-{}", crate::auth::generate_password()));
         std::fs::create_dir_all(&dir).unwrap();
         write_env(&dir, &env).unwrap();
-        let mode = std::fs::metadata(dir.join(".env")).unwrap().permissions().mode();
+        let mode = std::fs::metadata(dir.join(".env"))
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o777, 0o600);
         assert!(write_env(&dir, &env).is_err());
         std::fs::remove_dir_all(&dir).unwrap();

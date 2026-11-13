@@ -150,11 +150,23 @@ pub fn asset_version() -> String {
 }
 
 async fn stylesheet() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "text/css"), (header::CACHE_CONTROL, "no-cache")], CSS)
+    (
+        [
+            (header::CONTENT_TYPE, "text/css"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        CSS,
+    )
 }
 
 async fn htmx_js() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "text/javascript"), (header::CACHE_CONTROL, "no-cache")], HTMX)
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        HTMX,
+    )
 }
 
 #[derive(Template)]
@@ -176,7 +188,12 @@ async fn index() -> Html<String> {
     Html(page.render().expect("index template renders"))
 }
 
-fn app(auth: SharedAuth, docker: DockerClient, apps: apps::Apps, metrics: metrics::Shared) -> Router {
+fn app(
+    auth: SharedAuth,
+    docker: DockerClient,
+    apps: apps::Apps,
+    metrics: metrics::Shared,
+) -> Router {
     let protected = Router::new()
         .route("/", get(index))
         .route("/metrics", get(metrics::page))
@@ -191,8 +208,14 @@ fn app(auth: SharedAuth, docker: DockerClient, apps: apps::Apps, metrics: metric
         .route("/instances", get(apps::instances))
         .route("/instances/{name}/remove", post(apps::instance_remove))
         .route("/instances/{name}/update", post(apps::instance_update))
-        .route("/instances/{name}/public", get(apps::public_form).post(apps::public_submit))
-        .route("/instances/{name}/restore", get(apps::restore_form).post(apps::restore_submit))
+        .route(
+            "/instances/{name}/public",
+            get(apps::public_form).post(apps::public_submit),
+        )
+        .route(
+            "/instances/{name}/restore",
+            get(apps::restore_form).post(apps::restore_submit),
+        )
         .route("/instances/{name}/cleanup", post(apps::cleanup_submit))
         .route("/static/htmx.min.js", get(htmx_js))
         .route("/logout", post(auth::logout))
@@ -202,7 +225,12 @@ fn app(auth: SharedAuth, docker: DockerClient, apps: apps::Apps, metrics: metric
         .route("/static/dockwren.css", get(stylesheet))
         .route("/login", get(auth::login_form).post(auth::login_submit))
         .merge(protected)
-        .with_state(AppState { auth, docker, apps, metrics })
+        .with_state(AppState {
+            auth,
+            docker,
+            apps,
+            metrics,
+        })
 }
 
 /// `dockwren install <app> [KEY=VALUE...]`: resolve, prepare, bring up.
@@ -245,13 +273,24 @@ async fn cli_expose(cfg: &config::Config, args: &[String]) -> Result<(), String>
         account: env("CLOUDFLARE_ACCOUNT_ID")?,
         tunnel: env("DOCKWREN_TUNNEL_ID")?,
     };
-    public::expose(&settings, &host, &public::service_url(port), &access, apply, &mut |s| println!("  {s}")).await
+    public::expose(
+        &settings,
+        &host,
+        &public::service_url(port),
+        &access,
+        apply,
+        &mut |s| println!("  {s}"),
+    )
+    .await
 }
 
 /// `dockwren unexpose <instance> [--yes]`: remove the tunnel route and DNS record, then forget the hostname.
 async fn cli_unexpose(cfg: &config::Config, args: &[String]) -> Result<(), String> {
     let apply = args.iter().any(|a| a == "--yes");
-    let name = args.iter().find(|a| !a.starts_with("--")).ok_or("usage: dockwren unexpose <instance> [--yes]")?;
+    let name = args
+        .iter()
+        .find(|a| !a.starts_with("--"))
+        .ok_or("usage: dockwren unexpose <instance> [--yes]")?;
     if !runner::valid_name(name) {
         return Err("invalid instance name".into());
     }
@@ -274,7 +313,9 @@ async fn cli_unexpose(cfg: &config::Config, args: &[String]) -> Result<(), Strin
 }
 
 async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String> {
-    let app = args.first().ok_or("usage: dockwren install <app> [KEY=VALUE...]")?;
+    let app = args
+        .first()
+        .ok_or("usage: dockwren install <app> [KEY=VALUE...]")?;
     let templates = apps::catalog(cfg)?;
     let t = templates
         .iter()
@@ -282,17 +323,28 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
         .ok_or_else(|| format!("unknown app {app}"))?;
     let input = args[1..]
         .iter()
-        .map(|a| a.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())).ok_or(format!("expected KEY=VALUE, got {a}")))
+        .map(|a| {
+            a.split_once('=')
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .ok_or(format!("expected KEY=VALUE, got {a}"))
+        })
         .collect::<Result<std::collections::HashMap<_, _>, _>>()?;
     let root = cfg.instances_dir();
     let claimed = runner::claimed_ports(&root);
     let resolved = install::resolve(t, &input, &claimed, &install::port_is_free)?;
     let inst = runner::prepare(&root, t, &resolved.env)?;
     println!("instance {} prepared in {}", inst.name, inst.dir.display());
-    runner::bring_up(&inst, &mut |step| println!("  {step}")).await.map_err(|e| {
-        format!("{e}\n(instance kept in {}; `dockwren remove {}` stops it)", inst.dir.display(), inst.name)
-    })?;
-    let captured = runner::run_post_start(&inst, t, &resolved.env, &mut |step| println!("  {step}")).await?;
+    runner::bring_up(&inst, &mut |step| println!("  {step}"))
+        .await
+        .map_err(|e| {
+            format!(
+                "{e}\n(instance kept in {}; `dockwren remove {}` stops it)",
+                inst.dir.display(),
+                inst.name
+            )
+        })?;
+    let captured =
+        runner::run_post_start(&inst, t, &resolved.env, &mut |step| println!("  {step}")).await?;
     for key in ["WEB_PORT", "SSH_PORT"] {
         if let Some(p) = resolved.env.get(key) {
             println!("  {key}: 127.0.0.1:{p}");
@@ -355,7 +407,14 @@ async fn main() {
             }
             let result = async {
                 let templates = apps::catalog(&cfg)?;
-                update::update_instance(&cfg.instances_dir(), &cfg.data_dir.join("backups"), &templates, &name, &mut |s| println!("  {s}")).await
+                update::update_instance(
+                    &cfg.instances_dir(),
+                    &cfg.data_dir.join("backups"),
+                    &templates,
+                    &name,
+                    &mut |s| println!("  {s}"),
+                )
+                .await
             }
             .await;
             match result {
@@ -412,13 +471,24 @@ async fn main() {
                 }
                 return;
             }
-            if !runner::valid_name(name) || pos.len() > 2 || args.len() > pos.len() + usize::from(!safety) {
+            if !runner::valid_name(name)
+                || pos.len() > 2
+                || args.len() > pos.len() + usize::from(!safety)
+            {
                 eprintln!("usage: dockwren restore <instance> [snapshot] [--no-safety-snapshot]");
                 std::process::exit(2);
             }
             let result = async {
                 let templates = apps::catalog(&cfg)?;
-                backup::restore_instance(&cfg, &templates, name, pos.get(1).map(|s| s.as_str()), safety, &mut |s| println!("  {s}")).await
+                backup::restore_instance(
+                    &cfg,
+                    &templates,
+                    name,
+                    pos.get(1).map(|s| s.as_str()),
+                    safety,
+                    &mut |s| println!("  {s}"),
+                )
+                .await
             }
             .await;
             match result {
@@ -433,12 +503,18 @@ async fn main() {
         Some("cleanup") => {
             let name = std::env::args().nth(2).unwrap_or_default();
             if !runner::valid_name(&name) || std::env::args().count() != 3 {
-                eprintln!("usage: dockwren cleanup <instance>   (removes *.pre-restore-* / *.failed-restore-* leftovers)");
+                eprintln!(
+                    "usage: dockwren cleanup <instance>   (removes *.pre-restore-* / *.failed-restore-* leftovers)"
+                );
                 std::process::exit(2);
             }
             match backup::cleanup_instance(&cfg, &name, &mut |s| println!("  {s}")).await {
                 Ok(n) if n.is_empty() => println!("nothing to clean up"),
-                Ok(n) => println!("removed {} leftover director{}", n.len(), if n.len() == 1 { "y" } else { "ies" }),
+                Ok(n) => println!(
+                    "removed {} leftover director{}",
+                    n.len(),
+                    if n.len() == 1 { "y" } else { "ies" }
+                ),
                 Err(e) => {
                     eprintln!("cleanup failed: {e}");
                     std::process::exit(1);
@@ -452,9 +528,16 @@ async fn main() {
                 eprintln!("usage: dockwren remove <instance>");
                 std::process::exit(2);
             }
-            let inst = runner::Instance { dir: cfg.instances_dir().join(&name), name };
+            let inst = runner::Instance {
+                dir: cfg.instances_dir().join(&name),
+                name,
+            };
             match runner::take_down(&inst).await {
-                Ok(()) => println!("{} stopped and containers removed (data kept in {})", inst.name, inst.dir.display()),
+                Ok(()) => println!(
+                    "{} stopped and containers removed (data kept in {})",
+                    inst.name,
+                    inst.dir.display()
+                ),
                 Err(e) => {
                     eprintln!("remove failed: {e}");
                     std::process::exit(1);
@@ -463,7 +546,9 @@ async fn main() {
             return;
         }
         Some(other) => {
-            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance>]");
+            eprintln!(
+                "unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance>]"
+            );
             std::process::exit(2);
         }
     }
@@ -490,7 +575,12 @@ async fn main() {
     let metrics = metrics::Shared::default();
     let mut disk_paths = vec![cfg.data_dir.display().to_string()];
     disk_paths.extend(cfg.disk_paths.iter().cloned());
-    metrics::spawn(metrics.clone(), docker.clone(), disk_paths, cfg.data_dir.clone());
+    metrics::spawn(
+        metrics.clone(),
+        docker.clone(),
+        disk_paths,
+        cfg.data_dir.clone(),
+    );
     axum::serve(listener, app(auth, docker, apps, metrics))
         .await
         .expect("server error");
@@ -511,8 +601,16 @@ mod tests {
     fn test_app() -> Router {
         let hash = auth::hash_password(PASSWORD);
         let docker = DockerClient::connect().unwrap();
-        let apps = apps::Apps::new(template::catalog(None).unwrap(), std::env::temp_dir().join("dockwren-test-none"));
-        app(Arc::new(auth::Auth::new(&hash, false).unwrap()), docker, apps, metrics::Shared::default())
+        let apps = apps::Apps::new(
+            template::catalog(None).unwrap(),
+            std::env::temp_dir().join("dockwren-test-none"),
+        );
+        app(
+            Arc::new(auth::Auth::new(&hash, false).unwrap()),
+            docker,
+            apps,
+            metrics::Shared::default(),
+        )
     }
 
     async fn body_of(res: Response<Body>) -> String {
@@ -535,12 +633,21 @@ mod tests {
     #[tokio::test]
     async fn metrics_needs_a_session_then_renders() {
         let app = test_app();
-        let res = app.clone().oneshot(Request::get("/metrics").body(Body::empty()).unwrap()).await.unwrap();
+        let res = app
+            .clone()
+            .oneshot(Request::get("/metrics").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
         assert_ne!(res.status(), StatusCode::OK);
         let login = app.clone().oneshot(login_req(PASSWORD)).await.unwrap();
         let cookie = cookie_of(&login);
         let res = app
-            .oneshot(Request::get("/metrics?range=24h").header(header::COOKIE, cookie).body(Body::empty()).unwrap())
+            .oneshot(
+                Request::get("/metrics?range=24h")
+                    .header(header::COOKIE, cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
@@ -552,9 +659,22 @@ mod tests {
         let v = asset_version();
         assert_eq!(v.len(), 8);
         let app = test_app();
-        let login = body_of(app.clone().oneshot(Request::get("/login").body(Body::empty()).unwrap()).await.unwrap()).await;
+        let login = body_of(
+            app.clone()
+                .oneshot(Request::get("/login").body(Body::empty()).unwrap())
+                .await
+                .unwrap(),
+        )
+        .await;
         assert!(login.contains(&format!("/static/dockwren.css?v={v}")));
-        let css = app.oneshot(Request::get("/static/dockwren.css?v=x").body(Body::empty()).unwrap()).await.unwrap();
+        let css = app
+            .oneshot(
+                Request::get("/static/dockwren.css?v=x")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(css.headers()[header::CACHE_CONTROL], "no-cache");
     }
 
@@ -846,7 +966,13 @@ mod tests {
             ("POST", "/instances/gt/cleanup"),
         ] {
             let res = test_app()
-                .oneshot(Request::builder().method(method).uri(uri).body(Body::empty()).unwrap())
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(uri)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
                 .await
                 .unwrap();
             assert_eq!(res.status(), StatusCode::SEE_OTHER, "{method} {uri}");
@@ -858,7 +984,10 @@ mod tests {
         let app = test_app();
         let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
         let get = |uri: &str| {
-            Request::get(uri).header(header::COOKIE, &cookie).body(Body::empty()).unwrap()
+            Request::get(uri)
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap()
         };
         let post = |uri: &str, origin: Option<&str>, body: &str| {
             let mut r = Request::post(uri)
@@ -877,7 +1006,10 @@ mod tests {
 
         let res = app.clone().oneshot(get("/apps/gitea/new")).await.unwrap();
         let html = body_of(res).await;
-        assert!(html.contains("name=\"ADMIN_EMAIL\"") && html.contains("hx-post=\"/apps/gitea/install\""));
+        assert!(
+            html.contains("name=\"ADMIN_EMAIL\"")
+                && html.contains("hx-post=\"/apps/gitea/install\"")
+        );
         // Secrets are generated, never asked for in the form.
         assert!(!html.contains("POSTGRES_PASSWORD"));
 
@@ -889,7 +1021,11 @@ mod tests {
         // Cross-origin install is refused before anything is created.
         let res = app
             .clone()
-            .oneshot(post("/apps/gitea/install", Some("https://evil.example"), "ADMIN_EMAIL=a@b.io"))
+            .oneshot(post(
+                "/apps/gitea/install",
+                Some("https://evil.example"),
+                "ADMIN_EMAIL=a@b.io",
+            ))
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
@@ -897,7 +1033,11 @@ mod tests {
         // Invalid input comes back as the form with an error; nothing is created.
         let res = app
             .clone()
-            .oneshot(post("/apps/gitea/install", None, "ADMIN_EMAIL=not-an-email"))
+            .oneshot(post(
+                "/apps/gitea/install",
+                None,
+                "ADMIN_EMAIL=not-an-email",
+            ))
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
@@ -908,13 +1048,28 @@ mod tests {
 
         let res = app.clone().oneshot(get("/instances")).await.unwrap();
         assert!(body_of(res).await.contains("No apps installed"));
-        let res = app.clone().oneshot(post("/instances/..%2Fx/remove", None, "")).await.unwrap();
+        let res = app
+            .clone()
+            .oneshot(post("/instances/..%2Fx/remove", None, ""))
+            .await
+            .unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
-        let res = app.clone().oneshot(post("/instances/ghost/remove", None, "")).await.unwrap();
+        let res = app
+            .clone()
+            .oneshot(post("/instances/ghost/remove", None, ""))
+            .await
+            .unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
-        let res = app.clone().oneshot(get("/instances/ghost/restore")).await.unwrap();
+        let res = app
+            .clone()
+            .oneshot(get("/instances/ghost/restore"))
+            .await
+            .unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
-        let res = app.oneshot(post("/instances/ghost/restore", None, "snapshot=1")).await.unwrap();
+        let res = app
+            .oneshot(post("/instances/ghost/restore", None, "snapshot=1"))
+            .await
+            .unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 }

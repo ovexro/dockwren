@@ -43,12 +43,17 @@ impl Apps {
     }
 
     fn backups_root(&self) -> PathBuf {
-        self.root.parent().map(|d| d.join("backups")).unwrap_or_else(|| self.root.join("backups"))
+        self.root
+            .parent()
+            .map(|d| d.join("backups"))
+            .unwrap_or_else(|| self.root.join("backups"))
     }
 
     fn with_job<R>(&self, id: &str, f: impl FnOnce(&mut Job) -> R) -> Option<R> {
         let mut jobs = self.jobs.lock().unwrap();
-        jobs.iter_mut().find(|(j, _)| j == id).map(|(_, job)| f(job))
+        jobs.iter_mut()
+            .find(|(j, _)| j == id)
+            .map(|(_, job)| f(job))
     }
 }
 
@@ -163,7 +168,11 @@ fn form_view(t: &AppTemplate, values: &HashMap<String, String>, error: Option<St
                     "text"
                 },
                 // Selects need a concrete value; text inputs show the default as a placeholder.
-                value: if bool_or_select && entered.is_empty() { default.clone() } else { entered },
+                value: if bool_or_select && entered.is_empty() {
+                    default.clone()
+                } else {
+                    entered
+                },
                 placeholder: default,
                 help: f.help.clone().unwrap_or_default(),
                 options,
@@ -201,7 +210,10 @@ pub async fn list(State(apps): State<Apps>) -> Html<String> {
     })
 }
 
-pub async fn new_form(State(apps): State<Apps>, Path(id): Path<String>) -> Result<Html<String>, StatusCode> {
+pub async fn new_form(
+    State(apps): State<Apps>,
+    Path(id): Path<String>,
+) -> Result<Html<String>, StatusCode> {
     let t = apps.template(&id).ok_or(StatusCode::NOT_FOUND)?;
     Ok(render(form_view(t, &HashMap::new(), None)))
 }
@@ -236,7 +248,12 @@ pub async fn install_submit(
     let job_id = crate::auth::generate_password();
     let ports = ["WEB_PORT", "SSH_PORT"]
         .iter()
-        .filter_map(|k| resolved.env.get(*k).map(|v| (k.to_string(), format!("127.0.0.1:{v}"))))
+        .filter_map(|k| {
+            resolved
+                .env
+                .get(*k)
+                .map(|v| (k.to_string(), format!("127.0.0.1:{v}")))
+        })
         .collect();
     {
         let mut jobs = apps.jobs.lock().unwrap();
@@ -267,7 +284,8 @@ pub async fn install_submit(
         let result = async {
             runner::bring_up(&inst, &mut |s| push(s)).await?;
             let t = &task_apps.templates[t_idx];
-            let mut shown = runner::run_post_start(&inst, t, &resolved.env, &mut |s| push(s)).await?;
+            let mut shown =
+                runner::run_post_start(&inst, t, &resolved.env, &mut |s| push(s)).await?;
             shown.extend(resolved.revealed.iter().cloned());
             Ok::<_, String>(shown)
         }
@@ -287,7 +305,11 @@ pub async fn install_submit(
 fn job_fragment(apps: &Apps, id: &str) -> Option<Html<String>> {
     apps.with_job(id, |j| {
         // Secrets are handed out exactly once, on the response that reports completion.
-        let secrets = if j.state == JobState::Done { std::mem::take(&mut j.secrets) } else { Vec::new() };
+        let secrets = if j.state == JobState::Done {
+            std::mem::take(&mut j.secrets)
+        } else {
+            Vec::new()
+        };
         render(JobPage {
             id: id.to_string(),
             verb: j.verb,
@@ -304,7 +326,10 @@ fn job_fragment(apps: &Apps, id: &str) -> Option<Html<String>> {
     })
 }
 
-pub async fn job(State(apps): State<Apps>, Path(id): Path<String>) -> Result<Html<String>, StatusCode> {
+pub async fn job(
+    State(apps): State<Apps>,
+    Path(id): Path<String>,
+) -> Result<Html<String>, StatusCode> {
     job_fragment(&apps, &id).ok_or(StatusCode::NOT_FOUND)
 }
 
@@ -324,7 +349,11 @@ fn instance_ports(dir: &std::path::Path) -> String {
             ports.insert(k.to_string(), v.trim_matches('\'').to_string());
         }
     }
-    ports.values().map(|p| format!("127.0.0.1:{p}")).collect::<Vec<_>>().join(", ")
+    ports
+        .values()
+        .map(|p| format!("127.0.0.1:{p}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
@@ -341,9 +370,16 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
     let mut out = Vec::new();
     for name in names {
         let dir = root.join(&name);
-        let Ok(state) = std::fs::read_to_string(dir.join("state.toml")) else { continue };
-        let Ok(state) = toml::from_str::<InstanceState>(&state) else { continue };
-        let inst = runner::Instance { name: name.clone(), dir: dir.clone() };
+        let Ok(state) = std::fs::read_to_string(dir.join("state.toml")) else {
+            continue;
+        };
+        let Ok(state) = toml::from_str::<InstanceState>(&state) else {
+            continue;
+        };
+        let inst = runner::Instance {
+            name: name.clone(),
+            dir: dir.clone(),
+        };
         let status = match runner::compose(&inst, &["ps", "-a", "--format", "json"]).await {
             Ok(ps) => match runner::judge(&ps) {
                 runner::Status::Healthy => "healthy".to_string(),
@@ -358,13 +394,24 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             .filter(|t| t.manifest.app.version > state.version)
             .map(|t| format!("{} → {}", state.version, t.manifest.app.version));
         let snapshots = crate::backup::list(&apps.backups_root(), &name).len();
-out.push(InstanceView { name, app: state.template, ports: instance_ports(&dir), status, update, snapshots, hostname: crate::public::read(&dir) });
+        out.push(InstanceView {
+            name,
+            app: state.template,
+            ports: instance_ports(&dir),
+            status,
+            update,
+            snapshots,
+            hostname: crate::public::read(&dir),
+        });
     }
     out
 }
 
 pub async fn instances(State(apps): State<Apps>) -> Html<String> {
-    render(InstancesPage { instances: instance_views(&apps).await, error: None })
+    render(InstancesPage {
+        instances: instance_views(&apps).await,
+        error: None,
+    })
 }
 
 pub async fn instance_remove(
@@ -382,8 +429,13 @@ pub async fn instance_remove(
     if !dir.join("state.toml").is_file() {
         return Err(StatusCode::NOT_FOUND);
     }
-    let error = runner::take_down(&runner::Instance { name, dir }).await.err();
-    Ok(render(InstancesPage { instances: instance_views(&apps).await, error }))
+    let error = runner::take_down(&runner::Instance { name, dir })
+        .await
+        .err();
+    Ok(render(InstancesPage {
+        instances: instance_views(&apps).await,
+        error,
+    }))
 }
 
 /// Load the template catalog for the server (bundled + optional override dir).
@@ -408,9 +460,15 @@ pub async fn instance_update(
     let task_id = job_id.clone();
     tokio::spawn(async move {
         let backups = task_apps.backups_root();
-        let result = crate::update::update_instance(&task_apps.root, &backups, &task_apps.templates, &name, &mut |s| {
-            task_apps.with_job(&task_id, |j| j.log.push(s.to_string()));
-        })
+        let result = crate::update::update_instance(
+            &task_apps.root,
+            &backups,
+            &task_apps.templates,
+            &name,
+            &mut |s| {
+                task_apps.with_job(&task_id, |j| j.log.push(s.to_string()));
+            },
+        )
         .await;
         task_apps.with_job(&task_id, |j| match result {
             Ok(crate::update::Outcome::UpToDate) => {
@@ -431,7 +489,10 @@ pub async fn instance_update(
 fn new_job(apps: &Apps, name: &str, verb: &'static str) -> Result<String, StatusCode> {
     let job_id = crate::auth::generate_password();
     let mut jobs = apps.jobs.lock().unwrap();
-    if jobs.iter().any(|(_, j)| j.instance == name && j.state == JobState::Running) {
+    if jobs
+        .iter()
+        .any(|(_, j)| j.instance == name && j.state == JobState::Running)
+    {
         return Err(StatusCode::CONFLICT);
     }
     if jobs.len() >= KEEP_JOBS
@@ -467,7 +528,11 @@ fn utc_stamp(epoch: u64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02} UTC", rem / 3600, rem % 3600 / 60)
+    format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02} UTC",
+        rem / 3600,
+        rem % 3600 / 60
+    )
 }
 
 struct SnapshotView {
@@ -492,7 +557,10 @@ fn known_instance(apps: &Apps, name: &str) -> Result<(), StatusCode> {
 }
 
 /// Form listing the snapshots of an instance (newest first, newest preselected).
-pub async fn restore_form(State(apps): State<Apps>, Path(name): Path<String>) -> Result<Html<String>, StatusCode> {
+pub async fn restore_form(
+    State(apps): State<Apps>,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
     known_instance(&apps, &name)?;
     let snapshots = crate::backup::list(&apps.backups_root(), &name)
         .iter()
@@ -503,8 +571,14 @@ pub async fn restore_form(State(apps): State<Apps>, Path(name): Path<String>) ->
             Some(SnapshotView { name: n, when })
         })
         .collect();
-    let leftovers = crate::backup::restore_leftover_names(&apps.root.join(&name)).map(|v| v.len()).unwrap_or(0);
-    Ok(render(RestorePage { instance: name, snapshots, leftovers }))
+    let leftovers = crate::backup::restore_leftover_names(&apps.root.join(&name))
+        .map(|v| v.len())
+        .unwrap_or(0);
+    Ok(render(RestorePage {
+        instance: name,
+        snapshots,
+        leftovers,
+    }))
 }
 
 /// Start a restore job. A safety snapshot is always taken first and current
@@ -519,7 +593,10 @@ pub async fn restore_submit(
         return Err(StatusCode::FORBIDDEN);
     }
     known_instance(&apps, &name)?;
-    let snap = values.get("snapshot").cloned().ok_or(StatusCode::BAD_REQUEST)?;
+    let snap = values
+        .get("snapshot")
+        .cloned()
+        .ok_or(StatusCode::BAD_REQUEST)?;
     let state: InstanceState = std::fs::read_to_string(apps.root.join(&name).join("state.toml"))
         .ok()
         .and_then(|s| toml::from_str(&s).ok())
@@ -533,7 +610,10 @@ pub async fn restore_submit(
     let task_apps = apps.clone();
     let task_id = job_id.clone();
     tokio::spawn(async move {
-        let inst = runner::Instance { name: name.clone(), dir: task_apps.root.join(&name) };
+        let inst = runner::Instance {
+            name: name.clone(),
+            dir: task_apps.root.join(&name),
+        };
         let result = crate::backup::restore(
             &task_apps.backups_root(),
             &inst,
@@ -557,7 +637,11 @@ pub async fn restore_submit(
 }
 
 /// Start a job that deletes the `.pre-restore-*` / `.failed-restore-*` copies a restore leaves behind.
-pub async fn cleanup_submit(State(apps): State<Apps>, headers: HeaderMap, Path(name): Path<String>) -> Result<Html<String>, StatusCode> {
+pub async fn cleanup_submit(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
     if !crate::same_origin(&headers) {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -566,14 +650,18 @@ pub async fn cleanup_submit(State(apps): State<Apps>, headers: HeaderMap, Path(n
     let task_apps = apps.clone();
     let task_id = job_id.clone();
     tokio::spawn(async move {
-        let inst = runner::Instance { name: name.clone(), dir: task_apps.root.join(&name) };
+        let inst = runner::Instance {
+            name: name.clone(),
+            dir: task_apps.root.join(&name),
+        };
         let result = crate::backup::cleanup_restore_leftovers(&inst, &mut |s| {
             task_apps.with_job(&task_id, |j| j.log.push(s.to_string()));
         })
         .await;
         task_apps.with_job(&task_id, |j| match result {
             Ok(v) => {
-                j.log.push(format!("removed {} leftover folder(s)", v.len()));
+                j.log
+                    .push(format!("removed {} leftover folder(s)", v.len()));
                 j.state = JobState::Done;
             }
             Err(e) => j.state = JobState::Failed(e),
@@ -594,23 +682,46 @@ struct PublicPage {
     saved: bool,
 }
 
-fn public_page(apps: &Apps, name: &str, hostname: String, error: Option<String>, saved: bool) -> PublicPage {
+fn public_page(
+    apps: &Apps,
+    name: &str,
+    hostname: String,
+    error: Option<String>,
+    saved: bool,
+) -> PublicPage {
     let dir = apps.root.join(name);
     let port = crate::public::web_port(&dir);
     let valid = crate::public::valid_hostname(&hostname);
-    let snippet = port
-        .filter(|_| valid)
-        .map(|p| format!("- hostname: {hostname}\n  service: {}", crate::public::service_url(p)));
+    let snippet = port.filter(|_| valid).map(|p| {
+        format!(
+            "- hostname: {hostname}\n  service: {}",
+            crate::public::service_url(p)
+        )
+    });
     let command = valid.then(|| format!("dockwren expose {name}"));
     let https_note = std::fs::read_to_string(dir.join("state.toml"))
         .ok()
         .and_then(|s| toml::from_str::<InstanceState>(&s).ok())
-        .and_then(|st| apps.template(&st.template).map(|t| t.manifest.app.needs_public_https))
+        .and_then(|st| {
+            apps.template(&st.template)
+                .map(|t| t.manifest.app.needs_public_https)
+        })
         .unwrap_or(false);
-    PublicPage { instance: name.to_string(), hostname, snippet, command, https_note, error, saved }
+    PublicPage {
+        instance: name.to_string(),
+        hostname,
+        snippet,
+        command,
+        https_note,
+        error,
+        saved,
+    }
 }
 
-pub async fn public_form(State(apps): State<Apps>, Path(name): Path<String>) -> Result<Html<String>, StatusCode> {
+pub async fn public_form(
+    State(apps): State<Apps>,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
     known_instance(&apps, &name)?;
     let host = crate::public::read(&apps.root.join(&name)).unwrap_or_default();
     Ok(render(public_page(&apps, &name, host, None, false)))
@@ -626,7 +737,10 @@ pub async fn public_submit(
         return Err(StatusCode::FORBIDDEN);
     }
     known_instance(&apps, &name)?;
-    let host = values.get("hostname").map(|h| h.trim().to_lowercase()).unwrap_or_default();
+    let host = values
+        .get("hostname")
+        .map(|h| h.trim().to_lowercase())
+        .unwrap_or_default();
     let error = crate::public::write(&apps.root.join(&name), &host).err();
     let saved = error.is_none();
     Ok(render(public_page(&apps, &name, host, error, saved)))

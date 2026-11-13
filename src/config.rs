@@ -37,7 +37,13 @@ impl Config {
             bind: get("DOCKWREN_BIND").unwrap_or_else(|| "127.0.0.1:8080".into()),
             secure_cookie: get("DOCKWREN_SECURE_COOKIE").is_some_and(|v| v == "1"),
             disk_paths: get("DOCKWREN_DISKS")
-                .map(|v| v.split(',').map(str::trim).filter(|p| !p.is_empty()).map(String::from).collect())
+                .map(|v| {
+                    v.split(',')
+                        .map(str::trim)
+                        .filter(|p| !p.is_empty())
+                        .map(String::from)
+                        .collect()
+                })
                 .unwrap_or_default(),
         }
     }

@@ -21,12 +21,16 @@ pub fn valid_hostname(h: &str) -> bool {
                 && l.len() <= 63
                 && !l.starts_with('-')
                 && !l.ends_with('-')
-                && l.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                && l.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
         })
 }
 
 pub fn read(dir: &Path) -> Option<String> {
-    let h = std::fs::read_to_string(dir.join(FILE)).ok()?.trim().to_string();
+    let h = std::fs::read_to_string(dir.join(FILE))
+        .ok()?
+        .trim()
+        .to_string();
     valid_hostname(&h).then_some(h)
 }
 
@@ -40,7 +44,9 @@ pub fn write(dir: &Path, host: &str) -> Result<(), String> {
         };
     }
     if !valid_hostname(host) {
-        return Err("not a valid hostname (lower-case letters, digits, hyphens, at least one dot)".into());
+        return Err(
+            "not a valid hostname (lower-case letters, digits, hyphens, at least one dot)".into(),
+        );
     }
     std::fs::write(&path, format!("{host}\n")).map_err(|e| e.to_string())
 }
@@ -60,18 +66,27 @@ pub fn service_url(port: u16) -> String {
 /// Candidate zone names for a hostname, longest first: a.b.c.d -> b.c.d, c.d (never a bare TLD).
 fn zone_candidates(host: &str) -> Vec<String> {
     let labels: Vec<&str> = host.split('.').collect();
-    (1..labels.len().saturating_sub(1)).map(|i| labels[i..].join(".")).collect()
+    (1..labels.len().saturating_sub(1))
+        .map(|i| labels[i..].join("."))
+        .collect()
 }
 
 /// New ingress list with a rule for `host` inserted before the catch-all.
 /// `Ok(None)` when an identical rule already exists; Err when the hostname
 /// is routed somewhere else (we never overwrite).
-fn plan_ingress(existing: &[Value], host: &str, service: &str) -> Result<Option<Vec<Value>>, String> {
+fn plan_ingress(
+    existing: &[Value],
+    host: &str,
+    service: &str,
+) -> Result<Option<Vec<Value>>, String> {
     for r in existing {
         if r.get("hostname").and_then(Value::as_str) == Some(host) {
             return match r.get("service").and_then(Value::as_str) {
                 Some(s) if s == service => Ok(None),
-                other => Err(format!("{host} already routes to {} in this tunnel; not overwriting", other.unwrap_or("?"))),
+                other => Err(format!(
+                    "{host} already routes to {} in this tunnel; not overwriting",
+                    other.unwrap_or("?")
+                )),
             };
         }
     }
@@ -89,7 +104,11 @@ fn plan_ingress(existing: &[Value], host: &str, service: &str) -> Result<Option<
 
 /// Ingress list without the rule for `host`. `None` when there is no such rule.
 fn plan_removal(existing: &[Value], host: &str) -> Option<Vec<Value>> {
-    let out: Vec<Value> = existing.iter().filter(|r| r.get("hostname").and_then(Value::as_str) != Some(host)).cloned().collect();
+    let out: Vec<Value> = existing
+        .iter()
+        .filter(|r| r.get("hostname").and_then(Value::as_str) != Some(host))
+        .cloned()
+        .collect();
     (out.len() != existing.len()).then_some(out)
 }
 
@@ -102,22 +121,46 @@ impl Api {
     /// config, so it never shows up in the process list.
     async fn call(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value, String> {
         let mut cmd = tokio::process::Command::new("curl");
-        cmd.args(["-sS", "--max-time", "30", "-K", "-", "-X", method, "-H", "Content-Type: application/json"]);
+        cmd.args([
+            "-sS",
+            "--max-time",
+            "30",
+            "-K",
+            "-",
+            "-X",
+            method,
+            "-H",
+            "Content-Type: application/json",
+        ]);
         if let Some(b) = body {
             cmd.args(["--data-binary", &b.to_string()]);
         }
         cmd.arg(format!("https://api.cloudflare.com/client/v4{path}"));
-        cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         let mut child = cmd.spawn().map_err(|e| format!("cannot run curl: {e}"))?;
         let cfg = format!("header = \"Authorization: Bearer {}\"\n", self.token);
-        child.stdin.take().unwrap().write_all(cfg.as_bytes()).await.map_err(|e| e.to_string())?;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(cfg.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
         let out = child.wait_with_output().await.map_err(|e| e.to_string())?;
         if !out.status.success() {
-            return Err(format!("curl: {}", String::from_utf8_lossy(&out.stderr).trim()));
+            return Err(format!(
+                "curl: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
         }
-        let v: Value = serde_json::from_slice(&out.stdout).map_err(|e| format!("bad API response: {e}"))?;
+        let v: Value =
+            serde_json::from_slice(&out.stdout).map_err(|e| format!("bad API response: {e}"))?;
         if v["success"].as_bool() != Some(true) {
-            let msg = v["errors"][0]["message"].as_str().unwrap_or("unknown error");
+            let msg = v["errors"][0]["message"]
+                .as_str()
+                .unwrap_or("unknown error");
             return Err(format!("Cloudflare {method} {path}: {msg}"));
         }
         Ok(v)
@@ -131,11 +174,15 @@ fn access_name(host: &str) -> String {
 
 /// Plausible e-mail address (one `@`, no spaces or quotes); Cloudflare does the real check.
 pub fn valid_email(e: &str) -> bool {
-    let Some((local, domain)) = e.split_once('@') else { return false };
+    let Some((local, domain)) = e.split_once('@') else {
+        return false;
+    };
     !local.is_empty()
         && domain.contains('.')
         && !domain.contains('@')
-        && !e.chars().any(|c| c.is_whitespace() || c == '"' || c == '\\')
+        && !e
+            .chars()
+            .any(|c| c.is_whitespace() || c == '"' || c == '\\')
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -190,20 +237,28 @@ pub async fn expose(
     if !valid_hostname(host) {
         return Err(format!("{host} is not a valid hostname"));
     }
-    let api = Api { token: s.token.clone() };
+    let api = Api {
+        token: s.token.clone(),
+    };
 
     let mut zone = None;
     for cand in zone_candidates(host) {
-        let r = api.call("GET", &format!("/zones?name={cand}"), None).await?;
+        let r = api
+            .call("GET", &format!("/zones?name={cand}"), None)
+            .await?;
         if let Some(z) = r["result"][0]["id"].as_str() {
             zone = Some((z.to_string(), cand));
             break;
         }
     }
-    let (zone_id, zone_name) = zone.ok_or_else(|| format!("no Cloudflare zone found for {host} (does the token cover it?)"))?;
+    let (zone_id, zone_name) = zone
+        .ok_or_else(|| format!("no Cloudflare zone found for {host} (does the token cover it?)"))?;
     log(&format!("zone {zone_name}"));
 
-    let cfg_path = format!("/accounts/{}/cfd_tunnel/{}/configurations", s.account, s.tunnel);
+    let cfg_path = format!(
+        "/accounts/{}/cfd_tunnel/{}/configurations",
+        s.account, s.tunnel
+    );
     let cur = api.call("GET", &cfg_path, None).await?;
     let mut config = cur["result"]["config"].clone();
     if !config.is_object() {
@@ -216,30 +271,46 @@ pub async fn expose(
             log(&format!("tunnel route: add {host} -> {service}"));
             if apply {
                 config["ingress"] = Value::Array(new);
-                api.call("PUT", &cfg_path, Some(&json!({"config": config}))).await?;
+                api.call("PUT", &cfg_path, Some(&json!({"config": config})))
+                    .await?;
             }
         }
     }
 
     // Access goes in before the DNS record so the app is never reachable unprotected.
     if !access.is_empty() {
-        let apps = api.call("GET", &format!("/accounts/{}/access/apps", s.account), None).await?;
+        let apps = api
+            .call("GET", &format!("/accounts/{}/access/apps", s.account), None)
+            .await?;
         let apps: Vec<Value> = apps["result"].as_array().cloned().unwrap_or_default();
         match plan_access(&apps, host)? {
             AccessPlan::Present => log("Access: application already in place (not changed)"),
             AccessPlan::Create => {
                 log(&format!("Access: only {} may sign in", access.join(", ")));
                 if apply {
-                    api.call("POST", &format!("/accounts/{}/access/apps", s.account), Some(&access_body(host, access))).await?;
+                    api.call(
+                        "POST",
+                        &format!("/accounts/{}/access/apps", s.account),
+                        Some(&access_body(host, access)),
+                    )
+                    .await?;
                 }
             }
         }
     }
 
     let target = format!("{}.cfargotunnel.com", s.tunnel);
-    let dns = api.call("GET", &format!("/zones/{zone_id}/dns_records?name={host}"), None).await?;
+    let dns = api
+        .call(
+            "GET",
+            &format!("/zones/{zone_id}/dns_records?name={host}"),
+            None,
+        )
+        .await?;
     match dns["result"].as_array().and_then(|a| a.first()) {
-        Some(rec) if rec["type"] == "CNAME" && rec["content"] == target.as_str() => log("DNS: already points at the tunnel"),
+        Some(rec) if rec["type"] == "CNAME" && rec["content"] == target.as_str() => {
+            log("DNS: already points at the tunnel")
+        }
         Some(rec) => {
             return Err(format!(
                 "a DNS {} record for {host} already exists (content {}); not overwriting",
@@ -250,35 +321,58 @@ pub async fn expose(
         None => {
             log(&format!("DNS: add proxied CNAME {host} -> {target}"));
             if apply {
-                let body = json!({"type": "CNAME", "name": host, "content": target, "proxied": true});
-                api.call("POST", &format!("/zones/{zone_id}/dns_records"), Some(&body)).await?;
+                let body =
+                    json!({"type": "CNAME", "name": host, "content": target, "proxied": true});
+                api.call(
+                    "POST",
+                    &format!("/zones/{zone_id}/dns_records"),
+                    Some(&body),
+                )
+                .await?;
             }
         }
     }
-    log(if apply { "done" } else { "dry run only; re-run with --yes to apply" });
+    log(if apply {
+        "done"
+    } else {
+        "dry run only; re-run with --yes to apply"
+    });
     Ok(())
 }
 
 /// Undo `expose`: drop the tunnel rule and the CNAME. Only a CNAME that points at
 /// our tunnel is deleted; anything else under that name is left alone.
-pub async fn unexpose(s: &Settings, host: &str, apply: bool, log: &mut dyn FnMut(&str)) -> Result<(), String> {
+pub async fn unexpose(
+    s: &Settings,
+    host: &str,
+    apply: bool,
+    log: &mut dyn FnMut(&str),
+) -> Result<(), String> {
     if !valid_hostname(host) {
         return Err(format!("{host} is not a valid hostname"));
     }
-    let api = Api { token: s.token.clone() };
+    let api = Api {
+        token: s.token.clone(),
+    };
 
     let mut zone = None;
     for cand in zone_candidates(host) {
-        let r = api.call("GET", &format!("/zones?name={cand}"), None).await?;
+        let r = api
+            .call("GET", &format!("/zones?name={cand}"), None)
+            .await?;
         if let Some(z) = r["result"][0]["id"].as_str() {
             zone = Some((z.to_string(), cand));
             break;
         }
     }
-    let (zone_id, zone_name) = zone.ok_or_else(|| format!("no Cloudflare zone found for {host} (does the token cover it?)"))?;
+    let (zone_id, zone_name) = zone
+        .ok_or_else(|| format!("no Cloudflare zone found for {host} (does the token cover it?)"))?;
     log(&format!("zone {zone_name}"));
 
-    let cfg_path = format!("/accounts/{}/cfd_tunnel/{}/configurations", s.account, s.tunnel);
+    let cfg_path = format!(
+        "/accounts/{}/cfd_tunnel/{}/configurations",
+        s.account, s.tunnel
+    );
     let cur = api.call("GET", &cfg_path, None).await?;
     let mut config = cur["result"]["config"].clone();
     let existing: Vec<Value> = config["ingress"].as_array().cloned().unwrap_or_default();
@@ -288,20 +382,32 @@ pub async fn unexpose(s: &Settings, host: &str, apply: bool, log: &mut dyn FnMut
             log(&format!("tunnel route: remove {host}"));
             if apply {
                 config["ingress"] = Value::Array(new);
-                api.call("PUT", &cfg_path, Some(&json!({"config": config}))).await?;
+                api.call("PUT", &cfg_path, Some(&json!({"config": config})))
+                    .await?;
             }
         }
     }
 
     let target = format!("{}.cfargotunnel.com", s.tunnel);
-    let dns = api.call("GET", &format!("/zones/{zone_id}/dns_records?name={host}"), None).await?;
+    let dns = api
+        .call(
+            "GET",
+            &format!("/zones/{zone_id}/dns_records?name={host}"),
+            None,
+        )
+        .await?;
     match dns["result"].as_array().and_then(|a| a.first()) {
         None => log("DNS: no record"),
         Some(rec) if rec["type"] == "CNAME" && rec["content"] == target.as_str() => {
             log(&format!("DNS: delete CNAME {host} -> {target}"));
             if apply {
                 let id = rec["id"].as_str().ok_or("DNS record has no id")?;
-                api.call("DELETE", &format!("/zones/{zone_id}/dns_records/{id}"), None).await?;
+                api.call(
+                    "DELETE",
+                    &format!("/zones/{zone_id}/dns_records/{id}"),
+                    None,
+                )
+                .await?;
             }
         }
         Some(rec) => log(&format!(
@@ -312,7 +418,9 @@ pub async fn unexpose(s: &Settings, host: &str, apply: bool, log: &mut dyn FnMut
     }
 
     // Last, so the app is not exposed unprotected while this runs.
-    let apps = api.call("GET", &format!("/accounts/{}/access/apps", s.account), None).await?;
+    let apps = api
+        .call("GET", &format!("/accounts/{}/access/apps", s.account), None)
+        .await?;
     let apps: Vec<Value> = apps["result"].as_array().cloned().unwrap_or_default();
     match apps.iter().find(|a| a["domain"] == host) {
         None => log("Access: no application"),
@@ -320,12 +428,24 @@ pub async fn unexpose(s: &Settings, host: &str, apply: bool, log: &mut dyn FnMut
             log("Access: delete our application");
             if apply {
                 let id = a["id"].as_str().ok_or("Access application has no id")?;
-                api.call("DELETE", &format!("/accounts/{}/access/apps/{id}", s.account), None).await?;
+                api.call(
+                    "DELETE",
+                    &format!("/accounts/{}/access/apps/{id}", s.account),
+                    None,
+                )
+                .await?;
             }
         }
-        Some(a) => log(&format!("Access: leaving {} alone, it is not ours", a["name"].as_str().unwrap_or("?"))),
+        Some(a) => log(&format!(
+            "Access: leaving {} alone, it is not ours",
+            a["name"].as_str().unwrap_or("?")
+        )),
     }
-    log(if apply { "done" } else { "dry run only; re-run with --yes to apply" });
+    log(if apply {
+        "done"
+    } else {
+        "dry run only; re-run with --yes to apply"
+    });
     Ok(())
 }
 
@@ -338,7 +458,18 @@ mod tests {
         for ok in ["vault.example.com", "a-b.c1.dev", "x.y"] {
             assert!(valid_hostname(ok), "{ok}");
         }
-        for bad in ["", "localhost", "Vault.example.com", "-a.example.com", "a..b", "a.b.", "a b.c", "a/b.c", "a.b-", "é.com"] {
+        for bad in [
+            "",
+            "localhost",
+            "Vault.example.com",
+            "-a.example.com",
+            "a..b",
+            "a.b.",
+            "a b.c",
+            "a/b.c",
+            "a.b-",
+            "é.com",
+        ] {
             assert!(!valid_hostname(bad), "{bad}");
         }
         assert!(!valid_hostname(&format!("{}.com", "a".repeat(64))));
@@ -346,30 +477,51 @@ mod tests {
 
     #[test]
     fn zone_guesses_longest_first_and_skip_tld() {
-        assert_eq!(zone_candidates("v.app.example.com"), ["app.example.com", "example.com"]);
+        assert_eq!(
+            zone_candidates("v.app.example.com"),
+            ["app.example.com", "example.com"]
+        );
         assert_eq!(zone_candidates("vault.example.com"), ["example.com"]);
         assert!(zone_candidates("example.com").is_empty());
     }
 
     #[test]
     fn ingress_inserted_before_catch_all() {
-        let ex = vec![json!({"hostname": "panel.x.dev", "service": "http://127.0.0.1:8080"}), json!({"service": "http_status:404"})];
-        let new = plan_ingress(&ex, "v.x.dev", "http://127.0.0.1:9000").unwrap().unwrap();
+        let ex = vec![
+            json!({"hostname": "panel.x.dev", "service": "http://127.0.0.1:8080"}),
+            json!({"service": "http_status:404"}),
+        ];
+        let new = plan_ingress(&ex, "v.x.dev", "http://127.0.0.1:9000")
+            .unwrap()
+            .unwrap();
         assert_eq!(new.len(), 3);
         assert_eq!(new[1]["hostname"], "v.x.dev");
         assert_eq!(new[2]["service"], "http_status:404");
         assert_eq!(new[0], ex[0]);
         // empty and catch-all-less lists still end with a catch-all
-        let new = plan_ingress(&[], "v.x.dev", "http://127.0.0.1:9000").unwrap().unwrap();
+        let new = plan_ingress(&[], "v.x.dev", "http://127.0.0.1:9000")
+            .unwrap()
+            .unwrap();
         assert_eq!(new.len(), 2);
         assert!(new[1].get("hostname").is_none());
     }
 
     #[test]
     fn ingress_idempotent_and_never_overwrites() {
-        let ex = vec![json!({"hostname": "v.x.dev", "service": "http://127.0.0.1:9000"}), json!({"service": "http_status:404"})];
-        assert!(plan_ingress(&ex, "v.x.dev", "http://127.0.0.1:9000").unwrap().is_none());
-        assert!(plan_ingress(&ex, "v.x.dev", "http://127.0.0.1:9001").unwrap_err().contains("not overwriting"));
+        let ex = vec![
+            json!({"hostname": "v.x.dev", "service": "http://127.0.0.1:9000"}),
+            json!({"service": "http_status:404"}),
+        ];
+        assert!(
+            plan_ingress(&ex, "v.x.dev", "http://127.0.0.1:9000")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            plan_ingress(&ex, "v.x.dev", "http://127.0.0.1:9001")
+                .unwrap_err()
+                .contains("not overwriting")
+        );
     }
 
     #[test]
@@ -389,16 +541,25 @@ mod tests {
         let ours = json!({"name": "Dockwren: a.example.com", "domain": "a.example.com"});
         let foreign = json!({"name": "Hand made", "domain": "b.example.com"});
         assert_eq!(plan_access(&[], "a.example.com"), Ok(AccessPlan::Create));
-        assert_eq!(plan_access(&[ours.clone(), foreign.clone()], "a.example.com"), Ok(AccessPlan::Present));
+        assert_eq!(
+            plan_access(&[ours.clone(), foreign.clone()], "a.example.com"),
+            Ok(AccessPlan::Present)
+        );
         assert!(plan_access(&[foreign], "b.example.com").is_err());
     }
 
     #[test]
     fn access_body_lists_each_email() {
-        let b = access_body("a.example.com", &["x@example.com".into(), "y@example.com".into()]);
+        let b = access_body(
+            "a.example.com",
+            &["x@example.com".into(), "y@example.com".into()],
+        );
         assert_eq!(b["domain"], "a.example.com");
         assert_eq!(b["policies"][0]["decision"], "allow");
-        assert_eq!(b["policies"][0]["include"][1]["email"]["email"], "y@example.com");
+        assert_eq!(
+            b["policies"][0]["include"][1]["email"]["email"],
+            "y@example.com"
+        );
     }
 
     #[test]
@@ -411,7 +572,8 @@ mod tests {
 
     #[test]
     fn store_roundtrip() {
-        let d = std::env::temp_dir().join(format!("dockwren-pub-{}", crate::auth::generate_password()));
+        let d =
+            std::env::temp_dir().join(format!("dockwren-pub-{}", crate::auth::generate_password()));
         std::fs::create_dir_all(&d).unwrap();
         assert_eq!(read(&d), None);
         write(&d, "v.example.com").unwrap();

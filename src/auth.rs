@@ -337,9 +337,12 @@ struct LoginTemplate {
 }
 
 fn login_page(status: StatusCode, error: Option<&'static str>) -> Response {
-    let body = LoginTemplate { error, assets: crate::asset_version() }
-        .render()
-        .expect("login template renders");
+    let body = LoginTemplate {
+        error,
+        assets: crate::asset_version(),
+    }
+    .render()
+    .expect("login template renders");
     (status, Html(body)).into_response()
 }
 

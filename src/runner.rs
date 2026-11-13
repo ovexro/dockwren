@@ -23,7 +23,8 @@ pub fn valid_name(n: &str) -> bool {
     c.next().is_some_and(|f| f.is_ascii_lowercase())
         && n.len() >= 2
         && n.len() <= 31
-        && n.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && n.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 /// JSON string literal (valid YAML scalar) for generated override files.
@@ -36,15 +37,26 @@ fn json_str(s: &str) -> String {
 pub fn override_yaml(t: &Template) -> Option<String> {
     let mut out = String::new();
     for s in &t.manifest.services {
-        if let Health::Panel { test, interval, start_period } = &s.health {
+        if let Health::Panel {
+            test,
+            interval,
+            start_period,
+        } = &s.health
+        {
             if out.is_empty() {
                 out.push_str("services:\n");
             }
             out.push_str(&format!("  {}:\n    healthcheck:\n", s.name));
             let items: Vec<String> = test.iter().map(|x| json_str(x)).collect();
             out.push_str(&format!("      test: [{}]\n", items.join(", ")));
-            out.push_str(&format!("      interval: {}\n", json_str(interval.as_deref().unwrap_or("15s"))));
-            out.push_str(&format!("      start_period: {}\n", json_str(start_period.as_deref().unwrap_or("30s"))));
+            out.push_str(&format!(
+                "      interval: {}\n",
+                json_str(interval.as_deref().unwrap_or("15s"))
+            ));
+            out.push_str(&format!(
+                "      start_period: {}\n",
+                json_str(start_period.as_deref().unwrap_or("30s"))
+            ));
             out.push_str("      timeout: \"5s\"\n      retries: 5\n");
         }
     }
@@ -63,8 +75,15 @@ fn write_private(path: &Path, content: &str) -> std::io::Result<()> {
 /// Create `<root>/<name>/` with compose.yaml, optional override, `.env` (0600)
 /// and state.toml. Fails if the instance already exists. Nothing is deleted on
 /// failure: the error names the directory so the user can inspect it.
-pub fn prepare(root: &Path, t: &Template, env: &BTreeMap<String, String>) -> Result<Instance, String> {
-    let name = env.get("INSTANCE_NAME").ok_or("INSTANCE_NAME missing")?.clone();
+pub fn prepare(
+    root: &Path,
+    t: &Template,
+    env: &BTreeMap<String, String>,
+) -> Result<Instance, String> {
+    let name = env
+        .get("INSTANCE_NAME")
+        .ok_or("INSTANCE_NAME missing")?
+        .clone();
     if !valid_name(&name) {
         return Err(format!("invalid instance name {name:?}"));
     }
@@ -83,7 +102,11 @@ pub fn prepare(root: &Path, t: &Template, env: &BTreeMap<String, String>) -> Res
         write_private(&dir.join("compose.override.yaml"), &o).map_err(|e| err("override", e))?;
     }
     crate::install::write_env(&dir, env).map_err(|e| err(".env", e))?;
-    let state = format!("template = {}\nversion = {}\n", json_str(&t.manifest.app.id), t.manifest.app.version);
+    let state = format!(
+        "template = {}\nversion = {}\n",
+        json_str(&t.manifest.app.id),
+        t.manifest.app.version
+    );
     write_private(&dir.join("state.toml"), &state).map_err(|e| err("state.toml", e))?;
     Ok(Instance { name, dir })
 }
@@ -91,9 +114,13 @@ pub fn prepare(root: &Path, t: &Template, env: &BTreeMap<String, String>) -> Res
 /// Ports already claimed by installed instances (`*_PORT='n'` lines in their `.env`).
 pub fn claimed_ports(root: &Path) -> std::collections::HashSet<u16> {
     let mut out = std::collections::HashSet::new();
-    let Ok(entries) = std::fs::read_dir(root) else { return out };
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return out;
+    };
     for e in entries.flatten() {
-        let Ok(env) = std::fs::read_to_string(e.path().join(".env")) else { continue };
+        let Ok(env) = std::fs::read_to_string(e.path().join(".env")) else {
+            continue;
+        };
         for line in env.lines() {
             if let Some((k, v)) = line.split_once('=')
                 && k.ends_with("_PORT")
@@ -144,7 +171,11 @@ pub async fn compose_with_stdin(
     } else {
         let err = String::from_utf8_lossy(&out.stderr);
         let tail: Vec<&str> = err.lines().rev().take(8).collect();
-        Err(format!("docker compose {}: {}", args.join(" "), tail.into_iter().rev().collect::<Vec<_>>().join("\n")))
+        Err(format!(
+            "docker compose {}: {}",
+            args.join(" "),
+            tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+        ))
     }
 }
 
@@ -179,7 +210,11 @@ pub fn judge(ps: &str) -> Status {
             _ => waiting.push(format!("{svc} ({state} {health})").trim().to_string()),
         }
     }
-    if waiting.is_empty() { Status::Healthy } else { Status::Waiting(waiting.join(", ")) }
+    if waiting.is_empty() {
+        Status::Healthy
+    } else {
+        Status::Waiting(waiting.join(", "))
+    }
 }
 
 /// Poll until every service is up and healthy, one fails, or `timeout` passes.
@@ -200,7 +235,11 @@ pub async fn wait_healthy(inst: &Instance, timeout: Duration) -> Result<(), Stri
 
 /// Pull the first capture group out of a hook's stdout.
 pub fn extract(regex: &str, stdout: &str) -> Option<String> {
-    regex::Regex::new(regex).ok()?.captures(stdout)?.get(1).map(|m| m.as_str().to_string())
+    regex::Regex::new(regex)
+        .ok()?
+        .captures(stdout)?
+        .get(1)
+        .map(|m| m.as_str().to_string())
 }
 
 /// Run one hook command in a running service via `compose exec`; returns stdout.
@@ -211,7 +250,10 @@ async fn exec_hook(
     run: &[String],
     env: &BTreeMap<String, String>,
 ) -> Result<String, String> {
-    let cmd: Vec<String> = run.iter().map(|a| crate::install::subst(a, env)).collect::<Result<_, _>>()?;
+    let cmd: Vec<String> = run
+        .iter()
+        .map(|a| crate::install::subst(a, env))
+        .collect::<Result<_, _>>()?;
     let mut args = vec!["exec", "-T"];
     if let Some(u) = user {
         args.extend(["-u", u]);
@@ -230,10 +272,18 @@ pub async fn run_migrations(
     env: &BTreeMap<String, String>,
     log: &mut (dyn FnMut(&str) + Send),
 ) -> Result<(), String> {
-    let mut todo: Vec<_> = t.manifest.migrations.iter().filter(|g| g.to_version > from && g.to_version <= to).collect();
+    let mut todo: Vec<_> = t
+        .manifest
+        .migrations
+        .iter()
+        .filter(|g| g.to_version > from && g.to_version <= to)
+        .collect();
     todo.sort_by_key(|g| g.to_version);
     for g in todo {
-        log(&format!("migration {} (to version {})", g.name, g.to_version));
+        log(&format!(
+            "migration {} (to version {})",
+            g.name, g.to_version
+        ));
         exec_hook(inst, &g.service, g.user.as_deref(), &g.run, env)
             .await
             .map_err(|e| format!("migration {}: {e}", g.name))?;
@@ -247,7 +297,12 @@ pub fn read_env(dir: &Path) -> Result<BTreeMap<String, String>, String> {
     Ok(raw
         .lines()
         .filter_map(|l| l.split_once('='))
-        .map(|(k, v)| (k.trim().to_string(), v.trim().trim_matches('\'').to_string()))
+        .map(|(k, v)| {
+            (
+                k.trim().to_string(),
+                v.trim().trim_matches('\'').to_string(),
+            )
+        })
         .collect())
 }
 
@@ -266,8 +321,12 @@ pub async fn run_post_start(
             .await
             .map_err(|e| format!("post_start {}: {e}", h.name))?;
         if let Some(c) = &h.capture {
-            let v = extract(&c.regex, &out)
-                .ok_or_else(|| format!("post_start {}: output did not match the capture pattern", h.name))?;
+            let v = extract(&c.regex, &out).ok_or_else(|| {
+                format!(
+                    "post_start {}: output did not match the capture pattern",
+                    h.name
+                )
+            })?;
             shown.push((c.label.clone(), v));
         }
     }
@@ -311,7 +370,17 @@ mod tests {
         for ok in ["gitea", "vw-2", "ab"] {
             assert!(valid_name(ok), "{ok}");
         }
-        for bad in ["", "a", "../x", "Gitea", "1abc", "a/b", "a b", "-a", &"a".repeat(32)] {
+        for bad in [
+            "",
+            "a",
+            "../x",
+            "Gitea",
+            "1abc",
+            "a/b",
+            "a b",
+            "-a",
+            &"a".repeat(32),
+        ] {
             assert!(!valid_name(bad), "{bad}");
         }
     }
@@ -330,15 +399,30 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let root = tmp();
         let t = tmpl("gitea");
-        let input: HashMap<String, String> = [("ADMIN_EMAIL".to_string(), "a@b.io".to_string())].into();
+        let input: HashMap<String, String> =
+            [("ADMIN_EMAIL".to_string(), "a@b.io".to_string())].into();
         let r = crate::install::resolve(&t, &input, &HashSet::new(), &|_| true).unwrap();
         let inst = prepare(&root, &t, &r.env).unwrap();
-        let mode = |f: &str| std::fs::metadata(inst.dir.join(f)).unwrap().permissions().mode() & 0o777;
+        let mode = |f: &str| {
+            std::fs::metadata(inst.dir.join(f))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777
+        };
         assert_eq!(mode(".env"), 0o600);
         assert_eq!(mode("compose.yaml"), 0o640);
         assert!(inst.dir.join("compose.override.yaml").exists());
-        assert!(std::fs::read_to_string(inst.dir.join("state.toml")).unwrap().contains("gitea"));
-        assert!(prepare(&root, &t, &r.env).unwrap_err().contains("already exists"));
+        assert!(
+            std::fs::read_to_string(inst.dir.join("state.toml"))
+                .unwrap()
+                .contains("gitea")
+        );
+        assert!(
+            prepare(&root, &t, &r.env)
+                .unwrap_err()
+                .contains("already exists")
+        );
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -355,14 +439,20 @@ mod tests {
         std::fs::create_dir_all(&d).unwrap();
         std::fs::write(d.join(".env"), "A=1\nB='two words'\nC=\n").unwrap();
         let e = read_env(&d).unwrap();
-        assert_eq!((e["A"].as_str(), e["B"].as_str(), e["C"].as_str()), ("1", "two words", ""));
+        assert_eq!(
+            (e["A"].as_str(), e["B"].as_str(), e["C"].as_str()),
+            ("1", "two words", "")
+        );
         std::fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]
     fn extract_takes_first_group() {
         let out = "generated random password is 'Ab3xyz'\nNew user 'admin' has been successfully created!";
-        assert_eq!(extract("generated random password is '([^']+)'", out).as_deref(), Some("Ab3xyz"));
+        assert_eq!(
+            extract("generated random password is '([^']+)'", out).as_deref(),
+            Some("Ab3xyz")
+        );
         assert_eq!(extract("nope (.)", out), None);
     }
 

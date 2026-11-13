@@ -126,7 +126,12 @@ impl DockerClient {
             .await?
             .into_iter()
             .filter_map(|c| {
-                let name = c.names?.into_iter().next()?.trim_start_matches('/').to_string();
+                let name = c
+                    .names?
+                    .into_iter()
+                    .next()?
+                    .trim_start_matches('/')
+                    .to_string();
                 Some((c.id?, name))
             })
             .collect();
@@ -137,7 +142,10 @@ impl DockerClient {
             let pre = r.precpu_stats.as_ref()?;
             let cpu_pct = cpu_percent(
                 cpu.cpu_usage.as_ref()?.total_usage?,
-                pre.cpu_usage.as_ref().and_then(|u| u.total_usage).unwrap_or(0),
+                pre.cpu_usage
+                    .as_ref()
+                    .and_then(|u| u.total_usage)
+                    .unwrap_or(0),
                 cpu.system_cpu_usage?,
                 pre.system_cpu_usage.unwrap_or(0),
                 cpu.online_cpus.unwrap_or(1),

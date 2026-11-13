@@ -4,7 +4,7 @@
 //! restart). The page draws plain inline SVG lines; the parsers below are pure and unit-tested.
 
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, VecDeque},
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -41,8 +41,17 @@ pub struct DiskSeries {
     pub pct: VecDeque<(u64, f64)>,
 }
 
+/// One container's history: (time, cpu %, memory bytes). `short` is 10 s resolution for 24 h,
+/// `long` is 5-minute averages for 30 days (persisted).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct ContainerSeries {
+    pub short: VecDeque<(u64, f64, f64)>,
+    pub long: VecDeque<(u64, f64, f64)>,
+}
+
 #[derive(Debug, Default)]
 pub struct Metrics {
+    pub per: BTreeMap<String, ContainerSeries>,
     pub samples: VecDeque<Sample>,
     /// 5-minute averages, up to 30 days (also persisted).
     pub long: VecDeque<Sample>,
@@ -55,7 +64,9 @@ pub struct Metrics {
 pub type Shared = Arc<Mutex<Metrics>>;
 
 pub fn now_unix() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 // ---- parsers (pure) ----
@@ -87,14 +98,19 @@ pub fn parse_meminfo(text: &str) -> Option<(u64, u64)> {
 }
 
 fn skip_iface(name: &str) -> bool {
-    name == "lo" || name.starts_with("docker") || name.starts_with("br-") || name.starts_with("veth")
+    name == "lo"
+        || name.starts_with("docker")
+        || name.starts_with("br-")
+        || name.starts_with("veth")
 }
 
 /// /proc/net/dev: total (rx, tx) bytes over physical-ish interfaces.
 pub fn parse_net_dev(text: &str) -> (u64, u64) {
     let (mut rx, mut tx) = (0u64, 0u64);
     for line in text.lines().skip(2) {
-        let Some((name, rest)) = line.split_once(':') else { continue };
+        let Some((name, rest)) = line.split_once(':') else {
+            continue;
+        };
         if skip_iface(name.trim()) {
             continue;
         }
@@ -123,11 +139,21 @@ pub fn parse_df(text: &str) -> Option<(String, u64, u64)> {
 // ---- persistence ----
 
 fn sample_line(s: &Sample) -> String {
-    format!("S\t{}\t{:.2}\t{:.2}\t{:.1}\t{:.1}\n", s.t, s.cpu, s.mem, s.rx, s.tx)
+    format!(
+        "S\t{}\t{:.2}\t{:.2}\t{:.1}\t{:.1}\n",
+        s.t, s.cpu, s.mem, s.rx, s.tx
+    )
 }
 
 fn disk_line(d: &DiskSeries, t: u64, pct: f64) -> String {
-    format!("D\t{t}\t{}\t{}\t{}\t{}\t{pct:.2}\n", d.label, d.fs, d.total, d.used)
+    format!(
+        "D\t{t}\t{}\t{}\t{}\t{}\t{pct:.2}\n",
+        d.label, d.fs, d.total, d.used
+    )
+}
+
+fn container_line(name: &str, p: (u64, f64, f64)) -> String {
+    format!("C\t{}\t{name}\t{:.2}\t{:.0}\n", p.0, p.1, p.2)
 }
 
 /// Rebuilds the long-term history from log text, dropping anything older than 30 days.
@@ -136,20 +162,41 @@ pub fn load_log(text: &str, now: u64) -> Metrics {
     let mut m = Metrics::default();
     for line in text.lines() {
         let f: Vec<&str> = line.split('\t').collect();
-        let Some(t) = f.get(1).and_then(|x| x.parse::<u64>().ok()).filter(|t| *t >= cutoff) else { continue };
+        let Some(t) = f
+            .get(1)
+            .and_then(|x| x.parse::<u64>().ok())
+            .filter(|t| *t >= cutoff)
+        else {
+            continue;
+        };
         match (f[0], f.len()) {
             ("S", 6) => {
                 let n: Vec<Option<f64>> = f[2..].iter().map(|x| x.parse().ok()).collect();
                 if let [Some(cpu), Some(mem), Some(rx), Some(tx)] = n[..] {
-                    m.long.push_back(Sample { t, cpu, mem, rx, tx });
+                    m.long.push_back(Sample {
+                        t,
+                        cpu,
+                        mem,
+                        rx,
+                        tx,
+                    });
                 }
             }
             ("D", 7) => {
-                let (Ok(total), Ok(used), Ok(pct)) = (f[4].parse(), f[5].parse(), f[6].parse()) else { continue };
+                let (Ok(total), Ok(used), Ok(pct)) = (f[4].parse(), f[5].parse(), f[6].parse())
+                else {
+                    continue;
+                };
                 let i = match m.disks.iter().position(|d| d.fs == f[3]) {
                     Some(i) => i,
                     None => {
-                        m.disks.push(DiskSeries { label: f[2].into(), fs: f[3].into(), total, used, pct: VecDeque::new() });
+                        m.disks.push(DiskSeries {
+                            label: f[2].into(),
+                            fs: f[3].into(),
+                            total,
+                            used,
+                            pct: VecDeque::new(),
+                        });
                         m.disks.len() - 1
                     }
                 };
@@ -157,7 +204,21 @@ pub fn load_log(text: &str, now: u64) -> Metrics {
                 (d.total, d.used) = (total, used);
                 d.pct.push_back((t, pct));
             }
+            ("C", 5) => {
+                if let (Ok(cpu), Ok(mem)) = (f[3].parse::<f64>(), f[4].parse::<f64>()) {
+                    m.per
+                        .entry(f[2].to_string())
+                        .or_default()
+                        .long
+                        .push_back((t, cpu, mem));
+                }
+            }
             _ => {}
+        }
+    }
+    for c in m.per.values_mut() {
+        while c.long.len() > KEEP_LONG {
+            c.long.pop_front();
         }
     }
     while m.long.len() > KEEP_LONG {
@@ -182,6 +243,11 @@ fn compact_log(path: &std::path::Path, m: &Metrics) {
             out.push_str(&disk_line(d, *t, *pct));
         }
     }
+    for (name, c) in &m.per {
+        for p in &c.long {
+            out.push_str(&container_line(name, *p));
+        }
+    }
     let tmp = path.with_extension("tmp");
     if std::fs::write(&tmp, out).is_ok() {
         let _ = std::fs::rename(&tmp, path);
@@ -190,7 +256,11 @@ fn compact_log(path: &std::path::Path, m: &Metrics) {
 
 fn append_log(path: &std::path::Path, text: &str) {
     use std::io::Write;
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
         let _ = f.write_all(text.as_bytes());
     }
 }
@@ -202,20 +272,36 @@ fn read(path: &str) -> String {
 }
 
 async fn df(path: &str) -> Option<(String, u64, u64)> {
-    let out = tokio::process::Command::new("df").args(["-P", "-k", path]).output().await.ok()?;
+    let out = tokio::process::Command::new("df")
+        .args(["-P", "-k", path])
+        .output()
+        .await
+        .ok()?;
     parse_df(&String::from_utf8_lossy(&out.stdout))
 }
 
 async fn sample_disks(shared: &Shared, paths: &[String], t: u64, log: &std::path::Path) {
     for path in paths {
-        let Some((fs, total, used)) = df(path).await else { continue };
-        let pct = if total == 0 { 0.0 } else { used as f64 / total as f64 * 100.0 };
+        let Some((fs, total, used)) = df(path).await else {
+            continue;
+        };
+        let pct = if total == 0 {
+            0.0
+        } else {
+            used as f64 / total as f64 * 100.0
+        };
         let mut m = shared.lock().unwrap();
         // Several paths on one filesystem are shown once.
         let slot = match m.disks.iter().position(|d| d.fs == fs) {
             Some(i) => i,
             None => {
-                m.disks.push(DiskSeries { label: path.clone(), fs, total, used, pct: VecDeque::new() });
+                m.disks.push(DiskSeries {
+                    label: path.clone(),
+                    fs,
+                    total,
+                    used,
+                    pct: VecDeque::new(),
+                });
                 m.disks.len() - 1
             }
         };
@@ -237,14 +323,64 @@ pub fn average<'a>(it: impl Iterator<Item = &'a Sample>) -> Sample {
     let v: Vec<&Sample> = it.collect();
     let n = v.len().max(1) as f64;
     let sum = |f: fn(&Sample) -> f64| v.iter().map(|s| f(s)).sum::<f64>() / n;
-    Sample { t: v.iter().map(|s| s.t).max().unwrap_or(0), cpu: sum(|s| s.cpu), mem: sum(|s| s.mem), rx: sum(|s| s.rx), tx: sum(|s| s.tx) }
+    Sample {
+        t: v.iter().map(|s| s.t).max().unwrap_or(0),
+        cpu: sum(|s| s.cpu),
+        mem: sum(|s| s.mem),
+        rx: sum(|s| s.rx),
+        tx: sum(|s| s.tx),
+    }
+}
+
+/// Adds one Docker stats reading to the per-container histories. Every `LONG_EVERY`th reading
+/// (`long`) also stores a 5-minute average; returns the log lines to persist. Series with no data
+/// for 30 days are dropped.
+pub fn record_containers(
+    m: &mut Metrics,
+    list: &[ContainerUsage],
+    t: u64,
+    long: bool,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    for u in list {
+        let c = m.per.entry(u.name.clone()).or_default();
+        c.short.push_back((t, u.cpu_pct, u.mem_bytes as f64));
+        if c.short.len() > KEEP_SAMPLES {
+            c.short.pop_front();
+        }
+        if long {
+            let n = c.short.len().min(LONG_EVERY as usize);
+            let recent = c.short.iter().rev().take(n);
+            let (cpu, mem) = recent.fold((0.0, 0.0), |a, p| (a.0 + p.1, a.1 + p.2));
+            let avg = (t, cpu / n as f64, mem / n as f64);
+            c.long.push_back(avg);
+            if c.long.len() > KEEP_LONG {
+                c.long.pop_front();
+            }
+            lines.push(container_line(&u.name, avg));
+        }
+    }
+    let cutoff = t.saturating_sub(30 * 24 * 3600);
+    m.per.retain(|_, c| {
+        c.short
+            .back()
+            .into_iter()
+            .chain(c.long.back())
+            .any(|p| p.0 >= cutoff)
+    });
+    lines
 }
 
 /// Previous reading: cpu (busy, total), net (rx, tx), time.
 type Prev = ((u64, u64), (u64, u64), u64);
 
 /// Starts the sampler; `disk_paths` are the directories whose filesystems are tracked.
-pub fn spawn(shared: Shared, docker: DockerClient, disk_paths: Vec<String>, data_dir: std::path::PathBuf) {
+pub fn spawn(
+    shared: Shared,
+    docker: DockerClient,
+    disk_paths: Vec<String>,
+    data_dir: std::path::PathBuf,
+) {
     let log = data_dir.join(LOG_FILE);
     {
         let mut m = shared.lock().unwrap();
@@ -252,12 +388,26 @@ pub fn spawn(shared: Shared, docker: DockerClient, disk_paths: Vec<String>, data
         compact_log(&log, &loaded);
         m.long = loaded.long;
         m.disks = loaded.disks;
+        m.per = loaded.per;
     }
     let usage = shared.clone();
+    let usage_log = log.clone();
     tokio::spawn(async move {
+        let log = usage_log;
+        let mut n = 0u64;
         loop {
             if let Ok(list) = docker.usage().await {
-                usage.lock().unwrap().containers = list;
+                n += 1;
+                let lines = {
+                    let mut m = usage.lock().unwrap();
+                    let lines =
+                        record_containers(&mut m, &list, now_unix(), n.is_multiple_of(LONG_EVERY));
+                    m.containers = list;
+                    lines
+                };
+                if !lines.is_empty() {
+                    append_log(&log, &lines.concat());
+                }
             }
             tokio::time::sleep(Duration::from_secs(INTERVAL_SECS)).await;
         }
@@ -273,16 +423,21 @@ pub fn spawn(shared: Shared, docker: DockerClient, disk_paths: Vec<String>, data
                 sample_disks(&shared, &disk_paths, t, &log).await;
             }
             tick += 1;
-            let (Some(cpu), Some((mem_total, mem_avail))) =
-                (parse_cpu(&read("/proc/stat")), parse_meminfo(&read("/proc/meminfo")))
-            else {
+            let (Some(cpu), Some((mem_total, mem_avail))) = (
+                parse_cpu(&read("/proc/stat")),
+                parse_meminfo(&read("/proc/meminfo")),
+            ) else {
                 continue;
             };
             let net = parse_net_dev(&read("/proc/net/dev"));
             if let Some((pc, pn, pt)) = prev {
                 let dt = t.saturating_sub(pt).max(1) as f64;
                 let dtotal = cpu.1.saturating_sub(pc.1);
-                let cpu_pct = if dtotal == 0 { 0.0 } else { cpu.0.saturating_sub(pc.0) as f64 / dtotal as f64 * 100.0 };
+                let cpu_pct = if dtotal == 0 {
+                    0.0
+                } else {
+                    cpu.0.saturating_sub(pc.0) as f64 / dtotal as f64 * 100.0
+                };
                 let used = mem_total.saturating_sub(mem_avail);
                 let s = Sample {
                     t,
@@ -328,15 +483,25 @@ pub fn downsample(points: &[(u64, f64)]) -> Vec<(u64, f64)> {
     let size = points.len().div_ceil(MAX_POINTS);
     points
         .chunks(size)
-        .map(|c| (c[c.len() / 2].0, c.iter().map(|p| p.1).sum::<f64>() / c.len() as f64))
+        .map(|c| {
+            (
+                c[c.len() / 2].0,
+                c.iter().map(|p| p.1).sum::<f64>() / c.len() as f64,
+            )
+        })
         .collect()
 }
 
 /// SVG `points` attribute: x follows time from the first point inside the window to `end` (so a
 /// short history fills the chart), y runs 0..`max` bottom to top. A single point becomes a flat line.
 pub fn polyline(points: &[(u64, f64)], start: u64, end: u64, max: f64) -> String {
-    let pts: Vec<(u64, f64)> = downsample(points).into_iter().filter(|(t, _)| *t >= start).collect();
-    let Some(first) = pts.first().map(|p| p.0) else { return String::new() };
+    let pts: Vec<(u64, f64)> = downsample(points)
+        .into_iter()
+        .filter(|(t, _)| *t >= start)
+        .collect();
+    let Some(first) = pts.first().map(|p| p.0) else {
+        return String::new();
+    };
     let span = end.saturating_sub(first).max(1) as f64;
     let y = |v: f64| H - (v / max).clamp(0.0, 1.0) * H;
     if let [(_, v)] = pts[..] {
@@ -355,14 +520,33 @@ pub fn fmt_bytes(b: f64) -> String {
         v /= 1024.0;
         i += 1;
     }
-    if i == 0 { format!("{v:.0} B") } else { format!("{v:.1} {}", units[i]) }
+    if i == 0 {
+        format!("{v:.0} B")
+    } else {
+        format!("{v:.1} {}", units[i])
+    }
 }
 
 /// Smallest "nice" ceiling (1, 2, 5 x 10^n) at or above `v`, never below 1 KB/s.
 pub fn nice_max(v: f64) -> f64 {
     let v = v.max(1024.0);
     let p = 10f64.powf(v.log10().floor());
-    [1.0, 2.0, 5.0, 10.0].iter().map(|m| m * p).find(|c| *c >= v).unwrap_or(10.0 * p)
+    [1.0, 2.0, 5.0, 10.0]
+        .iter()
+        .map(|m| m * p)
+        .find(|c| *c >= v)
+        .unwrap_or(10.0 * p)
+}
+
+/// Smallest 1, 2, 5 x 10^n percent ceiling at or above `v`, never below 5.
+pub fn nice_pct(v: f64) -> f64 {
+    let v = v.max(5.0);
+    let p = 10f64.powf(v.log10().floor());
+    [1.0, 2.0, 5.0, 10.0]
+        .iter()
+        .map(|m| m * p)
+        .find(|c| *c >= v)
+        .unwrap_or(10.0 * p)
 }
 
 #[cfg(test)]
@@ -380,8 +564,12 @@ mod tests {
 
     #[test]
     fn parses_meminfo() {
-        let text = "MemTotal:       16000000 kB\nMemFree:         100 kB\nMemAvailable:    4000000 kB\n";
-        assert_eq!(parse_meminfo(text), Some((16_000_000 * 1024, 4_000_000 * 1024)));
+        let text =
+            "MemTotal:       16000000 kB\nMemFree:         100 kB\nMemAvailable:    4000000 kB\n";
+        assert_eq!(
+            parse_meminfo(text),
+            Some((16_000_000 * 1024, 4_000_000 * 1024))
+        );
         assert_eq!(parse_meminfo("MemTotal: 1 kB\n"), None);
     }
 
@@ -400,24 +588,38 @@ tailscale0: 10 1 0 0 0 0 0 0 20 1 0 0 0 0 0 0\n";
     #[test]
     fn parses_df() {
         let text = "Filesystem     1024-blocks     Used Available Capacity Mounted on\n/dev/sda2         1000000   400000    500000      45% /\n";
-        assert_eq!(parse_df(text), Some(("/dev/sda2".into(), 900_000 * 1024, 400_000 * 1024)));
+        assert_eq!(
+            parse_df(text),
+            Some(("/dev/sda2".into(), 900_000 * 1024, 400_000 * 1024))
+        );
         assert_eq!(parse_df("Filesystem\n"), None);
     }
 
     #[test]
     fn polyline_maps_time_and_value() {
         let pts = [(100, 0.0), (150, 50.0), (200, 100.0)];
-        assert_eq!(polyline(&pts, 100, 200, 100.0), "0.0,60.0 120.0,30.0 240.0,0.0");
+        assert_eq!(
+            polyline(&pts, 100, 200, 100.0),
+            "0.0,60.0 120.0,30.0 240.0,0.0"
+        );
         // points before the window are dropped, values above max are clamped
-        assert_eq!(polyline(&[(50, 5.0), (200, 500.0)], 100, 200, 100.0), "0.0,0.0 240.0,0.0");
+        assert_eq!(
+            polyline(&[(50, 5.0), (200, 500.0)], 100, 200, 100.0),
+            "0.0,0.0 240.0,0.0"
+        );
         // short history stretches over the chart
-        assert_eq!(polyline(&[(190, 0.0), (200, 100.0)], 0, 200, 100.0), "0.0,60.0 240.0,0.0");
+        assert_eq!(
+            polyline(&[(190, 0.0), (200, 100.0)], 0, 200, 100.0),
+            "0.0,60.0 240.0,0.0"
+        );
         assert_eq!(polyline(&[], 0, 10, 1.0), "");
     }
 
     #[test]
     fn downsample_caps_points_and_averages() {
-        let pts: Vec<(u64, f64)> = (0..960).map(|i| (i, if i % 2 == 0 { 0.0 } else { 10.0 })).collect();
+        let pts: Vec<(u64, f64)> = (0..960)
+            .map(|i| (i, if i % 2 == 0 { 0.0 } else { 10.0 }))
+            .collect();
         let d = downsample(&pts);
         assert!(d.len() <= MAX_POINTS);
         assert!(d.iter().all(|p| (p.1 - 5.0).abs() < 0.01));
@@ -456,10 +658,9 @@ pub struct Chart {
     pub warn: bool,
 }
 
-pub struct ContainerRow {
+pub struct ContainerCard {
     pub name: String,
-    pub cpu: String,
-    pub mem: String,
+    pub charts: Vec<Chart>,
 }
 
 #[derive(Template)]
@@ -470,7 +671,7 @@ struct MetricsTemplate {
     ready: bool,
     fresh: bool,
     charts: Vec<Chart>,
-    containers: Vec<ContainerRow>,
+    containers: Vec<ContainerCard>,
     w: f64,
     h: f64,
 }
@@ -483,59 +684,134 @@ pub struct RangeQuery {
 }
 
 /// (query value, label, window in seconds)
-const RANGES: [(&str, &str, u64); 4] = [("1h", "1 h", 3600), ("24h", "24 h", 86400), ("7d", "7 days", 7 * 86400), ("30d", "30 days", 30 * 86400)];
+const RANGES: [(&str, &str, u64); 4] = [
+    ("1h", "1 h", 3600),
+    ("24h", "24 h", 86400),
+    ("7d", "7 days", 7 * 86400),
+    ("30d", "30 days", 30 * 86400),
+];
 
 fn build(m: &Metrics, now: u64, range: &str, fresh: bool) -> MetricsTemplate {
     let (key, _, window) = *RANGES.iter().find(|r| r.0 == range).unwrap_or(&RANGES[0]);
     let source = if window > 86400 { &m.long } else { &m.samples };
     let start = now.saturating_sub(window);
     let recent: Vec<&Sample> = source.iter().filter(|s| s.t >= start).collect();
-    let series = |f: fn(&Sample) -> f64| -> Vec<(u64, f64)> { recent.iter().map(|s| (s.t, f(s))).collect() };
+    let series =
+        |f: fn(&Sample) -> f64| -> Vec<(u64, f64)> { recent.iter().map(|s| (s.t, f(s))).collect() };
     let last = recent.last();
     let mut charts = Vec::new();
     charts.push(Chart {
         title: "CPU".into(),
         now: last.map_or("–".into(), |s| format!("{:.0}%", s.cpu)),
         scale: "0–100%".into(),
-        lines: vec![Line { points: polyline(&series(|s| s.cpu), start, now, 100.0), dashed: false }],
+        lines: vec![Line {
+            points: polyline(&series(|s| s.cpu), start, now, 100.0),
+            dashed: false,
+        }],
         warn: false,
     });
     charts.push(Chart {
         title: "Memory".into(),
         now: last.map_or("–".into(), |s| {
-            format!("{:.0}% ({} of {})", s.mem, fmt_bytes(m.mem_used as f64), fmt_bytes(m.mem_total as f64))
+            format!(
+                "{:.0}% ({} of {})",
+                s.mem,
+                fmt_bytes(m.mem_used as f64),
+                fmt_bytes(m.mem_total as f64)
+            )
         }),
         scale: "0–100%".into(),
-        lines: vec![Line { points: polyline(&series(|s| s.mem), start, now, 100.0), dashed: false }],
+        lines: vec![Line {
+            points: polyline(&series(|s| s.mem), start, now, 100.0),
+            dashed: false,
+        }],
         warn: false,
     });
     let peak = recent.iter().map(|s| s.rx.max(s.tx)).fold(0.0, f64::max);
     let top = nice_max(peak);
     charts.push(Chart {
         title: "Network (solid: in, dashed: out)".into(),
-        now: last.map_or("–".into(), |s| format!("in {}/s, out {}/s", fmt_bytes(s.rx), fmt_bytes(s.tx))),
+        now: last.map_or("–".into(), |s| {
+            format!("in {}/s, out {}/s", fmt_bytes(s.rx), fmt_bytes(s.tx))
+        }),
         scale: format!("0–{}/s", fmt_bytes(top)),
         lines: vec![
-            Line { points: polyline(&series(|s| s.rx), start, now, top), dashed: false },
-            Line { points: polyline(&series(|s| s.tx), start, now, top), dashed: true },
+            Line {
+                points: polyline(&series(|s| s.rx), start, now, top),
+                dashed: false,
+            },
+            Line {
+                points: polyline(&series(|s| s.tx), start, now, top),
+                dashed: true,
+            },
         ],
         warn: false,
     });
     for d in &m.disks {
-        let pct = if d.total == 0 { 0.0 } else { d.used as f64 / d.total as f64 * 100.0 };
+        let pct = if d.total == 0 {
+            0.0
+        } else {
+            d.used as f64 / d.total as f64 * 100.0
+        };
         let pts: Vec<(u64, f64)> = d.pct.iter().copied().collect();
         charts.push(Chart {
             title: format!("Disk {}", d.label),
-            now: format!("{pct:.0}% ({} of {})", fmt_bytes(d.used as f64), fmt_bytes(d.total as f64)),
+            now: format!(
+                "{pct:.0}% ({} of {})",
+                fmt_bytes(d.used as f64),
+                fmt_bytes(d.total as f64)
+            ),
             scale: "0–100%".into(),
-            lines: vec![Line { points: polyline(&pts, start, now, 100.0), dashed: false }],
+            lines: vec![Line {
+                points: polyline(&pts, start, now, 100.0),
+                dashed: false,
+            }],
             warn: pct >= DISK_WARN_PCT,
         });
     }
     let containers = m
         .containers
         .iter()
-        .map(|c| ContainerRow { name: c.name.clone(), cpu: format!("{:.1}%", c.cpu_pct), mem: fmt_bytes(c.mem_bytes as f64) })
+        .map(|c| {
+            let hist = m
+                .per
+                .get(&c.name)
+                .map(|p| if window > 86400 { &p.long } else { &p.short });
+            let pts: Vec<&(u64, f64, f64)> = hist
+                .into_iter()
+                .flatten()
+                .filter(|p| p.0 >= start)
+                .collect();
+            let cpu: Vec<(u64, f64)> = pts.iter().map(|p| (p.0, p.1)).collect();
+            let mem: Vec<(u64, f64)> = pts.iter().map(|p| (p.0, p.2)).collect();
+            let cpu_top = nice_pct(cpu.iter().map(|p| p.1).fold(0.0, f64::max));
+            let mem_top = nice_max(mem.iter().map(|p| p.1).fold(0.0, f64::max));
+            ContainerCard {
+                name: c.name.clone(),
+                charts: vec![
+                    Chart {
+                        title: "CPU".into(),
+                        now: format!("{:.1}%", c.cpu_pct),
+                        scale: format!("0–{cpu_top:.0}%"),
+                        lines: vec![Line {
+                            points: polyline(&cpu, start, now, cpu_top),
+                            dashed: false,
+                        }],
+                        warn: false,
+                    },
+                    Chart {
+                        title: "Memory".into(),
+                        now: fmt_bytes(c.mem_bytes as f64),
+                        scale: format!("0–{}", fmt_bytes(mem_top)),
+                        lines: vec![Line {
+                            points: polyline(&mem, start, now, mem_top),
+                            dashed: false,
+                        }],
+                        warn: false,
+                    },
+                ],
+            }
+        })
         .collect();
     MetricsTemplate {
         range: key,
@@ -550,7 +826,12 @@ fn build(m: &Metrics, now: u64, range: &str, fresh: bool) -> MetricsTemplate {
 }
 
 pub async fn page(State(shared): State<Shared>, Query(q): Query<RangeQuery>) -> Html<String> {
-    let page = build(&shared.lock().unwrap(), now_unix(), q.range.as_deref().unwrap_or("1h"), q.live.is_none());
+    let page = build(
+        &shared.lock().unwrap(),
+        now_unix(),
+        q.range.as_deref().unwrap_or("1h"),
+        q.live.is_none(),
+    );
     Html(page.render().expect("metrics template renders"))
 }
 
@@ -559,19 +840,31 @@ mod page_tests {
     use super::*;
 
     fn sample(t: u64, cpu: f64) -> Sample {
-        Sample { t, cpu, mem: 50.0, rx: 2000.0, tx: 500.0 }
+        Sample {
+            t,
+            cpu,
+            mem: 50.0,
+            rx: 2000.0,
+            tx: 500.0,
+        }
     }
 
     #[test]
     fn empty_history_says_collecting() {
-        let html = build(&Metrics::default(), 1000, "1h", false).render().unwrap();
+        let html = build(&Metrics::default(), 1000, "1h", false)
+            .render()
+            .unwrap();
         assert!(html.contains("Collecting the first samples"));
         assert!(!html.contains("<svg"));
     }
 
     #[test]
     fn renders_lines_and_warns_on_full_disk() {
-        let mut m = Metrics { mem_total: 8 << 30, mem_used: 4 << 30, ..Default::default() };
+        let mut m = Metrics {
+            mem_total: 8 << 30,
+            mem_used: 4 << 30,
+            ..Default::default()
+        };
         m.samples.extend([sample(900, 10.0), sample(1000, 30.0)]);
         m.disks.push(DiskSeries {
             label: "/data".into(),
@@ -580,12 +873,21 @@ mod page_tests {
             used: 90 << 30,
             pct: VecDeque::from([(900, 90.0), (1000, 90.0)]),
         });
-        m.containers.push(ContainerUsage { name: "web<1>".into(), cpu_pct: 1.5, mem_bytes: 50 << 20 });
+        m.containers.push(ContainerUsage {
+            name: "web<1>".into(),
+            cpu_pct: 1.5,
+            mem_bytes: 50 << 20,
+        });
         let html = build(&m, 1000, "1h", false).render().unwrap();
         assert!(html.contains("<polyline points=\"") && html.contains("30%"));
         assert!(html.contains("chart warn") && html.contains("almost full"));
         assert!(html.contains("range=1h") && html.contains("web&#60;1&#62;"));
-        assert!(build(&m, 1000, "24h", false).render().unwrap().contains("range=24h"));
+        assert!(
+            build(&m, 1000, "24h", false)
+                .render()
+                .unwrap()
+                .contains("range=24h")
+        );
     }
 
     #[test]
@@ -594,7 +896,12 @@ mod page_tests {
         m.long.extend([sample(1000, 20.0), sample(300_000, 40.0)]);
         let html = build(&m, 300_000, "7d", false).render().unwrap();
         assert!(html.contains("range=7d") && html.contains("40%"));
-        assert!(build(&m, 300_000, "1h", false).render().unwrap().contains("Collecting"));
+        assert!(
+            build(&m, 300_000, "1h", false)
+                .render()
+                .unwrap()
+                .contains("Collecting")
+        );
     }
 
     #[test]
@@ -602,7 +909,13 @@ mod page_tests {
         let now = 100 * 86400;
         let mut m = Metrics::default();
         m.long.push_back(sample(now - 60, 12.5));
-        let mut d = DiskSeries { label: "/srv data".into(), fs: "/dev/x".into(), total: 1000, used: 900, pct: VecDeque::new() };
+        let mut d = DiskSeries {
+            label: "/srv data".into(),
+            fs: "/dev/x".into(),
+            total: 1000,
+            used: 900,
+            pct: VecDeque::new(),
+        };
         d.pct.push_back((now - 30, 90.0));
         let text = format!(
             "{}{}S\t{}\t1\t1\t1\t1\ngarbage\nS\t{}\tx\t1\t1\t1\n",
@@ -617,6 +930,54 @@ mod page_tests {
         assert_eq!(back.disks[0].label, "/srv data");
         assert_eq!((back.disks[0].total, back.disks[0].used), (1000, 900));
         assert_eq!(back.disks[0].pct.len(), 1);
+    }
+
+    #[test]
+    fn container_history_averages_persists_and_prunes() {
+        let u = |name: &str, cpu: f64, mem: u64| ContainerUsage {
+            name: name.into(),
+            cpu_pct: cpu,
+            mem_bytes: mem,
+        };
+        let mut m = Metrics::default();
+        let t0 = 100 * 86400;
+        assert!(record_containers(&mut m, &[u("a", 10.0, 100)], t0, false).is_empty());
+        let lines = record_containers(&mut m, &[u("a", 30.0, 300)], t0 + 10, true);
+        assert_eq!(m.per["a"].short.len(), 2);
+        assert_eq!(m.per["a"].long[0], (t0 + 10, 20.0, 200.0));
+        let back = load_log(&lines.concat(), t0 + 10);
+        assert_eq!(back.per["a"].long[0], (t0 + 10, 20.0, 200.0));
+        record_containers(&mut m, &[u("b", 1.0, 1)], t0 + 31 * 86400, false);
+        assert!(!m.per.contains_key("a") && m.per.contains_key("b"));
+    }
+
+    #[test]
+    fn nice_pct_rounds_up() {
+        assert_eq!(
+            (nice_pct(0.0), nice_pct(7.0), nice_pct(130.0)),
+            (5.0, 10.0, 200.0)
+        );
+    }
+
+    #[test]
+    fn container_cards_draw_history() {
+        let mut m = Metrics::default();
+        m.samples.push_back(sample(1000, 10.0));
+        m.containers.push(ContainerUsage {
+            name: "web".into(),
+            cpu_pct: 2.0,
+            mem_bytes: 10 << 20,
+        });
+        m.per
+            .entry("web".into())
+            .or_default()
+            .short
+            .extend([(900, 1.0, 5e6), (1000, 2.0, 1e7)]);
+        let html = build(&m, 1000, "1h", false).render().unwrap();
+        assert!(
+            html.contains("class=\"card\"") && html.contains("web") && html.contains("10.0 MB")
+        );
+        assert_eq!(html.matches("<polyline").count(), 4 + 2);
     }
 
     #[test]
