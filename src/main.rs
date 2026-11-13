@@ -139,6 +139,7 @@ async fn container_action(
 
 const HTMX: &str = include_str!("../static/htmx.min.js");
 const CSS: &str = include_str!("../static/dockwren.css");
+const FAVICON: &str = include_str!("../static/favicon.svg");
 
 /// Short content hash of the bundled assets, appended to their URLs so a new build is never served from a stale cache.
 pub fn asset_version() -> String {
@@ -156,6 +157,16 @@ async fn stylesheet() -> impl IntoResponse {
             (header::CACHE_CONTROL, "no-cache"),
         ],
         CSS,
+    )
+}
+
+async fn favicon() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/svg+xml"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        FAVICON,
     )
 }
 
@@ -296,6 +307,8 @@ fn app(
     Router::new()
         .route("/health", get(health))
         .route("/static/dockwren.css", get(stylesheet))
+        .route("/favicon.svg", get(favicon))
+        .route("/favicon.ico", get(favicon))
         .route("/login", get(auth::login_form).post(auth::login_submit))
         .merge(protected)
         .with_state(AppState {
@@ -749,6 +762,18 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(css.headers()[header::CACHE_CONTROL], "no-cache");
+    }
+
+    #[tokio::test]
+    async fn favicon_is_public_svg() {
+        for path in ["/favicon.svg", "/favicon.ico"] {
+            let res = test_app()
+                .oneshot(Request::get(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::OK, "{path}");
+            assert_eq!(res.headers()[header::CONTENT_TYPE], "image/svg+xml");
+        }
     }
 
     #[tokio::test]
