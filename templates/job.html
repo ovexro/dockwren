@@ -1,14 +1,13 @@
 <div id="job"{% if running %} hx-get="/jobs/{{ id }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
-  <h3>Installing {{ instance }}</h3>
+  <h3>{{ verb }} {{ instance }}</h3>
   <pre>{% for l in log %}{{ l }}
 {% endfor %}</pre>
   {% if running %}
   <p>Working…</p>
   {% else if let Some(e) = error %}
-  <p role="alert">Install failed: {{ e }}</p>
-  <p>The instance directory was kept. Remove its containers from the Instances list below.</p>
+  <p role="alert">{{ verb }} failed: {{ e }}</p>
   {% else %}
-  <p>Up and healthy.</p>
+  <p>{% if verb == "Installing" %}Up and healthy.{% else %}Done.{% endif %}</p>
   <ul>{% for p in ports %}<li>{{ p.0 }}: {{ p.1 }}</li>{% endfor %}</ul>
   {% if !secrets.is_empty() %}
   <p><strong>Shown once — copy it now, it is not stored:</strong></p>

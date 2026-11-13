@@ -58,6 +58,7 @@ enum JobState {
 #[derive(Clone)]
 struct Job {
     instance: String,
+    verb: &'static str,
     log: Vec<String>,
     state: JobState,
     /// Secrets to show once; emptied when delivered to the browser.
@@ -106,6 +107,7 @@ struct FormPage {
 #[template(path = "job.html")]
 struct JobPage {
     id: String,
+    verb: &'static str,
     instance: String,
     log: Vec<String>,
     running: bool,
@@ -119,6 +121,8 @@ struct InstanceView {
     app: String,
     ports: String,
     status: String,
+    /// "1 → 2" when the bundled template is newer than the instance.
+    update: Option<String>,
 }
 
 #[derive(Template)]
@@ -239,6 +243,7 @@ pub async fn install_submit(
             job_id.clone(),
             Job {
                 instance: inst.name.clone(),
+                verb: "Installing",
                 log: vec![format!("instance {} prepared", inst.name)],
                 state: JobState::Running,
                 secrets: Vec::new(),
@@ -279,6 +284,7 @@ fn job_fragment(apps: &Apps, id: &str) -> Option<Html<String>> {
         let secrets = if j.state == JobState::Done { std::mem::take(&mut j.secrets) } else { Vec::new() };
         render(JobPage {
             id: id.to_string(),
+            verb: j.verb,
             instance: j.instance.clone(),
             log: j.log.clone(),
             running: j.state == JobState::Running,
@@ -299,6 +305,7 @@ pub async fn job(State(apps): State<Apps>, Path(id): Path<String>) -> Result<Htm
 #[derive(Deserialize)]
 struct InstanceState {
     template: String,
+    version: u32,
 }
 
 fn instance_ports(dir: &std::path::Path) -> String {
@@ -314,7 +321,8 @@ fn instance_ports(dir: &std::path::Path) -> String {
     ports.values().map(|p| format!("127.0.0.1:{p}")).collect::<Vec<_>>().join(", ")
 }
 
-async fn instance_views(root: &std::path::Path) -> Vec<InstanceView> {
+async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
+    let root = &apps.root;
     let mut names: Vec<String> = std::fs::read_dir(root)
         .map(|rd| {
             rd.flatten()
@@ -339,13 +347,17 @@ async fn instance_views(root: &std::path::Path) -> Vec<InstanceView> {
             },
             Err(_) => "unknown".to_string(),
         };
-        out.push(InstanceView { name, app: state.template, ports: instance_ports(&dir), status });
+        let update = apps
+            .template(&state.template)
+            .filter(|t| t.manifest.app.version > state.version)
+            .map(|t| format!("{} → {}", state.version, t.manifest.app.version));
+        out.push(InstanceView { name, app: state.template, ports: instance_ports(&dir), status, update });
     }
     out
 }
 
 pub async fn instances(State(apps): State<Apps>) -> Html<String> {
-    render(InstancesPage { instances: instance_views(&apps.root).await, error: None })
+    render(InstancesPage { instances: instance_views(&apps).await, error: None })
 }
 
 pub async fn instance_remove(
@@ -364,10 +376,68 @@ pub async fn instance_remove(
         return Err(StatusCode::NOT_FOUND);
     }
     let error = runner::take_down(&runner::Instance { name, dir }).await.err();
-    Ok(render(InstancesPage { instances: instance_views(&apps.root).await, error }))
+    Ok(render(InstancesPage { instances: instance_views(&apps).await, error }))
 }
 
 /// Load the template catalog for the server (bundled + optional override dir).
 pub fn catalog(cfg: &crate::config::Config) -> Result<Vec<AppTemplate>, String> {
     template::catalog(cfg.apps_dir_override().as_deref())
+}
+
+/// Start an update job for an instance whose bundled template is newer.
+pub async fn instance_update(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    if !runner::valid_name(&name) || !apps.root.join(&name).join("state.toml").is_file() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let job_id = crate::auth::generate_password();
+    {
+        let mut jobs = apps.jobs.lock().unwrap();
+        if jobs.iter().any(|(_, j)| j.instance == name && j.state == JobState::Running) {
+            return Err(StatusCode::CONFLICT);
+        }
+        if jobs.len() >= KEEP_JOBS
+            && let Some(i) = jobs.iter().position(|(_, j)| j.state != JobState::Running)
+        {
+            jobs.remove(i);
+        }
+        jobs.push((
+            job_id.clone(),
+            Job {
+                instance: name.clone(),
+                verb: "Updating",
+                log: Vec::new(),
+                state: JobState::Running,
+                secrets: Vec::new(),
+                ports: Vec::new(),
+            },
+        ));
+    }
+    let task_apps = apps.clone();
+    let task_id = job_id.clone();
+    tokio::spawn(async move {
+        let backups = task_apps.root.parent().map(|d| d.join("backups")).unwrap_or_else(|| task_apps.root.join("backups"));
+        let result = crate::update::update_instance(&task_apps.root, &backups, &task_apps.templates, &name, &mut |s| {
+            task_apps.with_job(&task_id, |j| j.log.push(s.to_string()));
+        })
+        .await;
+        task_apps.with_job(&task_id, |j| match result {
+            Ok(crate::update::Outcome::UpToDate) => {
+                j.log.push("already up to date".into());
+                j.state = JobState::Done;
+            }
+            Ok(crate::update::Outcome::Updated { from, to }) => {
+                j.log.push(format!("updated from version {from} to {to}"));
+                j.state = JobState::Done;
+            }
+            Err(e) => j.state = JobState::Failed(e),
+        });
+    });
+    job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
 }

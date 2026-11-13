@@ -12,7 +12,6 @@ use std::time::Duration;
 use serde::Deserialize;
 
 use crate::backup;
-use crate::config::Config;
 use crate::runner::{self, Instance};
 use crate::template::Template;
 
@@ -119,7 +118,7 @@ fn read_opt(path: &Path) -> Result<Option<String>, String> {
 
 /// Update one instance to template `t`.
 pub async fn update(
-    cfg: &Config,
+    backups_root: &Path,
     t: &Template,
     inst: &Instance,
     from: u32,
@@ -138,7 +137,7 @@ pub async fn update(
     let mut snapshot = None;
     if t.manifest.update.pre_update.iter().any(|s| s == "backup") {
         log("taking a snapshot first");
-        let dir = backup::snapshot(&cfg.data_dir.join("backups"), inst, t, log)
+        let dir = backup::snapshot(backups_root, inst, t, log)
             .await
             .map_err(|e| format!("snapshot failed, nothing was changed: {e}"))?;
         log(&format!("snapshot in {}", dir.display()));
@@ -181,12 +180,13 @@ pub async fn update(
 
 /// CLI entry: look the instance up, find its template, update it.
 pub async fn update_instance(
-    cfg: &Config,
+    instances_root: &Path,
+    backups_root: &Path,
     templates: &[Template],
     name: &str,
     log: &mut (dyn FnMut(&str) + Send),
 ) -> Result<Outcome, String> {
-    let dir = cfg.instances_dir().join(name);
+    let dir = instances_root.join(name);
     let raw = std::fs::read_to_string(dir.join("state.toml"))
         .map_err(|_| format!("no instance named {name}"))?;
     let state: State = toml::from_str(&raw).map_err(|e| format!("state.toml: {e}"))?;
@@ -205,7 +205,7 @@ pub async fn update_instance(
         ));
     }
     update(
-        cfg,
+        backups_root,
         t,
         &Instance {
             name: name.to_string(),

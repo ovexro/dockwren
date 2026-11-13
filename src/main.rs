@@ -164,6 +164,7 @@ fn app(auth: SharedAuth, docker: DockerClient, apps: apps::Apps) -> Router {
         .route("/jobs/{id}", get(apps::job))
         .route("/instances", get(apps::instances))
         .route("/instances/{name}/remove", post(apps::instance_remove))
+        .route("/instances/{name}/update", post(apps::instance_update))
         .route("/static/htmx.min.js", get(htmx_js))
         .route("/logout", post(auth::logout))
         .route_layer(from_fn_with_state(auth.clone(), auth::require_session));
@@ -257,7 +258,7 @@ async fn main() {
             }
             let result = async {
                 let templates = apps::catalog(&cfg)?;
-                update::update_instance(&cfg, &templates, &name, &mut |s| println!("  {s}")).await
+                update::update_instance(&cfg.instances_dir(), &cfg.data_dir.join("backups"), &templates, &name, &mut |s| println!("  {s}")).await
             }
             .await;
             match result {
@@ -634,6 +635,7 @@ mod tests {
             ("GET", "/jobs/x"),
             ("GET", "/instances"),
             ("POST", "/instances/gt/remove"),
+            ("POST", "/instances/gt/update"),
         ] {
             let res = test_app()
                 .oneshot(Request::builder().method(method).uri(uri).body(Body::empty()).unwrap())
