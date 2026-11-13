@@ -165,3 +165,5 @@ form[action="/logout"] { margin-top: .75rem; }
   .side li a { text-align: center; padding: .85rem .25rem; font-size: .8rem; border-radius: 0; }
   .side li a[aria-current="page"] { box-shadow: inset 0 3px 0 var(--accent); }
 }
+
+.app-icon { vertical-align: middle; border-radius: 6px; }

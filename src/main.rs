@@ -255,6 +255,7 @@ fn app(
         .route("/containers/{name}/graphs", get(metrics::container_graphs))
         .route("/logs/close", get(close_logs))
         .route("/catalog", get(apps::list))
+        .route("/apps/{id}/icon.svg", get(apps::icon))
         .route("/apps/{id}/new", get(apps::new_form))
         .route("/apps/{id}/install", post(apps::install_submit))
         .route("/jobs/{id}", get(apps::job))

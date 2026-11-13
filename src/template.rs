@@ -199,6 +199,8 @@ pub struct Update {
 pub struct Template {
     pub manifest: Manifest,
     pub compose: String,
+    /// Optional `icon.svg` shown in the catalog and instance list.
+    pub icon: Option<String>,
 }
 
 /// Parse and validate a template from its two files' contents.
@@ -208,6 +210,7 @@ pub fn parse(manifest: &str, compose: &str) -> Result<Template, String> {
     Ok(Template {
         manifest,
         compose: compose.to_string(),
+        icon: None,
     })
 }
 
@@ -217,8 +220,10 @@ pub fn load(dir: &Path) -> Result<Template, String> {
         std::fs::read_to_string(dir.join(name))
             .map_err(|e| format!("{}: {name}: {e}", dir.display()))
     };
-    parse(&read("manifest.toml")?, &read("compose.yaml")?)
-        .map_err(|e| format!("{}: {e}", dir.display()))
+    let mut t = parse(&read("manifest.toml")?, &read("compose.yaml")?)
+        .map_err(|e| format!("{}: {e}", dir.display()))?;
+    t.icon = std::fs::read_to_string(dir.join("icon.svg")).ok();
+    Ok(t)
 }
 
 /// Load every template under `root` (one sub-directory each), sorted by id.
@@ -236,26 +241,41 @@ pub fn load_all(root: &Path) -> Result<Vec<Template>, String> {
 }
 
 /// Templates shipped inside the binary.
-const BUNDLED: &[(&str, &str)] = &[
+const BUNDLED: &[(&str, &str, &str)] = &[
     (
         include_str!("../apps/gitea/manifest.toml"),
         include_str!("../apps/gitea/compose.yaml"),
+        include_str!("../apps/gitea/icon.svg"),
     ),
     (
         include_str!("../apps/vaultwarden/manifest.toml"),
         include_str!("../apps/vaultwarden/compose.yaml"),
+        include_str!("../apps/vaultwarden/icon.svg"),
     ),
     (
         include_str!("../apps/uptime-kuma/manifest.toml"),
         include_str!("../apps/uptime-kuma/compose.yaml"),
+        include_str!("../apps/uptime-kuma/icon.svg"),
     ),
     (
         include_str!("../apps/miniflux/manifest.toml"),
         include_str!("../apps/miniflux/compose.yaml"),
+        include_str!("../apps/miniflux/icon.svg"),
     ),
     (
         include_str!("../apps/memos/manifest.toml"),
         include_str!("../apps/memos/compose.yaml"),
+        include_str!("../apps/memos/icon.svg"),
+    ),
+    (
+        include_str!("../apps/paperless-ngx/manifest.toml"),
+        include_str!("../apps/paperless-ngx/compose.yaml"),
+        include_str!("../apps/paperless-ngx/icon.svg"),
+    ),
+    (
+        include_str!("../apps/wordpress/manifest.toml"),
+        include_str!("../apps/wordpress/compose.yaml"),
+        include_str!("../apps/wordpress/icon.svg"),
     ),
 ];
 
@@ -263,7 +283,12 @@ const BUNDLED: &[(&str, &str)] = &[
 pub fn catalog(extra_dir: Option<&Path>) -> Result<Vec<Template>, String> {
     let mut all = BUNDLED
         .iter()
-        .map(|(m, c)| parse(m, c))
+        .map(|(m, c, i)| {
+            parse(m, c).map(|mut t| {
+                t.icon = Some((*i).to_string());
+                t
+            })
+        })
         .collect::<Result<Vec<_>, _>>()?;
     if let Some(dir) = extra_dir.filter(|d| d.is_dir()) {
         for t in load_all(dir)? {
@@ -569,11 +594,20 @@ mod tests {
             .collect();
         assert_eq!(
             ids,
-            ["gitea", "memos", "miniflux", "uptime-kuma", "vaultwarden"]
+            ["gitea", "memos", "miniflux", "paperless-ngx", "uptime-kuma", "vaultwarden", "wordpress"]
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 5);
+        assert_eq!(c.len(), 7);
+    }
+
+    #[test]
+    fn every_bundled_template_has_an_svg_icon() {
+        for t in catalog(None).unwrap() {
+            let svg = t.icon.unwrap_or_default();
+            assert!(svg.starts_with("<svg"), "{} has no icon", t.manifest.app.id);
+            assert!(!svg.contains("<script"), "{} icon has a script", t.manifest.app.id);
+        }
     }
 
     #[test]
@@ -582,7 +616,7 @@ mod tests {
         let ids: Vec<_> = all.iter().map(|t| t.manifest.app.id.as_str()).collect();
         assert_eq!(
             ids,
-            ["gitea", "memos", "miniflux", "uptime-kuma", "vaultwarden"]
+            ["gitea", "memos", "miniflux", "paperless-ngx", "uptime-kuma", "vaultwarden", "wordpress"]
         );
     }
 

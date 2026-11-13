@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 use askama::Template;
 use axum::{
     extract::{Form, Path, State},
-    http::{HeaderMap, StatusCode},
-    response::Html,
+    http::{header, HeaderMap, StatusCode},
+    response::{Html, IntoResponse, Response},
 };
 use serde::Deserialize;
 
@@ -208,6 +208,30 @@ pub async fn list(State(apps): State<Apps>) -> Html<String> {
             })
             .collect(),
     })
+}
+
+/// `GET /apps/{id}/icon.svg`: the template's icon, locked down so it can only ever be drawn.
+pub async fn icon(
+    State(apps): State<Apps>,
+    Path(id): Path<String>,
+) -> Result<Response, StatusCode> {
+    let svg = apps
+        .template(&id)
+        .and_then(|t| t.icon.clone())
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "image/svg+xml"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+            ),
+        ],
+        svg,
+    )
+        .into_response())
 }
 
 pub async fn new_form(
