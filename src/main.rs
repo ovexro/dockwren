@@ -444,10 +444,45 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     Ok(())
 }
 
+const USAGE: &str = "usage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | --version]";
+
+/// CLI commands work on the panel's data directory; explain the usual permission mistake
+/// instead of failing later with a bare "Permission denied".
+fn check_data_dir(dir: &std::path::Path) {
+    let probe = dir.join(".dockwren-probe");
+    let ok = std::fs::create_dir_all(dir)
+        .and_then(|_| std::fs::write(&probe, b""))
+        .and_then(|_| std::fs::remove_file(&probe));
+    if let Err(e) = ok {
+        eprintln!(
+            "cannot use the data directory {} ({e}).\nSet DOCKWREN_DATA to the panel's data directory and run as its owner, for example:\n  sudo -E -u dockwren env DOCKWREN_DATA=/var/lib/dockwren dockwren <command>",
+            dir.display()
+        );
+        std::process::exit(1);
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let cfg = config::Config::from_env();
-    match std::env::args().nth(1).as_deref() {
+    let cmd = std::env::args().nth(1);
+    match cmd.as_deref() {
+        Some("--version" | "-V" | "version") => {
+            println!("dockwren {}", env!("CARGO_PKG_VERSION"));
+            return;
+        }
+        Some("--help" | "-h" | "help") => {
+            println!("{USAGE}");
+            return;
+        }
+        None | Some("serve") | Some("set-password") => {}
+        Some(
+            "install" | "backup" | "update" | "restore" | "cleanup" | "expose" | "unexpose"
+            | "remove",
+        ) => check_data_dir(&cfg.data_dir),
+        Some(_) => {}
+    }
+    match cmd.as_deref() {
         None | Some("serve") => {}
         Some("set-password") => {
             let password = auth::set_password(&cfg.data_dir).unwrap_or_else(|e| {
@@ -633,9 +668,7 @@ async fn main() {
             return;
         }
         Some(other) => {
-            eprintln!(
-                "unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance>]"
-            );
+            eprintln!("unknown command '{other}'\n{USAGE}");
             std::process::exit(2);
         }
     }
