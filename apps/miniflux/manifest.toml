@@ -40,6 +40,7 @@ length = 32
 key = "ADMIN_PASSWORD"
 kind = "password"
 length = 20
+reveal = true
 
 [[services]]
 name = "db"
@@ -49,12 +50,6 @@ health = { source = "image" }
 name = "miniflux"
 main = true
 health = { source = "image" }
-
-[[post_start]]
-name = "show-admin-password"
-service = "db"
-run = ["sh", "-c", "echo admin-password=${ADMIN_PASSWORD}"]
-capture = { label = "Admin password", regex = "admin-password=(\\S+)" }
 
 [backup]
 paths = []

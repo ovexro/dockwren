@@ -72,6 +72,10 @@ The token needs Tunnel edit and DNS edit permissions for the zone. It is read fr
 only; the web panel never holds Cloudflare credentials. Existing routes and DNS records are never
 overwritten. Do not put Cloudflare Access in front of apps used by mobile or desktop clients.
 
+## Adding apps
+
+Apps are small templates (a manifest plus a Compose file). See [docs/TEMPLATES.md](docs/TEMPLATES.md).
+
 ## Support
 
 Dockwren is free and open source. If it saves you time, you can support its development via
