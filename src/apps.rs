@@ -755,6 +755,8 @@ struct PublicPage {
     result: Option<(bool, Vec<String>)>,
     /// The last Publish failed only because another DNS record uses the name.
     offer_replace: bool,
+    /// The hostname is not under any domain the Cloudflare token covers.
+    zone_warning: Option<String>,
 }
 
 fn public_page(
@@ -793,7 +795,25 @@ fn public_page(
         cf_ready: crate::public::Settings::from_env().is_some(),
         result: None,
         offer_replace: false,
+        zone_warning: None,
     }
+}
+
+/// Warn when Cloudflare is connected but the saved hostname is under none of its domains.
+async fn with_zone_warning(mut page: PublicPage) -> PublicPage {
+    if page.cf_ready
+        && crate::public::valid_hostname(&page.hostname)
+        && let Some(s) = crate::public::Settings::from_env()
+        && let Ok(zones) = crate::public::zone_names(&s).await
+        && crate::public::outside_zones(&page.hostname, &zones)
+    {
+        page.zone_warning = Some(format!(
+            "Warning: {} is not under any domain this Cloudflare token can manage ({}). Publishing will fail. Use a hostname under one of those domains, or give the token access to this domain in Cloudflare.",
+            page.hostname,
+            zones.join(", ")
+        ));
+    }
+    page
 }
 
 pub async fn public_form(
@@ -802,7 +822,9 @@ pub async fn public_form(
 ) -> Result<Html<String>, StatusCode> {
     known_instance(&apps, &name)?;
     let host = crate::public::read(&apps.root.join(&name)).unwrap_or_default();
-    Ok(render(public_page(&apps, &name, host, None, false)))
+    Ok(render(
+        with_zone_warning(public_page(&apps, &name, host, None, false)).await,
+    ))
 }
 
 pub async fn public_submit(
@@ -821,7 +843,9 @@ pub async fn public_submit(
         .unwrap_or_default();
     let error = crate::public::write(&apps.root.join(&name), &host).err();
     let saved = error.is_none();
-    Ok(render(public_page(&apps, &name, host, error, saved)))
+    Ok(render(
+        with_zone_warning(public_page(&apps, &name, host, error, saved)).await,
+    ))
 }
 
 // ---- Cloudflare connection (paste a token) -----------------------------

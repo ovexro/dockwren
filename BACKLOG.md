@@ -16,4 +16,4 @@
 - Field hints done 2026-11-13: every install field has a short `help` (small grey text under the input), apps have an `[app] note` shown at the top of the install form, and the Public URL page has a collapsible "How to create the Cloudflare token" guide (also in README). Not done: the same hints for the Settings page, the update/restore pages and the Containers/Resources pages.
 
 - DNS conflict "Replace it" done and verified live 2026-11-13 via CLI (`--replace-dns`: refused, dry-run, applied on a throwaway record; unexpose + remove cleaned up). The panel button uses the same `expose` but was not clicked.
-- Cloudflare wizard follow-ups: warn when a hostname is outside the token zones
+- Cloudflare wizard follow-ups: hostname-outside-token-zones warning done 2026-11-13 on the Public URL page (not in the install form; unit-tested, not seen live with a foreign hostname).

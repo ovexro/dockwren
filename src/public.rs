@@ -70,6 +70,26 @@ fn zone_candidates(host: &str) -> Vec<String> {
         .collect()
 }
 
+/// Names of the domains the token can see (read-only).
+pub async fn zone_names(s: &Settings) -> Result<Vec<String>, String> {
+    let api = Api {
+        token: s.token.clone(),
+    };
+    let z = api.call("GET", "/zones?per_page=50", None).await?;
+    Ok(z["result"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|z| z["name"].as_str().map(String::from))
+        .collect())
+}
+
+/// True when no domain in `zones` can hold `host` (so publishing it would fail).
+pub fn outside_zones(host: &str, zones: &[String]) -> bool {
+    !zone_candidates(host).iter().any(|c| zones.contains(c))
+}
+
 /// New ingress list with a rule for `host` inserted before the catch-all.
 /// `Ok(None)` when an identical rule already exists; Err when the hostname
 /// is routed somewhere else (we never overwrite).
@@ -674,6 +694,15 @@ mod tests {
             assert!(!valid_hostname(bad), "{bad}");
         }
         assert!(!valid_hostname(&format!("{}.com", "a".repeat(64))));
+    }
+
+    #[test]
+    fn hostname_outside_the_token_zones() {
+        let z = vec!["example.com".to_string(), "example.dev".to_string()];
+        assert!(!outside_zones("blog.example.com", &z));
+        assert!(!outside_zones("a.b.example.dev", &z));
+        assert!(outside_zones("blog.other.org", &z));
+        assert!(outside_zones("notexample.com", &z));
     }
 
     #[test]

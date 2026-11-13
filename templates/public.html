@@ -3,6 +3,7 @@
   {% if https_note %}<p><em>This app only works in a browser over HTTPS, so it needs a public hostname (or localhost).</em></p>{% endif %}
   {% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
   {% if saved %}<p>Saved.</p>{% endif %}
+  {% if let Some(w) = zone_warning %}<p role="alert">{{ w }}</p>{% endif %}
   {% if let Some((ok, lines)) = result %}
   <div role="status">
     <p><strong>{% if *ok %}Success{% else %}Failed{% endif %}</strong></p>
