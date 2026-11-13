@@ -1,6 +1,6 @@
 # Backlog
 
 - Web UI design: the UI is unstyled server-rendered HTML (htmx, no CSS). Add one small stylesheet served like htmx.min.js (layout, status badges, tables, forms, dark mode); keep it dependency-free.
-- Public URL wiring for apps that need HTTPS (Vaultwarden): tunnel + Access, separate from install.
+- Public URL: UI field + `dockwren expose <instance> [host] [--yes]` done (unit-tested; NOT yet run against live Cloudflare: needs a scoped API token, tunnel id). Verify end to end when Vaultwarden is installed.
 - Installer: tested 2026-11-13 on fresh Debian 13 + Ubuntu 24.04 VPS (--binary mode); publish a GitHub release (binary + checksum) once the repo is public; musl static build to support older distros.
-- Update flow follow-ups: `dockwren update` (CLI) is done and tested locally (bad tag rolls back, good bump updates); UI badge + button done (verified via curl against a running server); `dockwren restore <instance> [snapshot] [--no-safety-snapshot]` done and verified on gitea (files + postgres); still to do: UI restore button, `.pre-restore-*` dirs are kept (root-owned) until cleaned by hand, a repeat `restore` without a name picks the safety snapshot, test on a fresh VPS, post_start/migration hooks between versions.
+- Update flow follow-ups: `dockwren update` (CLI) is done and tested locally (bad tag rolls back, good bump updates); UI badge + button done (verified via curl against a running server); `dockwren restore <instance> [snapshot] [--no-safety-snapshot]` done and verified on gitea (files + postgres); UI restore button done; still to do: `.pre-restore-*` dirs are kept (root-owned) until cleaned by hand, a repeat `restore` without a name picks the safety snapshot, test on a fresh VPS, post_start/migration hooks between versions.

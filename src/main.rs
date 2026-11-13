@@ -4,6 +4,7 @@ mod backup;
 mod config;
 mod docker;
 mod install;
+mod public;
 mod runner;
 mod template;
 mod update;
@@ -170,6 +171,7 @@ fn app(auth: SharedAuth, docker: DockerClient, apps: apps::Apps) -> Router {
         .route("/instances", get(apps::instances))
         .route("/instances/{name}/remove", post(apps::instance_remove))
         .route("/instances/{name}/update", post(apps::instance_update))
+        .route("/instances/{name}/public", get(apps::public_form).post(apps::public_submit))
         .route("/instances/{name}/restore", get(apps::restore_form).post(apps::restore_submit))
         .route("/static/htmx.min.js", get(htmx_js))
         .route("/logout", post(auth::logout))
@@ -183,6 +185,34 @@ fn app(auth: SharedAuth, docker: DockerClient, apps: apps::Apps) -> Router {
 }
 
 /// `dockwren install <app> [KEY=VALUE...]`: resolve, prepare, bring up.
+async fn cli_expose(cfg: &config::Config, args: &[String]) -> Result<(), String> {
+    let apply = args.iter().any(|a| a == "--yes");
+    let pos: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
+    let name = pos.first().ok_or("usage: dockwren expose <instance> [hostname] [--yes]")?;
+    if !runner::valid_name(name) {
+        return Err("invalid instance name".into());
+    }
+    let dir = cfg.instances_dir().join(name.as_str());
+    if !dir.join("state.toml").is_file() {
+        return Err(format!("no instance named {name}"));
+    }
+    let host = match pos.get(1) {
+        Some(h) => {
+            public::write(&dir, h)?;
+            h.to_string()
+        }
+        None => public::read(&dir).ok_or("no hostname set: pass one, or set it in the web UI")?,
+    };
+    let port = public::web_port(&dir).ok_or("this app has no WEB_PORT to publish")?;
+    let env = |k: &str| std::env::var(k).map_err(|_| format!("{k} is not set"));
+    let settings = public::Settings {
+        token: env("CLOUDFLARE_API_TOKEN")?,
+        account: env("CLOUDFLARE_ACCOUNT_ID")?,
+        tunnel: env("DOCKWREN_TUNNEL_ID")?,
+    };
+    public::expose(&settings, &host, &public::service_url(port), apply, &mut |s| println!("  {s}")).await
+}
+
 async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String> {
     let app = args.first().ok_or("usage: dockwren install <app> [KEY=VALUE...]")?;
     let templates = apps::catalog(cfg)?;
@@ -280,6 +310,14 @@ async fn main() {
             }
             return;
         }
+        Some("expose") => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            if let Err(e) = cli_expose(&cfg, &args).await {
+                eprintln!("expose failed: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
         Some("restore") => {
             let args: Vec<String> = std::env::args().skip(2).collect();
             let safety = !args.iter().any(|a| a == "--no-safety-snapshot");
@@ -320,7 +358,7 @@ async fn main() {
             return;
         }
         Some(other) => {
-            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot] | remove <instance>]");
+            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot] | expose <instance> [hostname] [--yes] | remove <instance>]");
             std::process::exit(2);
         }
     }
@@ -666,6 +704,8 @@ mod tests {
             ("GET", "/instances"),
             ("POST", "/instances/gt/remove"),
             ("POST", "/instances/gt/update"),
+            ("GET", "/instances/gt/public"),
+            ("POST", "/instances/gt/public"),
             ("GET", "/instances/gt/restore"),
             ("POST", "/instances/gt/restore"),
         ] {

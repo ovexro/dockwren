@@ -52,6 +52,21 @@ DOCKWREN_DATA=/path/to/data dockwren set-password
 Prints a new generated password once. A running server applies it immediately and signs every
 session out. If you lose the password, run the same command.
 
+## Public hostnames (Cloudflare Tunnel)
+
+Each app has a "Public URL" button that records a hostname and shows the tunnel ingress rule to
+add. To let Dockwren create the tunnel route and the proxied DNS record, run on the server:
+
+```
+CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... DOCKWREN_TUNNEL_ID=... \
+  dockwren expose <instance> [hostname]          # preview only
+  dockwren expose <instance> [hostname] --yes    # apply
+```
+
+The token needs Tunnel edit and DNS edit permissions for the zone. It is read from the environment
+only; the web panel never holds Cloudflare credentials. Existing routes and DNS records are never
+overwritten. Do not put Cloudflare Access in front of apps used by mobile or desktop clients.
+
 ## Security notes
 
 Access to the Docker socket is equivalent to root on the host. Treat the panel accordingly:

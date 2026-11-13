@@ -6,9 +6,9 @@
   <thead><tr><th>Name</th><th>App</th><th>Ports</th><th>Status</th><th></th></tr></thead>
   <tbody>
   {% for i in instances %}
-    <tr><td>{{ i.name }}</td><td>{{ i.app }}</td><td>{{ i.ports }}</td><td>{{ i.status }}</td>
+    <tr><td>{{ i.name }}{% if let Some(h) = i.hostname %}<br><small><a href="https://{{ h }}" target="_blank" rel="noopener">{{ h }}</a></small>{% endif %}</td><td>{{ i.app }}</td><td>{{ i.ports }}</td><td>{{ i.status }}</td>
       <td>{% if let Some(u) = i.update %}<button class="primary" hx-post="/instances/{{ i.name }}/update" hx-target="#install" hx-swap="innerHTML"
-          hx-confirm="Update {{ i.name }} (version {{ u }})? A snapshot is taken first and the old version is restored if the update fails.">Update available ({{ u }})</button> {% endif %}{% if i.snapshots > 0 %}<button hx-get="/instances/{{ i.name }}/restore" hx-target="#install" hx-swap="innerHTML">Restore ({{ i.snapshots }})</button> {% endif %}<button class="danger" hx-post="/instances/{{ i.name }}/remove" hx-target="#instances" hx-swap="innerHTML"
+          hx-confirm="Update {{ i.name }} (version {{ u }})? A snapshot is taken first and the old version is restored if the update fails.">Update available ({{ u }})</button> {% endif %}<button hx-get="/instances/{{ i.name }}/public" hx-target="#install" hx-swap="innerHTML">Public URL</button> {% if i.snapshots > 0 %}<button hx-get="/instances/{{ i.name }}/restore" hx-target="#install" hx-swap="innerHTML">Restore ({{ i.snapshots }})</button> {% endif %}<button class="danger" hx-post="/instances/{{ i.name }}/remove" hx-target="#instances" hx-swap="innerHTML"
           hx-confirm="Stop {{ i.name }} and remove its containers? Data is kept.">Stop &amp; remove containers</button></td></tr>
   {% endfor %}
   </tbody>

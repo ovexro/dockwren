@@ -128,6 +128,7 @@ struct InstanceView {
     /// "1 → 2" when the bundled template is newer than the instance.
     update: Option<String>,
     snapshots: usize,
+    hostname: Option<String>,
 }
 
 #[derive(Template)]
@@ -357,7 +358,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             .filter(|t| t.manifest.app.version > state.version)
             .map(|t| format!("{} → {}", state.version, t.manifest.app.version));
         let snapshots = crate::backup::list(&apps.backups_root(), &name).len();
-out.push(InstanceView { name, app: state.template, ports: instance_ports(&dir), status, update, snapshots });
+out.push(InstanceView { name, app: state.template, ports: instance_ports(&dir), status, update, snapshots, hostname: crate::public::read(&dir) });
     }
     out
 }
@@ -551,6 +552,56 @@ pub async fn restore_submit(
         });
     });
     job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+#[derive(Template)]
+#[template(path = "public.html")]
+struct PublicPage {
+    instance: String,
+    hostname: String,
+    snippet: Option<String>,
+    command: Option<String>,
+    https_note: bool,
+    error: Option<String>,
+    saved: bool,
+}
+
+fn public_page(apps: &Apps, name: &str, hostname: String, error: Option<String>, saved: bool) -> PublicPage {
+    let dir = apps.root.join(name);
+    let port = crate::public::web_port(&dir);
+    let valid = crate::public::valid_hostname(&hostname);
+    let snippet = port
+        .filter(|_| valid)
+        .map(|p| format!("- hostname: {hostname}\n  service: {}", crate::public::service_url(p)));
+    let command = valid.then(|| format!("dockwren expose {name}"));
+    let https_note = std::fs::read_to_string(dir.join("state.toml"))
+        .ok()
+        .and_then(|s| toml::from_str::<InstanceState>(&s).ok())
+        .and_then(|st| apps.template(&st.template).map(|t| t.manifest.app.needs_public_https))
+        .unwrap_or(false);
+    PublicPage { instance: name.to_string(), hostname, snippet, command, https_note, error, saved }
+}
+
+pub async fn public_form(State(apps): State<Apps>, Path(name): Path<String>) -> Result<Html<String>, StatusCode> {
+    known_instance(&apps, &name)?;
+    let host = crate::public::read(&apps.root.join(&name)).unwrap_or_default();
+    Ok(render(public_page(&apps, &name, host, None, false)))
+}
+
+pub async fn public_submit(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Form(values): Form<HashMap<String, String>>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let host = values.get("hostname").map(|h| h.trim().to_lowercase()).unwrap_or_default();
+    let error = crate::public::write(&apps.root.join(&name), &host).err();
+    let saved = error.is_none();
+    Ok(render(public_page(&apps, &name, host, error, saved)))
 }
 
 #[cfg(test)]
