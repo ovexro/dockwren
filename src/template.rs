@@ -47,6 +47,10 @@ pub struct App {
     /// hostname, this field is set to `https://<hostname>` and hidden from the form.
     #[serde(default)]
     pub public_url_field: Option<String>,
+    /// For apps that need no address setting but can still be published: shows the install
+    /// form's "Public hostname" field without filling any variable. Implied by `public_url_field`.
+    #[serde(default)]
+    pub accepts_public_host: bool,
     /// One or two sentences shown at the top of the install form.
     #[serde(default)]
     pub note: Option<String>,

@@ -32,6 +32,8 @@ version = 1                        # bump when the manifest or compose file chan
 needs_public_https = false         # true = unusable remotely without HTTPS (shows a note)
 public_url_field = "PUBLIC_URL"    # optional: field holding the app's address; the install form's
                                    # "Public hostname" fills it with https://<host> and hides it
+accepts_public_host = false        # optional: app has no address setting, but still gets the
+                                   # "Public hostname" field (it only publishes, sets no variable)
 
 [[fields]]
 key = "INSTANCE_NAME"

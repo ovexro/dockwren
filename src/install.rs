@@ -129,7 +129,7 @@ pub fn resolve(
         .map(|v| v.trim().to_lowercase())
         .filter(|v| !v.is_empty());
     if let Some(h) = &public_host {
-        if t.manifest.app.public_url_field.is_none() {
+        if t.manifest.app.public_url_field.is_none() && !t.manifest.app.accepts_public_host {
             return Err("this app cannot be given a public hostname at install".into());
         }
         if !crate::public::valid_hostname(h) {
@@ -321,14 +321,29 @@ mod tests {
             .unwrap_err();
             assert!(e.contains("Public hostname"), "{bad}: {e}");
         }
+        let mut no_host = tmpl("memos");
+        no_host.manifest.app.accepts_public_host = false;
         let e = resolve(
-            &tmpl("memos"),
+            &no_host,
             &input(&[("PUBLIC_HOST", "memo.example.com")]),
             &HashSet::new(),
             &all_free,
         )
         .unwrap_err();
         assert!(e.contains("cannot be given"), "{e}");
+    }
+
+    #[test]
+    fn apps_without_an_address_field_can_still_take_a_public_host() {
+        let r = resolve(
+            &tmpl("memos"),
+            &input(&[("PUBLIC_HOST", "memo.example.com")]),
+            &HashSet::new(),
+            &all_free,
+        )
+        .unwrap();
+        assert_eq!(r.public_host.as_deref(), Some("memo.example.com"));
+        assert!(!r.env.contains_key("PUBLIC_HOST"));
     }
 
     #[test]

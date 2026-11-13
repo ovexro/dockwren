@@ -5,6 +5,7 @@ description = "Self-hosted uptime monitoring with status pages and alerts"
 version = 1
 note = "Monitors sites and services. Create the admin account on first visit."
 needs_public_https = false
+accepts_public_host = true
 
 [[fields]]
 key = "INSTANCE_NAME"

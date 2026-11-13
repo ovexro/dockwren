@@ -5,6 +5,7 @@ description = "Self-hosted notes and micro-blogging, Markdown first"
 version = 1
 note = "Quick notes. Create your account on first visit; the first one becomes the owner."
 needs_public_https = false
+accepts_public_host = true
 
 [[fields]]
 key = "INSTANCE_NAME"

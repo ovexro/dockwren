@@ -183,7 +183,7 @@ fn form_view(t: &AppTemplate, values: &HashMap<String, String>, error: Option<St
             }
         })
         .collect();
-    if url_field.is_some() {
+    if url_field.is_some() || t.manifest.app.accepts_public_host {
         let base = "The web address people type in their browser to open this app, for example blog.example.com (the domain must already be in your Cloudflare account). Leave it empty to use the app only on this server.";
         let help = if crate::public::Settings::from_env().is_some() {
             format!("{base} Dockwren will also make it reachable from the internet for you.")
