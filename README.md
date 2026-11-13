@@ -16,7 +16,7 @@ License: Apache-2.0.
 - Single-admin login: strong generated password, Argon2id hash, `HttpOnly` + `SameSite=Strict`
   session cookie, login rate limit, sessions that survive restarts.
 - Overview: all containers (running or not) with image, state and status, refreshed every 5 s.
-- Resource graphs: CPU, memory, network and disk space as plain one-colour lines (last 1 h or 24 h), plus CPU/memory per running container. Sampled every 10 s and kept in memory only (resets on restart); a disk above 85% is flagged.
+- Resource graphs: CPU, memory, network and disk space as plain one-colour lines (last 1 h, 24 h, 7 days or 30 days), plus CPU/memory per running container. Sampled every 10 s; the 1 h and 24 h views live in memory, while 5-minute averages are kept 30 days in `metrics.log` in the data directory and survive restarts. A disk above 85% is flagged.
 - Start, stop (with confirmation) and restart a container.
 - Log viewer: last 200 lines (stdout + stderr), refreshed every 5 s.
 - `dockwren set-password` to rotate the admin password.

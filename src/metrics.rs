@@ -13,8 +13,13 @@ use crate::docker::{ContainerUsage, DockerClient};
 
 const INTERVAL_SECS: u64 = 10;
 const KEEP_SAMPLES: usize = 24 * 3600 / INTERVAL_SECS as usize;
-const DISK_EVERY: u64 = 6; // disks are checked once a minute
-const KEEP_DISK: usize = 24 * 60;
+/// Long-term history: one averaged point per 5 minutes, kept 30 days, persisted to disk.
+const LONG_EVERY: u64 = 30; // ticks (= 5 minutes)
+const LONG_SECS: u64 = LONG_EVERY * INTERVAL_SECS;
+const KEEP_LONG: usize = 30 * 24 * 3600 / LONG_SECS as usize;
+const DISK_EVERY: u64 = LONG_EVERY; // disk space moves slowly: checked every 5 minutes
+const KEEP_DISK: usize = KEEP_LONG;
+const LOG_FILE: &str = "metrics.log";
 /// A disk this full is flagged in the UI.
 pub const DISK_WARN_PCT: f64 = 85.0;
 
@@ -39,6 +44,8 @@ pub struct DiskSeries {
 #[derive(Debug, Default)]
 pub struct Metrics {
     pub samples: VecDeque<Sample>,
+    /// 5-minute averages, up to 30 days (also persisted).
+    pub long: VecDeque<Sample>,
     pub mem_total: u64,
     pub mem_used: u64,
     pub disks: Vec<DiskSeries>,
@@ -113,6 +120,81 @@ pub fn parse_df(text: &str) -> Option<(String, u64, u64)> {
     Some((f[0].to_string(), (used + avail) * 1024, used * 1024))
 }
 
+// ---- persistence ----
+
+fn sample_line(s: &Sample) -> String {
+    format!("S\t{}\t{:.2}\t{:.2}\t{:.1}\t{:.1}\n", s.t, s.cpu, s.mem, s.rx, s.tx)
+}
+
+fn disk_line(d: &DiskSeries, t: u64, pct: f64) -> String {
+    format!("D\t{t}\t{}\t{}\t{}\t{}\t{pct:.2}\n", d.label, d.fs, d.total, d.used)
+}
+
+/// Rebuilds the long-term history from log text, dropping anything older than 30 days.
+pub fn load_log(text: &str, now: u64) -> Metrics {
+    let cutoff = now.saturating_sub(30 * 24 * 3600);
+    let mut m = Metrics::default();
+    for line in text.lines() {
+        let f: Vec<&str> = line.split('\t').collect();
+        let Some(t) = f.get(1).and_then(|x| x.parse::<u64>().ok()).filter(|t| *t >= cutoff) else { continue };
+        match (f[0], f.len()) {
+            ("S", 6) => {
+                let n: Vec<Option<f64>> = f[2..].iter().map(|x| x.parse().ok()).collect();
+                if let [Some(cpu), Some(mem), Some(rx), Some(tx)] = n[..] {
+                    m.long.push_back(Sample { t, cpu, mem, rx, tx });
+                }
+            }
+            ("D", 7) => {
+                let (Ok(total), Ok(used), Ok(pct)) = (f[4].parse(), f[5].parse(), f[6].parse()) else { continue };
+                let i = match m.disks.iter().position(|d| d.fs == f[3]) {
+                    Some(i) => i,
+                    None => {
+                        m.disks.push(DiskSeries { label: f[2].into(), fs: f[3].into(), total, used, pct: VecDeque::new() });
+                        m.disks.len() - 1
+                    }
+                };
+                let d = &mut m.disks[i];
+                (d.total, d.used) = (total, used);
+                d.pct.push_back((t, pct));
+            }
+            _ => {}
+        }
+    }
+    while m.long.len() > KEEP_LONG {
+        m.long.pop_front();
+    }
+    for d in &mut m.disks {
+        while d.pct.len() > KEEP_DISK {
+            d.pct.pop_front();
+        }
+    }
+    m
+}
+
+/// Writes the compacted history back (startup) so the file never grows beyond ~30 days.
+fn compact_log(path: &std::path::Path, m: &Metrics) {
+    let mut out = String::new();
+    for s in &m.long {
+        out.push_str(&sample_line(s));
+    }
+    for d in &m.disks {
+        for (t, pct) in &d.pct {
+            out.push_str(&disk_line(d, *t, *pct));
+        }
+    }
+    let tmp = path.with_extension("tmp");
+    if std::fs::write(&tmp, out).is_ok() {
+        let _ = std::fs::rename(&tmp, path);
+    }
+}
+
+fn append_log(path: &std::path::Path, text: &str) {
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = f.write_all(text.as_bytes());
+    }
+}
+
 // ---- sampling ----
 
 fn read(path: &str) -> String {
@@ -124,7 +206,7 @@ async fn df(path: &str) -> Option<(String, u64, u64)> {
     parse_df(&String::from_utf8_lossy(&out.stdout))
 }
 
-async fn sample_disks(shared: &Shared, paths: &[String], t: u64) {
+async fn sample_disks(shared: &Shared, paths: &[String], t: u64, log: &std::path::Path) {
     for path in paths {
         let Some((fs, total, used)) = df(path).await else { continue };
         let pct = if total == 0 { 0.0 } else { used as f64 / total as f64 * 100.0 };
@@ -144,14 +226,33 @@ async fn sample_disks(shared: &Shared, paths: &[String], t: u64) {
         if d.pct.len() > KEEP_DISK {
             d.pct.pop_front();
         }
+        let line = disk_line(d, t, pct);
+        drop(m);
+        append_log(log, &line);
     }
+}
+
+/// Mean of samples, stamped with the newest time.
+pub fn average<'a>(it: impl Iterator<Item = &'a Sample>) -> Sample {
+    let v: Vec<&Sample> = it.collect();
+    let n = v.len().max(1) as f64;
+    let sum = |f: fn(&Sample) -> f64| v.iter().map(|s| f(s)).sum::<f64>() / n;
+    Sample { t: v.iter().map(|s| s.t).max().unwrap_or(0), cpu: sum(|s| s.cpu), mem: sum(|s| s.mem), rx: sum(|s| s.rx), tx: sum(|s| s.tx) }
 }
 
 /// Previous reading: cpu (busy, total), net (rx, tx), time.
 type Prev = ((u64, u64), (u64, u64), u64);
 
 /// Starts the sampler; `disk_paths` are the directories whose filesystems are tracked.
-pub fn spawn(shared: Shared, docker: DockerClient, disk_paths: Vec<String>) {
+pub fn spawn(shared: Shared, docker: DockerClient, disk_paths: Vec<String>, data_dir: std::path::PathBuf) {
+    let log = data_dir.join(LOG_FILE);
+    {
+        let mut m = shared.lock().unwrap();
+        let loaded = load_log(&read(&log.to_string_lossy()), now_unix());
+        compact_log(&log, &loaded);
+        m.long = loaded.long;
+        m.disks = loaded.disks;
+    }
     let usage = shared.clone();
     tokio::spawn(async move {
         loop {
@@ -169,7 +270,7 @@ pub fn spawn(shared: Shared, docker: DockerClient, disk_paths: Vec<String>) {
             interval.tick().await;
             let t = now_unix();
             if tick.is_multiple_of(DISK_EVERY) {
-                sample_disks(&shared, &disk_paths, t).await;
+                sample_disks(&shared, &disk_paths, t, &log).await;
             }
             tick += 1;
             let (Some(cpu), Some((mem_total, mem_avail))) =
@@ -196,6 +297,16 @@ pub fn spawn(shared: Shared, docker: DockerClient, disk_paths: Vec<String>) {
                 m.samples.push_back(s);
                 if m.samples.len() > KEEP_SAMPLES {
                     m.samples.pop_front();
+                }
+                if tick.is_multiple_of(LONG_EVERY) && m.samples.len() >= LONG_EVERY as usize {
+                    let avg = average(m.samples.iter().rev().take(LONG_EVERY as usize));
+                    m.long.push_back(avg);
+                    if m.long.len() > KEEP_LONG {
+                        m.long.pop_front();
+                    }
+                    let line = sample_line(&avg);
+                    drop(m);
+                    append_log(&log, &line);
                 }
             }
             prev = Some((cpu, net, t));
@@ -352,7 +463,8 @@ pub struct ContainerRow {
 #[template(path = "metrics.html")]
 struct MetricsTemplate {
     range: &'static str,
-    hours: u32,
+    label: &'static str,
+    ranges: Vec<(&'static str, &'static str)>,
     ready: bool,
     charts: Vec<Chart>,
     containers: Vec<ContainerRow>,
@@ -365,10 +477,14 @@ pub struct RangeQuery {
     range: Option<String>,
 }
 
-fn build(m: &Metrics, now: u64, day: bool) -> MetricsTemplate {
-    let window = if day { 24 * 3600 } else { 3600 };
+/// (query value, label, window in seconds)
+const RANGES: [(&str, &str, u64); 4] = [("1h", "1 h", 3600), ("24h", "24 h", 86400), ("7d", "7 days", 7 * 86400), ("30d", "30 days", 30 * 86400)];
+
+fn build(m: &Metrics, now: u64, range: &str) -> MetricsTemplate {
+    let (key, label, window) = *RANGES.iter().find(|r| r.0 == range).unwrap_or(&RANGES[0]);
+    let source = if window > 86400 { &m.long } else { &m.samples };
     let start = now.saturating_sub(window);
-    let recent: Vec<&Sample> = m.samples.iter().filter(|s| s.t >= start).collect();
+    let recent: Vec<&Sample> = source.iter().filter(|s| s.t >= start).collect();
     let series = |f: fn(&Sample) -> f64| -> Vec<(u64, f64)> { recent.iter().map(|s| (s.t, f(s))).collect() };
     let last = recent.last();
     let mut charts = Vec::new();
@@ -417,8 +533,9 @@ fn build(m: &Metrics, now: u64, day: bool) -> MetricsTemplate {
         .map(|c| ContainerRow { name: c.name.clone(), cpu: format!("{:.1}%", c.cpu_pct), mem: fmt_bytes(c.mem_bytes as f64) })
         .collect();
     MetricsTemplate {
-        range: if day { "24h" } else { "1h" },
-        hours: if day { 24 } else { 1 },
+        range: key,
+        label,
+        ranges: RANGES.iter().map(|r| (r.0, r.1)).collect(),
         ready: last.is_some(),
         charts,
         containers,
@@ -428,7 +545,7 @@ fn build(m: &Metrics, now: u64, day: bool) -> MetricsTemplate {
 }
 
 pub async fn page(State(shared): State<Shared>, Query(q): Query<RangeQuery>) -> Html<String> {
-    let page = build(&shared.lock().unwrap(), now_unix(), q.range.as_deref() == Some("24h"));
+    let page = build(&shared.lock().unwrap(), now_unix(), q.range.as_deref().unwrap_or("1h"));
     Html(page.render().expect("metrics template renders"))
 }
 
@@ -442,7 +559,7 @@ mod page_tests {
 
     #[test]
     fn empty_history_says_collecting() {
-        let html = build(&Metrics::default(), 1000, false).render().unwrap();
+        let html = build(&Metrics::default(), 1000, "1h").render().unwrap();
         assert!(html.contains("Collecting the first samples"));
         assert!(!html.contains("<svg"));
     }
@@ -459,10 +576,48 @@ mod page_tests {
             pct: VecDeque::from([(900, 90.0), (1000, 90.0)]),
         });
         m.containers.push(ContainerUsage { name: "web<1>".into(), cpu_pct: 1.5, mem_bytes: 50 << 20 });
-        let html = build(&m, 1000, false).render().unwrap();
+        let html = build(&m, 1000, "1h").render().unwrap();
         assert!(html.contains("<polyline points=\"") && html.contains("30%"));
         assert!(html.contains("chart warn") && html.contains("almost full"));
         assert!(html.contains("range=1h") && html.contains("web&#60;1&#62;"));
-        assert!(build(&m, 1000, true).render().unwrap().contains("range=24h"));
+        assert!(build(&m, 1000, "24h").render().unwrap().contains("range=24h"));
+    }
+
+    #[test]
+    fn long_ranges_use_the_persisted_history() {
+        let mut m = Metrics::default();
+        m.long.extend([sample(1000, 20.0), sample(300_000, 40.0)]);
+        let html = build(&m, 300_000, "7d").render().unwrap();
+        assert!(html.contains("range=7d") && html.contains("40%"));
+        assert!(build(&m, 300_000, "1h").render().unwrap().contains("Collecting"));
+    }
+
+    #[test]
+    fn log_round_trips_and_drops_old_or_bad_lines() {
+        let now = 100 * 86400;
+        let mut m = Metrics::default();
+        m.long.push_back(sample(now - 60, 12.5));
+        let mut d = DiskSeries { label: "/srv data".into(), fs: "/dev/x".into(), total: 1000, used: 900, pct: VecDeque::new() };
+        d.pct.push_back((now - 30, 90.0));
+        let text = format!(
+            "{}{}S\t{}\t1\t1\t1\t1\ngarbage\nS\t{}\tx\t1\t1\t1\n",
+            sample_line(&m.long[0]),
+            disk_line(&d, now - 30, 90.0),
+            now - 40 * 86400, // older than 30 days
+            now - 10,         // unparsable value
+        );
+        let back = load_log(&text, now);
+        assert_eq!(back.long.len(), 1);
+        assert_eq!(back.long[0].cpu, 12.5);
+        assert_eq!(back.disks[0].label, "/srv data");
+        assert_eq!((back.disks[0].total, back.disks[0].used), (1000, 900));
+        assert_eq!(back.disks[0].pct.len(), 1);
+    }
+
+    #[test]
+    fn average_is_the_mean_stamped_with_the_newest_time() {
+        let a = [sample(10, 10.0), sample(30, 30.0), sample(20, 20.0)];
+        let avg = average(a.iter());
+        assert_eq!((avg.t, avg.cpu, avg.rx), (30, 20.0, 2000.0));
     }
 }

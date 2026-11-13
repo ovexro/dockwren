@@ -479,7 +479,7 @@ async fn main() {
     let metrics = metrics::Shared::default();
     let mut disk_paths = vec![cfg.data_dir.display().to_string()];
     disk_paths.extend(cfg.disk_paths.iter().cloned());
-    metrics::spawn(metrics.clone(), docker.clone(), disk_paths);
+    metrics::spawn(metrics.clone(), docker.clone(), disk_paths, cfg.data_dir.clone());
     axum::serve(listener, app(auth, docker, apps, metrics))
         .await
         .expect("server error");

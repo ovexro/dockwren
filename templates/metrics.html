@@ -1,5 +1,7 @@
 <div id="metrics" hx-get="/metrics?range={{ range }}" hx-trigger="every 10s" hx-swap="outerHTML">
-  <p class="muted">Last {{ hours }} h · <a href="#" hx-get="/metrics?range={% if hours == 1 %}24h{% else %}1h{% endif %}" hx-target="#metrics" hx-swap="outerHTML">show {% if hours == 1 %}24 h{% else %}1 h{% endif %}</a> · history is kept in memory and resets when Dockwren restarts</p>
+  <p class="muted">Last {{ label }} ·
+    {% for r in ranges %}{% if r.0 == range %}<strong>{{ r.1 }}</strong>{% else %}<a href="#" hx-get="/metrics?range={{ r.0 }}" hx-target="#metrics" hx-swap="outerHTML">{{ r.1 }}</a>{% endif %} {% endfor %}
+    · long ranges use 5-minute averages, kept 30 days</p>
   {% if !ready %}
   <p class="muted">Collecting the first samples…</p>
   {% else %}
