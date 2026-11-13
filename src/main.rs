@@ -213,6 +213,31 @@ async fn cli_expose(cfg: &config::Config, args: &[String]) -> Result<(), String>
     public::expose(&settings, &host, &public::service_url(port), apply, &mut |s| println!("  {s}")).await
 }
 
+/// `dockwren unexpose <instance> [--yes]`: remove the tunnel route and DNS record, then forget the hostname.
+async fn cli_unexpose(cfg: &config::Config, args: &[String]) -> Result<(), String> {
+    let apply = args.iter().any(|a| a == "--yes");
+    let name = args.iter().find(|a| !a.starts_with("--")).ok_or("usage: dockwren unexpose <instance> [--yes]")?;
+    if !runner::valid_name(name) {
+        return Err("invalid instance name".into());
+    }
+    let dir = cfg.instances_dir().join(name.as_str());
+    if !dir.join("state.toml").is_file() {
+        return Err(format!("no instance named {name}"));
+    }
+    let host = public::read(&dir).ok_or("this instance has no public hostname")?;
+    let env = |k: &str| std::env::var(k).map_err(|_| format!("{k} is not set"));
+    let settings = public::Settings {
+        token: env("CLOUDFLARE_API_TOKEN")?,
+        account: env("CLOUDFLARE_ACCOUNT_ID")?,
+        tunnel: env("DOCKWREN_TUNNEL_ID")?,
+    };
+    public::unexpose(&settings, &host, apply, &mut |s| println!("  {s}")).await?;
+    if apply {
+        public::write(&dir, "")?;
+    }
+    Ok(())
+}
+
 async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String> {
     let app = args.first().ok_or("usage: dockwren install <app> [KEY=VALUE...]")?;
     let templates = apps::catalog(cfg)?;
@@ -318,6 +343,14 @@ async fn main() {
             }
             return;
         }
+        Some("unexpose") => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            if let Err(e) = cli_unexpose(&cfg, &args).await {
+                eprintln!("unexpose failed: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
         Some("restore") => {
             let args: Vec<String> = std::env::args().skip(2).collect();
             let safety = !args.iter().any(|a| a == "--no-safety-snapshot");
@@ -374,7 +407,7 @@ async fn main() {
             return;
         }
         Some(other) => {
-            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot] | cleanup <instance> | expose <instance> [hostname] [--yes] | remove <instance>]");
+            eprintln!("unknown command '{other}'\nusage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot] | cleanup <instance> | expose <instance> [hostname] [--yes] | unexpose <instance> [--yes] | remove <instance>]");
             std::process::exit(2);
         }
     }

@@ -87,6 +87,12 @@ fn plan_ingress(existing: &[Value], host: &str, service: &str) -> Result<Option<
     Ok(Some(out))
 }
 
+/// Ingress list without the rule for `host`. `None` when there is no such rule.
+fn plan_removal(existing: &[Value], host: &str) -> Option<Vec<Value>> {
+    let out: Vec<Value> = existing.iter().filter(|r| r.get("hostname").and_then(Value::as_str) != Some(host)).cloned().collect();
+    (out.len() != existing.len()).then_some(out)
+}
+
 struct Api {
     token: String,
 }
@@ -184,6 +190,61 @@ pub async fn expose(s: &Settings, host: &str, service: &str, apply: bool, log: &
     Ok(())
 }
 
+/// Undo `expose`: drop the tunnel rule and the CNAME. Only a CNAME that points at
+/// our tunnel is deleted; anything else under that name is left alone.
+pub async fn unexpose(s: &Settings, host: &str, apply: bool, log: &mut dyn FnMut(&str)) -> Result<(), String> {
+    if !valid_hostname(host) {
+        return Err(format!("{host} is not a valid hostname"));
+    }
+    let api = Api { token: s.token.clone() };
+
+    let mut zone = None;
+    for cand in zone_candidates(host) {
+        let r = api.call("GET", &format!("/zones?name={cand}"), None).await?;
+        if let Some(z) = r["result"][0]["id"].as_str() {
+            zone = Some((z.to_string(), cand));
+            break;
+        }
+    }
+    let (zone_id, zone_name) = zone.ok_or_else(|| format!("no Cloudflare zone found for {host} (does the token cover it?)"))?;
+    log(&format!("zone {zone_name}"));
+
+    let cfg_path = format!("/accounts/{}/cfd_tunnel/{}/configurations", s.account, s.tunnel);
+    let cur = api.call("GET", &cfg_path, None).await?;
+    let mut config = cur["result"]["config"].clone();
+    let existing: Vec<Value> = config["ingress"].as_array().cloned().unwrap_or_default();
+    match plan_removal(&existing, host) {
+        None => log("tunnel route: not present"),
+        Some(new) => {
+            log(&format!("tunnel route: remove {host}"));
+            if apply {
+                config["ingress"] = Value::Array(new);
+                api.call("PUT", &cfg_path, Some(&json!({"config": config}))).await?;
+            }
+        }
+    }
+
+    let target = format!("{}.cfargotunnel.com", s.tunnel);
+    let dns = api.call("GET", &format!("/zones/{zone_id}/dns_records?name={host}"), None).await?;
+    match dns["result"].as_array().and_then(|a| a.first()) {
+        None => log("DNS: no record"),
+        Some(rec) if rec["type"] == "CNAME" && rec["content"] == target.as_str() => {
+            log(&format!("DNS: delete CNAME {host} -> {target}"));
+            if apply {
+                let id = rec["id"].as_str().ok_or("DNS record has no id")?;
+                api.call("DELETE", &format!("/zones/{zone_id}/dns_records/{id}"), None).await?;
+            }
+        }
+        Some(rec) => log(&format!(
+            "DNS: leaving the {} record ({}) alone, it does not point at this tunnel",
+            rec["type"].as_str().unwrap_or("?"),
+            rec["content"].as_str().unwrap_or("?")
+        )),
+    }
+    log(if apply { "done" } else { "dry run only; re-run with --yes to apply" });
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,6 +286,18 @@ mod tests {
         let ex = vec![json!({"hostname": "v.x.dev", "service": "http://127.0.0.1:9000"}), json!({"service": "http_status:404"})];
         assert!(plan_ingress(&ex, "v.x.dev", "http://127.0.0.1:9000").unwrap().is_none());
         assert!(plan_ingress(&ex, "v.x.dev", "http://127.0.0.1:9001").unwrap_err().contains("not overwriting"));
+    }
+
+    #[test]
+    fn ingress_removal_keeps_the_rest() {
+        let ex = vec![
+            json!({"hostname": "a.x.dev", "service": "http://127.0.0.1:1"}),
+            json!({"hostname": "v.x.dev", "service": "http://127.0.0.1:2"}),
+            json!({"service": "http_status:404"}),
+        ];
+        let new = plan_removal(&ex, "v.x.dev").unwrap();
+        assert_eq!(new, vec![ex[0].clone(), ex[2].clone()]);
+        assert!(plan_removal(&ex, "gone.x.dev").is_none());
     }
 
     #[test]
