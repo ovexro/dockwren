@@ -60,7 +60,7 @@ Each event remembers the highest severity sent (`notified`). A failed send is re
 - Settings: ntfy server/topic/token, webhook address, and a minimum severity (default warnings and critical).
   Addresses and tokens live in `notify-channels.json` (0600), go to curl on stdin and are never shown again.
 - Turning the first channel on marks the events already open as sent, so it is not flooded.
-- Nothing is sent when a condition clears; e-mail is not built.
+- When a condition clears by itself after it was sent, one low-priority "Resolved: ..." message follows (`clear_pending`, `Store::pending_resolved`). Dismissing an event by hand sends nothing; e-mail is not built.
 - Event text goes to a third party: keep secrets out of titles and bodies (already the rule above).
 
 ## Host backup status

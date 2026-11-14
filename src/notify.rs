@@ -92,6 +92,9 @@ pub struct Event {
     /// Highest severity already sent to the delivery channels (None = never sent).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notified: Option<Severity>,
+    /// The condition cleared after the channels had received this event: a "resolved" message is owed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear_pending: bool,
 }
 
 /// What a producer builds; the store assigns id, time and state.
@@ -228,6 +231,10 @@ impl Store {
         self.channels = c;
         if was_off {
             self.mark_open_notified();
+            let owed: Vec<u64> = self.pending_resolved().iter().map(|e| e.id).collect();
+            for id in owed {
+                self.mark_resolution_sent(id);
+            }
         }
         if let Some(p) = &self.channels_path
             && let Ok(mut f) = Self::open_file(p, true)
@@ -263,6 +270,29 @@ impl Store {
             .collect();
         v.sort_by_key(|e| e.id);
         v
+    }
+
+    /// Events that cleared by themselves after being sent, and whose "resolved" message is still owed.
+    pub fn pending_resolved(&self) -> Vec<Event> {
+        let mut v: Vec<Event> = self
+            .events
+            .iter()
+            .filter(|e| e.state == State::Resolved && e.clear_pending)
+            .cloned()
+            .collect();
+        v.sort_by_key(|e| e.id);
+        v
+    }
+
+    pub fn mark_resolution_sent(&mut self, id: u64) {
+        let Some(e) = self.events.iter_mut().find(|e| e.id == id) else {
+            return;
+        };
+        if e.clear_pending {
+            e.clear_pending = false;
+            let snapshot = e.clone();
+            self.append(&snapshot);
+        }
     }
 
     pub fn mark_notified(&mut self, id: u64, sev: Severity) {
@@ -423,6 +453,7 @@ impl Store {
             key,
             state: State::New,
             notified: None,
+            clear_pending: false,
         };
         self.next_id += 1;
         let id = e.id;
@@ -441,6 +472,9 @@ impl Store {
             .map(|e| e.id)
             .collect();
         for id in &ids {
+            if let Some(e) = self.events.iter_mut().find(|e| e.id == *id) {
+                e.clear_pending = e.notified.is_some();
+            }
             self.set_state(*id, State::Resolved);
         }
         ids.len()
@@ -943,6 +977,7 @@ mod tests {
             key: "k".into(),
             state: State::New,
             notified: None,
+            clear_pending: false,
         })
         .unwrap();
         let s = Store::from_log(&format!("not json\n{good}\n{{\"id\":1}}\n\n"), 20);

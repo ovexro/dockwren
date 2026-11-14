@@ -109,9 +109,20 @@ fn priority(s: Severity) -> u8 {
     }
 }
 
+/// The "resolved" counterpart of an event: same channels, low priority, a check-mark tag.
+fn resolved_copy(e: &Event) -> Event {
+    let mut r = e.clone();
+    r.severity = Severity::Info;
+    r.title = format!("Resolved: {}", e.title);
+    r.body = Some("This condition has cleared.".into());
+    r.link = None;
+    r
+}
+
 /// ntfy JSON publish body (the topic goes in the body, so titles may use any character).
 fn ntfy_body(e: &Event, topic: &str) -> String {
     let tag = match e.severity {
+        Severity::Info if e.title.starts_with("Resolved: ") => "white_check_mark",
         Severity::Info => "information_source",
         Severity::Warning => "warning",
         Severity::Critical => "rotating_light",
@@ -237,14 +248,27 @@ pub fn spawn(shared: Shared) {
         let mut attempts: HashMap<(u64, Severity), u8> = HashMap::new();
         loop {
             tokio::time::sleep(TICK).await;
-            let (cfg, pending) = {
+            let (cfg, pending, resolved) = {
                 let s = shared.lock().unwrap();
                 if !s.channels.any() {
                     attempts.clear();
                     continue;
                 }
-                (s.channels.clone(), s.pending_delivery(s.channels.min))
+                (
+                    s.channels.clone(),
+                    s.pending_delivery(s.channels.min),
+                    s.pending_resolved(),
+                )
             };
+            for e in resolved {
+                let errors = send(&cfg, &resolved_copy(&e)).await;
+                let n = attempts.entry((e.id, Severity::Info)).or_insert(0);
+                *n += 1;
+                if errors.is_empty() || *n >= MAX_ATTEMPTS {
+                    attempts.remove(&(e.id, Severity::Info));
+                    shared.lock().unwrap().mark_resolution_sent(e.id);
+                }
+            }
             for e in pending {
                 let errors = send(&cfg, &e).await;
                 let n = attempts.entry((e.id, e.severity)).or_insert(0);
@@ -404,6 +428,7 @@ pub async fn test(AxState(shared): AxState<Shared>) -> Html<String> {
         key: "test".into(),
         state: crate::notify::State::New,
         notified: None,
+        clear_pending: false,
     };
     let errors = send(&cfg, &e).await;
     let msg = if errors.is_empty() {
@@ -480,6 +505,7 @@ mod tests {
             key: "k".into(),
             state: crate::notify::State::New,
             notified: None,
+            clear_pending: false,
         };
         let w: serde_json::Value = serde_json::from_str(&webhook_body(&e)).unwrap();
         assert_eq!(w["severity"], "warning");
@@ -512,9 +538,30 @@ mod tests {
         // escalation sends again
         s.raise(NewEvent::new("a", "k", Severity::Critical, "w").key("w"));
         assert_eq!(s.pending_delivery(Severity::Warning).len(), 1);
-        // a resolved event is never sent
+        // a resolved event is never sent as a new alert
         s.resolve("w");
         assert_eq!(s.pending_delivery(Severity::Info).len(), 1);
+    }
+
+    #[test]
+    fn resolution_is_owed_only_for_sent_events_that_cleared() {
+        let mut s = Store::memory();
+        let (sent, _) = s.raise(NewEvent::new("a", "k", Severity::Warning, "sent").key("sent"));
+        s.raise(NewEvent::new("a", "k", Severity::Warning, "unsent").key("unsent"));
+        let (dismissed, _) = s.raise(NewEvent::new("a", "k", Severity::Warning, "d").key("d"));
+        s.mark_notified(sent, Severity::Warning);
+        s.mark_notified(dismissed, Severity::Warning);
+        s.resolve("sent");
+        s.resolve("unsent");
+        s.dismiss(dismissed);
+        let owed = s.pending_resolved();
+        assert_eq!(owed.len(), 1);
+        assert_eq!(owed[0].id, sent);
+        s.mark_resolution_sent(sent);
+        assert!(s.pending_resolved().is_empty());
+        let r = resolved_copy(&owed[0]);
+        assert!(r.title.starts_with("Resolved: sent"));
+        assert!(ntfy_body(&r, "t").contains("white_check_mark"));
     }
 
     #[test]
