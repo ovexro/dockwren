@@ -79,6 +79,7 @@ All settings are environment variables.
 | `DOCKWREN_DATA` | `./data` | Directory for Dockwren's own state (`admin.hash`, `sessions`), created with mode 0700. |
 | `DOCKWREN_BIND` | `127.0.0.1:8080` | Listen address. Local-only by default. |
 | `DOCKWREN_DISKS` | unset | Extra directories (comma separated) whose disks get a graph; the data directory's disk is always shown. |
+| `DOCKWREN_BACKUP_STATUS` | unset | Status file of your host backup job (one line, containing `FAIL` when the last run failed). Raises a notification on failure or when the file is older than 36 hours. See docs/NOTIFICATIONS.md. |
 | `DOCKWREN_SECURE_COOKIE` | unset | Set to `1` when served over HTTPS so the session cookie is marked `Secure`. |
 
 ## Changing the password

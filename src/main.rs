@@ -1,6 +1,7 @@
 mod apps;
 mod auth;
 mod backup;
+mod backupwatch;
 mod config;
 mod deliver;
 mod docker;
@@ -743,6 +744,7 @@ async fn main() {
     apps.spawn_update_checker();
     release::spawn_checker(notify.clone());
     hostupdates::spawn_checker(notify.clone());
+    backupwatch::spawn_checker(notify.clone());
     deliver::spawn(notify.clone());
     let metrics = metrics::Shared::default();
     let mut disk_paths = vec![cfg.data_dir.display().to_string()];

@@ -62,3 +62,12 @@ Each event remembers the highest severity sent (`notified`). A failed send is re
 - Turning the first channel on marks the events already open as sent, so it is not flooded.
 - Nothing is sent when a condition clears; e-mail is not built.
 - Event text goes to a third party: keep secrets out of titles and bodies (already the rule above).
+
+## Host backup status
+
+Scheduled backups run outside the panel (for example a systemd timer), so they cannot raise
+events themselves. Set `DOCKWREN_BACKUP_STATUS` to a file your backup job rewrites after every
+run, one line, containing the word `FAIL` when it failed (`2026-11-14 03:30:20 backup OK`).
+`src/backupwatch.rs` reads it every 15 minutes and raises `backup.failed` when the line says
+`FAIL` or the file has not been touched for 36 hours. The next good run resolves it. Without the
+variable, or while the file does not exist, nothing happens.
