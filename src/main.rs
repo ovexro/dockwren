@@ -651,7 +651,7 @@ async fn main() {
                         println!("nothing new: every off-host snapshot is already here")
                     }
                     Ok(added) => println!(
-                        "{} snapshot(s) added; restore with: dockwren restore {name}",
+                        "{} snapshot(s) added; install the app if this server does not have it yet, then: dockwren restore {name}",
                         added.len()
                     ),
                     Err(e) => {
