@@ -13,6 +13,7 @@ mod public;
 mod release;
 mod runner;
 mod template;
+mod terminal;
 mod totp;
 mod update;
 
@@ -274,7 +275,10 @@ fn app(
     apps: apps::Apps,
     metrics: metrics::Shared,
     notify: notify::Shared,
+    terminal: bool,
 ) -> Router {
+    let terminal_routes =
+        terminal.then(|| terminal::router(auth.clone(), docker.clone(), notify.clone()));
     let protected = Router::new()
         .route("/", get(index))
         .route("/metrics", get(metrics::page))
@@ -341,7 +345,7 @@ fn app(
         .route("/static/htmx.min.js", get(htmx_js))
         .route("/logout", post(auth::logout))
         .route_layer(from_fn_with_state(auth.clone(), auth::require_session));
-    Router::new()
+    let router = Router::new()
         .route("/health", get(health))
         .route("/static/dockwren.css", get(stylesheet))
         .route("/favicon.svg", get(favicon))
@@ -354,7 +358,11 @@ fn app(
             apps,
             metrics,
             notify,
-        })
+        });
+    match terminal_routes {
+        Some(t) => router.merge(t),
+        None => router,
+    }
 }
 
 /// `dockwren install <app> [KEY=VALUE...]`: resolve, prepare, bring up.
@@ -755,9 +763,12 @@ async fn main() {
         disk_paths,
         cfg.data_dir.clone(),
     );
-    axum::serve(listener, app(auth, docker, apps, metrics, notify))
-        .await
-        .expect("server error");
+    axum::serve(
+        listener,
+        app(auth, docker, apps, metrics, notify, cfg.terminal),
+    )
+    .await
+    .expect("server error");
 }
 
 #[cfg(test)]
@@ -785,7 +796,96 @@ mod tests {
             apps,
             metrics::Shared::default(),
             Arc::new(std::sync::Mutex::new(notify::Store::memory())),
+            false,
         )
+    }
+
+    fn terminal_app() -> Router {
+        let hash = auth::hash_password(PASSWORD);
+        let docker = DockerClient::connect().unwrap();
+        let apps = apps::Apps::new(
+            template::catalog(None).unwrap(),
+            std::env::temp_dir().join("dockwren-test-none"),
+        );
+        app(
+            Arc::new(auth::Auth::new(&hash, false).unwrap()),
+            docker,
+            apps,
+            metrics::Shared::default(),
+            Arc::new(std::sync::Mutex::new(notify::Store::memory())),
+            true,
+        )
+    }
+
+    #[tokio::test]
+    async fn terminal_routes_exist_only_when_enabled() {
+        let ws = |app: Router, cookie: Option<&str>, origin: Option<&str>, uri: &str| {
+            let mut r = Request::get(uri).header(header::HOST, "panel.test");
+            if let Some(c) = cookie {
+                r = r.header(header::COOKIE, c);
+            }
+            if let Some(o) = origin {
+                r = r.header(header::ORIGIN, o);
+            }
+            app.oneshot(r.body(Body::empty()).unwrap())
+        };
+        let id = "0123456789ab";
+        let uri = format!("/containers/{id}/terminal/ws");
+        // Disabled: no such route.
+        let res = ws(test_app(), None, None, &uri).await.unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+        let app = terminal_app();
+        // Enabled, no session: 401.
+        let res = ws(app.clone(), None, None, &uri).await.unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+        // Bad or missing Origin: 403.
+        let res = ws(app.clone(), Some(&cookie), Some("https://evil.test"), &uri)
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let res = ws(app.clone(), Some(&cookie), None, &uri).await.unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        // Malformed id: 404.
+        let res = ws(
+            app.clone(),
+            Some(&cookie),
+            Some("http://panel.test"),
+            "/containers/zz/terminal/ws",
+        )
+        .await
+        .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        // Good origin but no re-auth grant yet: 403.
+        let res = ws(app.clone(), Some(&cookie), Some("http://panel.test"), &uri)
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn terminal_grant_needs_password_and_refuses_tunnel_without_2fa() {
+        let app = terminal_app();
+        let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+        let grant = |body: &str, tunnel: bool| {
+            let mut r = Request::post("/containers/0123456789ab/terminal/grant")
+                .header(header::HOST, "panel.test")
+                .header(header::ORIGIN, "http://panel.test")
+                .header(header::COOKIE, &cookie)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+            if tunnel {
+                r = r.header("cf-connecting-ip", "203.0.113.9");
+            }
+            app.clone()
+                .oneshot(r.body(Body::from(body.to_string())).unwrap())
+        };
+        let res = grant("password=wrong", false).await.unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        let res = grant(&format!("password={PASSWORD}"), true).await.unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN, "tunnel without 2FA");
+        let res = grant(&format!("password={PASSWORD}"), false).await.unwrap();
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
     }
 
     async fn body_of(res: Response<Body>) -> String {

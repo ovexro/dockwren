@@ -12,6 +12,8 @@ pub struct Config {
     pub secure_cookie: bool,
     /// Extra directories whose disks get a graph (`DOCKWREN_DISKS`, comma separated).
     pub disk_paths: Vec<String>,
+    /// Web terminal into managed containers (`DOCKWREN_TERMINAL=1`). Off by default.
+    pub terminal: bool,
 }
 
 impl Config {
@@ -36,6 +38,7 @@ impl Config {
                 .into(),
             bind: get("DOCKWREN_BIND").unwrap_or_else(|| "127.0.0.1:8080".into()),
             secure_cookie: get("DOCKWREN_SECURE_COOKIE").is_some_and(|v| v == "1"),
+            terminal: get("DOCKWREN_TERMINAL").is_some_and(|v| v == "1"),
             disk_paths: get("DOCKWREN_DISKS")
                 .map(|v| {
                     v.split(',')
@@ -59,6 +62,7 @@ mod tests {
         assert_eq!(c.data_dir, PathBuf::from("./data"));
         assert_eq!(c.bind, "127.0.0.1:8080");
         assert!(!c.secure_cookie);
+        assert!(!c.terminal);
     }
 
     #[test]
@@ -67,12 +71,14 @@ mod tests {
             "DOCKWREN_DATA" => Some("/srv/dw".into()),
             "DOCKWREN_BIND" => Some("0.0.0.0:9000".into()),
             "DOCKWREN_SECURE_COOKIE" => Some("1".into()),
+            "DOCKWREN_TERMINAL" => Some("1".into()),
             "DOCKWREN_DISKS" => Some("/mnt/backup, /srv ,".into()),
             _ => None,
         });
         assert_eq!(c.data_dir, PathBuf::from("/srv/dw"));
         assert_eq!(c.bind, "0.0.0.0:9000");
         assert!(c.secure_cookie);
+        assert!(c.terminal);
         assert_eq!(c.disk_paths, vec!["/mnt/backup", "/srv"]);
     }
 }

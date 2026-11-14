@@ -89,7 +89,7 @@ pub fn hash_password(password: &str) -> String {
         .to_string()
 }
 
-fn sha_hex(s: &str) -> String {
+pub(crate) fn sha_hex(s: &str) -> String {
     Sha256::digest(s.as_bytes())
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -305,6 +305,30 @@ impl Auth {
         }
     }
 
+    /// Valid session token in `headers`, if any.
+    pub fn session_of<'a>(&self, headers: &'a header::HeaderMap) -> Option<&'a str> {
+        session_token(headers).filter(|t| self.session_valid(t))
+    }
+
+    /// Password (and TOTP/recovery code when 2FA is on) check for sensitive actions,
+    /// sharing the login rate limit.
+    pub async fn reauth(self: &Arc<Self>, password: String, code: &str) -> bool {
+        if self.locked() {
+            return false;
+        }
+        let me = Arc::clone(self);
+        let ok = tokio::task::spawn_blocking(move || me.verify(&password))
+            .await
+            .unwrap_or(false);
+        if ok && self.second_factor_ok(code) {
+            self.record_success();
+            true
+        } else {
+            self.record_failure();
+            false
+        }
+    }
+
     fn cookie(&self, value: &str, max_age: u64) -> HeaderValue {
         let secure = if self.secure_cookie { "; Secure" } else { "" };
         HeaderValue::from_str(&format!(
@@ -328,7 +352,7 @@ fn load_sessions(path: &Path) -> HashMap<String, Session> {
         .collect()
 }
 
-fn session_token(req_headers: &header::HeaderMap) -> Option<&str> {
+pub(crate) fn session_token(req_headers: &header::HeaderMap) -> Option<&str> {
     req_headers
         .get_all(header::COOKIE)
         .iter()

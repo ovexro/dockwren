@@ -21,7 +21,12 @@ use std::sync::{Arc, Mutex};
 const LOG_FILE: &str = "notifications.log";
 const PREFS_FILE: &str = "notify-settings.json";
 /// Every kind a producer raises: (kind, label, what it does). Settings lists exactly these.
-pub const KINDS: [(&str, &str, &str); 5] = [
+pub const KINDS: [(&str, &str, &str); 6] = [
+    (
+        "terminal.opened",
+        "Web terminal opened",
+        "Someone opened a shell inside a container from the panel (only when the terminal is enabled).",
+    ),
     (
         "app.update_available",
         "App updates available",

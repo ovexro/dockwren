@@ -1,11 +1,11 @@
 //! Thin wrapper over the Docker Engine API (bollard). Only what the UI needs.
 
+use bollard::exec::StartExecResults;
 use bollard::{
     Docker,
     models::ContainerSummary,
     query_parameters::{ListContainersOptionsBuilder, LogsOptionsBuilder, StatsOptionsBuilder},
 };
-use bollard::exec::StartExecResults;
 use futures_util::StreamExt;
 use std::pin::Pin;
 use tokio::io::AsyncWrite;
@@ -123,6 +123,12 @@ impl DockerClient {
             .await
     }
 
+    /// Compose project of a container (`dockwren-<instance>` for panel-managed ones).
+    pub async fn compose_project(&self, id: &str) -> Option<String> {
+        let info = self.inner.inspect_container(id, None).await.ok()?;
+        info.config?.labels?.remove("com.docker.compose.project")
+    }
+
     /// Lists all containers, running or not, sorted by name.
     pub async fn containers(&self) -> Result<Vec<ContainerInfo>, bollard::errors::Error> {
         let options = ListContainersOptionsBuilder::default().all(true).build();
@@ -141,16 +147,21 @@ impl DockerClient {
 /// An attached interactive shell: bytes out of the tty, bytes into it.
 pub struct ShellSession {
     pub exec_id: String,
-    pub output: Pin<Box<dyn futures_util::Stream<Item = Result<Vec<u8>, bollard::errors::Error>> + Send>>,
+    pub output:
+        Pin<Box<dyn futures_util::Stream<Item = Result<Vec<u8>, bollard::errors::Error>> + Send>>,
     pub input: Pin<Box<dyn AsyncWrite + Send>>,
 }
 
 /// Command that starts bash when present and plain sh otherwise.
 pub fn shell_command() -> Vec<String> {
-    ["sh", "-c", "command -v bash >/dev/null 2>&1 && exec bash || exec sh"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
+    [
+        "sh",
+        "-c",
+        "command -v bash >/dev/null 2>&1 && exec bash || exec sh",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
 }
 
 /// Browser-supplied terminal sizes are untrusted: keep them in a sane range.
@@ -358,7 +369,16 @@ mod tests {
         };
         let name = "dockwren-term-test";
         let run = std::process::Command::new("docker")
-            .args(["run", "-d", "--rm", "--name", name, "postgres:17-alpine", "sleep", "60"])
+            .args([
+                "run",
+                "-d",
+                "--rm",
+                "--name",
+                name,
+                "postgres:17-alpine",
+                "sleep",
+                "60",
+            ])
             .output();
         let Ok(out) = run else { return };
         if !out.status.success() {
@@ -368,8 +388,14 @@ mod tests {
         let id = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let result = async {
             let mut sh = client.open_shell(&id).await.map_err(|e| e.to_string())?;
-            client.resize_shell(&sh.exec_id, 100, 30).await.map_err(|e| e.to_string())?;
-            sh.input.write_all(b"echo hi-$((1+2))\nexit\n").await.map_err(|e| e.to_string())?;
+            client
+                .resize_shell(&sh.exec_id, 100, 30)
+                .await
+                .map_err(|e| e.to_string())?;
+            sh.input
+                .write_all(b"echo hi-$((1+2))\nexit\n")
+                .await
+                .map_err(|e| e.to_string())?;
             let mut seen = Vec::new();
             let read = async {
                 while let Some(chunk) = sh.output.next().await {
@@ -383,7 +409,9 @@ mod tests {
             Ok::<String, String>(String::from_utf8_lossy(&seen).to_string())
         }
         .await;
-        let _ = std::process::Command::new("docker").args(["rm", "-f", name]).output();
+        let _ = std::process::Command::new("docker")
+            .args(["rm", "-f", name])
+            .output();
         let text = result.expect("shell session");
         assert!(text.contains("hi-3"), "output was: {text:?}");
     }

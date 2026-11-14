@@ -8,7 +8,7 @@ description = "Small self-hosted panel: one-click Docker Compose apps, snapshots
 [dependencies]
 argon2 = "0.6.0"
 askama = "0.16.1"
-axum = { version = "0.8.9", features = ["form"] }
+axum = { version = "0.8.9", features = ["form", "ws"] }
 bollard = "0.21.1"
 futures-util = "0.3.34"
 qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
