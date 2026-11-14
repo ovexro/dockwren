@@ -2,6 +2,7 @@
   <p class="muted ranges">
     {% for r in ranges %}{% if r.0 == range %}<strong>{{ r.1 }}</strong>{% else %}<a href="#" hx-get="/metrics?range={{ r.0 }}" hx-target="#metrics" hx-swap="outerHTML transition:true">{{ r.1 }}</a>{% endif %} {% endfor %}
     · 7 and 30 days use 5-minute averages</p>
+  <p class="muted"><small>Live graphs of this server, refreshed every 10 seconds. A disk chart marked <em>almost full</em> needs attention soon.</small></p>
   {% if !ready %}
   <p class="muted">Collecting the first samples…</p>
   {% else %}

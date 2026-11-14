@@ -3,6 +3,7 @@
 {% else if containers.is_empty() %}
 <p>No containers yet.</p>
 {% else %}
+<p class="muted"><small>Every Docker container on this server, including those Dockwren did not install. Click a row for actions and graphs.</small></p>
 <div class="clist">
   {% for c in containers %}
   <details class="crow" data-state="{{ c.state }}">

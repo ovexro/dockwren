@@ -1,5 +1,6 @@
 <div id="restore">
   <h3>Restore {{ instance }}</h3>
+  <p><small>Pick a snapshot to go back to. Dockwren first takes a safety snapshot of the current state and keeps the current data aside instead of deleting it, so a restore can itself be undone.</small></p>
   {% if snapshots.is_empty() %}
   <p>No snapshots yet.</p>
   {% else %}
@@ -12,7 +13,7 @@
   </form>
   {% endif %}
   {% if leftovers > 0 %}
-  <p>{{ leftovers }} old copy folder(s) from earlier restores take up disk space.</p>
+  <p>{{ leftovers }} old copy folder(s) from earlier restores take up disk space.<br><small>Delete them once you are sure the restored app is fine. Snapshots are not touched.</small></p>
   <button hx-post="/instances/{{ instance }}/cleanup" hx-target="#install" hx-swap="innerHTML"
           hx-confirm="Permanently delete the old copies kept aside by earlier restores of {{ instance }}? Snapshots are not touched.">Delete old copies</button>
   {% endif %}
