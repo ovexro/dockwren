@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 const LOG_FILE: &str = "notifications.log";
 const PREFS_FILE: &str = "notify-settings.json";
 /// Every kind a producer raises: (kind, label, what it does). Settings lists exactly these.
-pub const KINDS: [(&str, &str, &str); 3] = [
+pub const KINDS: [(&str, &str, &str); 4] = [
     (
         "app.update_available",
         "App updates available",
@@ -36,6 +36,11 @@ pub const KINDS: [(&str, &str, &str); 3] = [
         "dockwren.update_available",
         "New Dockwren release",
         "Checks GitHub for a newer release every 6 hours (one anonymous request, nothing about you is sent).",
+    ),
+    (
+        "host.os_updates",
+        "OS updates and reboot needed",
+        "Every 6 hours, checks whether this server has pending package updates or needs a reboot. It only looks; it never installs anything.",
     ),
 ];
 /// Resolved or dismissed events kept after compaction.

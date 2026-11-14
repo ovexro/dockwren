@@ -3,6 +3,7 @@ mod auth;
 mod backup;
 mod config;
 mod docker;
+mod hostupdates;
 mod install;
 mod metrics;
 mod notify;
@@ -721,6 +722,7 @@ async fn main() {
     let apps = apps::Apps::new(templates, cfg.instances_dir()).with_notify(notify.clone());
     apps.spawn_update_checker();
     release::spawn_checker(notify.clone());
+    hostupdates::spawn_checker(notify.clone());
     let metrics = metrics::Shared::default();
     let mut disk_paths = vec![cfg.data_dir.display().to_string()];
     disk_paths.extend(cfg.disk_paths.iter().cloned());
