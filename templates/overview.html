@@ -1,5 +1,11 @@
 <div id="overview" hx-get="/overview" hx-trigger="every 10s" hx-swap="outerHTML">
   {% if let Some(e) = docker_error %}<p role="alert">{{ e }}</p>{% endif %}
+  {% if !alerts.is_empty() %}
+  <ul class="alerts" aria-label="Needs attention">
+    {% for a in alerts %}<li data-severity="{{ a.severity }}"><b>{{ a.label }}</b> {% if let Some(l) = a.link %}<a href="{{ l }}">{{ a.title }}</a>{% else %}{{ a.title }}{% endif %}</li>{% endfor %}
+    <li class="muted"><a href="/notifications">All notifications</a></li>
+  </ul>
+  {% endif %}
   {% if !warnings.is_empty() %}
   <ul class="warnings" role="alert">
     {% for w in warnings %}<li>{{ w }}</li>{% endfor %}

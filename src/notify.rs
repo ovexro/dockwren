@@ -7,9 +7,14 @@
 //!
 //! Callers must never put secrets in `title`, `body` or `link`; text is only length-capped.
 
-// Step 1 of the notification system: the UI and the producers that use this follow.
+// The producers that call raise/resolve arrive in the next steps.
 #![allow(dead_code)]
 
+use askama::Template;
+use axum::{
+    extract::{Path as UrlPath, State as AxState},
+    response::Html,
+};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
@@ -388,6 +393,142 @@ pub fn resolve(shared: &Shared, key: &str) -> usize {
     shared.lock().unwrap().resolve(key)
 }
 
+// ---- web UI ----
+
+impl Severity {
+    pub fn label(self) -> &'static str {
+        match self {
+            Severity::Info => "Info",
+            Severity::Warning => "Warning",
+            Severity::Critical => "Critical",
+        }
+    }
+    fn slug(self) -> &'static str {
+        match self {
+            Severity::Info => "info",
+            Severity::Warning => "warning",
+            Severity::Critical => "critical",
+        }
+    }
+}
+
+/// "just now", "5 min ago", "3 h ago", "2 d ago".
+fn age(now: u64, ts: u64) -> String {
+    let d = now.saturating_sub(ts);
+    match d {
+        0..=59 => "just now".into(),
+        60..=3599 => format!("{} min ago", d / 60),
+        3600..=86399 => format!("{} h ago", d / 3600),
+        _ => format!("{} d ago", d / 86400),
+    }
+}
+
+pub struct Row {
+    pub id: u64,
+    pub severity: &'static str,
+    pub label: &'static str,
+    pub title: String,
+    pub body: Option<String>,
+    pub link: Option<String>,
+    pub source: String,
+    pub age: String,
+}
+
+fn row(e: &Event, now: u64) -> Row {
+    Row {
+        id: e.id,
+        severity: e.severity.slug(),
+        label: e.severity.label(),
+        title: e.title.clone(),
+        body: e.body.clone(),
+        link: e.link.clone(),
+        source: e.source.clone(),
+        age: age(now, e.ts),
+    }
+}
+
+#[derive(Template)]
+#[template(path = "notifications.html")]
+struct ListTemplate {
+    open: Vec<Row>,
+    closed: Vec<Row>,
+}
+
+fn render_list(s: &Store) -> Html<String> {
+    let now = now_unix();
+    let page = ListTemplate {
+        open: s.open_events().iter().map(|e| row(e, now)).collect(),
+        closed: s
+            .closed_events()
+            .iter()
+            .take(20)
+            .map(|e| row(e, now))
+            .collect(),
+    };
+    Html(page.render().expect("notifications template renders"))
+}
+
+/// The list the Notifications page shows; opening it marks the events as seen.
+pub async fn list(AxState(shared): AxState<Shared>) -> Html<String> {
+    let mut s = shared.lock().unwrap();
+    s.mark_seen();
+    render_list(&s)
+}
+
+pub async fn dismiss_one(
+    AxState(shared): AxState<Shared>,
+    UrlPath(id): UrlPath<u64>,
+) -> Html<String> {
+    let mut s = shared.lock().unwrap();
+    s.dismiss(id);
+    render_list(&s)
+}
+
+pub async fn dismiss_everything(AxState(shared): AxState<Shared>) -> Html<String> {
+    let mut s = shared.lock().unwrap();
+    s.dismiss_all();
+    render_list(&s)
+}
+
+/// The bell badge in the sidebar: empty when nothing is unread.
+pub async fn count(AxState(shared): AxState<Shared>) -> Html<String> {
+    let n = shared.lock().unwrap().unread();
+    Html(count_html(n))
+}
+
+fn count_html(n: usize) -> String {
+    let inner = if n == 0 {
+        String::new()
+    } else {
+        format!("<b class=\"count\" title=\"{n} unread\">{n}<span class=\"sr\"> unread</span></b>")
+    };
+    format!(
+        "<span id=\"bell\" hx-get=\"/notifications/count\" hx-trigger=\"every 30s\" hx-swap=\"outerHTML\">{inner}</span>"
+    )
+}
+
+/// An open warning or critical event, for the strip on Overview.
+pub struct Alert {
+    pub severity: &'static str,
+    pub label: &'static str,
+    pub title: String,
+    pub link: Option<String>,
+}
+
+pub fn alerts(s: &Store) -> Vec<Alert> {
+    s.open_events()
+        .into_iter()
+        .filter(|e| e.severity >= Severity::Warning)
+        .take(5)
+        .map(|e| Alert {
+            severity: e.severity.slug(),
+            label: e.severity.label(),
+            title: e.title.clone(),
+            link: e.link.clone(),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -603,6 +744,33 @@ mod tests {
         let s = Store::from_log(&(line("new") + &line("resolved")), 6);
         assert!(s.open_events().is_empty());
         assert_eq!(s.closed_events().len(), 1);
+    }
+
+    #[test]
+    fn age_text() {
+        assert_eq!(age(100, 100), "just now");
+        assert_eq!(age(100, 200), "just now");
+        assert_eq!(age(1000, 700), "5 min ago");
+        assert_eq!(age(20000, 0), "5 h ago");
+        assert_eq!(age(200000, 0), "2 d ago");
+    }
+
+    #[test]
+    fn alerts_only_warning_and_up_and_html_is_escaped() {
+        let mut s = Store::memory();
+        s.raise(ev("i", Severity::Info));
+        s.raise(NewEvent::new("a", "k", Severity::Critical, "<script>x</script>").key("c"));
+        let a = alerts(&s);
+        assert_eq!(a.len(), 1);
+        let sh: Shared = Arc::new(Mutex::new(s));
+        let html = render_list(&sh.lock().unwrap()).0;
+        assert!(!html.contains("<script>x"), "{html}");
+        assert!(
+            html.contains("&lt;script&gt;") || html.contains("&#60;script&#62;"),
+            "{html}"
+        );
+        assert!(!count_html(0).contains("class=\"count\""));
+        assert!(count_html(3).contains(">3<"));
     }
 
     #[test]

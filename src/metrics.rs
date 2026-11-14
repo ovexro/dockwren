@@ -841,6 +841,7 @@ pub struct OverviewTemplate {
     pub total: usize,
     pub warnings: Vec<String>,
     pub docker_error: Option<String>,
+    pub alerts: Vec<crate::notify::Alert>,
 }
 
 pub fn overview(
@@ -875,6 +876,7 @@ pub fn overview(
         total,
         warnings,
         docker_error,
+        alerts: Vec::new(),
     }
 }
 

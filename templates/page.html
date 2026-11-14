@@ -12,7 +12,7 @@
   <nav class="side" aria-label="Main">
     <a class="brand" href="/"><img src="/favicon.svg" alt="" width="28" height="28">Dockwren</a>
     <ul>
-      {% for n in nav %}<li><a href="{{ n.0 }}"{% if n.1 == active %} aria-current="page"{% endif %}>{{ n.2 }}</a></li>
+      {% for n in nav %}<li><a href="{{ n.0 }}"{% if n.1 == active %} aria-current="page"{% endif %}>{{ n.2 }}</a>{% if n.1 == "notifications" %}<span id="bell" hx-get="/notifications/count" hx-trigger="load, every 30s" hx-swap="outerHTML"></span>{% endif %}</li>
       {% endfor %}
     </ul>
   </nav>
@@ -29,6 +29,8 @@
     {% else if active == "containers" %}
     <div id="containers" hx-get="/containers/list" hx-trigger="load, every 5s [!document.querySelector('#containers details[open]')]" hx-swap="innerHTML">Loading…</div>
     <section id="logs"></section>
+    {% else if active == "notifications" %}
+    <div id="notifications" hx-get="/notifications/list" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     {% else if active == "cloudflare" %}
     <div id="cloudflare" hx-get="/settings/cloudflare" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     {% else if active == "resources" %}

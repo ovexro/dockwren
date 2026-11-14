@@ -31,6 +31,13 @@ struct AppState {
     docker: DockerClient,
     apps: apps::Apps,
     metrics: metrics::Shared,
+    notify: notify::Shared,
+}
+
+impl FromRef<AppState> for notify::Shared {
+    fn from_ref(state: &AppState) -> Self {
+        state.notify.clone()
+    }
 }
 
 impl FromRef<AppState> for metrics::Shared {
@@ -192,11 +199,12 @@ struct PageTemplate {
 }
 
 /// (href, key, label) of the sidebar entries.
-const NAV: [(&str, &str, &str); 6] = [
+const NAV: [(&str, &str, &str); 7] = [
     ("/", "overview", "Overview"),
     ("/apps", "apps", "Apps"),
     ("/containers", "containers", "Containers"),
     ("/resources", "resources", "Resources"),
+    ("/notifications", "notifications", "Notifications"),
     ("/cloudflare", "cloudflare", "Cloudflare"),
     ("/settings", "settings", "Settings"),
 ];
@@ -229,6 +237,7 @@ async fn overview(State(state): State<AppState>) -> Html<String> {
         rows.as_ref().map(|v| v.as_slice()).map_err(|e| e.clone()),
     );
     page.apps = apps::instance_count(&state.apps);
+    page.alerts = notify::alerts(&state.notify.lock().unwrap());
     Html(page.render().expect("overview template renders"))
 }
 
@@ -247,6 +256,9 @@ async fn resources_page() -> Html<String> {
 async fn cloudflare_page() -> Html<String> {
     page("cloudflare")
 }
+async fn notifications_page() -> Html<String> {
+    page("notifications")
+}
 async fn settings_page() -> Html<String> {
     page("settings")
 }
@@ -256,6 +268,7 @@ fn app(
     docker: DockerClient,
     apps: apps::Apps,
     metrics: metrics::Shared,
+    notify: notify::Shared,
 ) -> Router {
     let protected = Router::new()
         .route("/", get(index))
@@ -265,6 +278,14 @@ fn app(
         .route("/resources", get(resources_page))
         .route("/settings", get(settings_page))
         .route("/cloudflare", get(cloudflare_page))
+        .route("/notifications", get(notifications_page))
+        .route("/notifications/list", get(notify::list))
+        .route("/notifications/count", get(notify::count))
+        .route(
+            "/notifications/dismiss-all",
+            post(notify::dismiss_everything),
+        )
+        .route("/notifications/{id}/dismiss", post(notify::dismiss_one))
         .route("/overview", get(overview))
         .route("/containers/list", get(containers))
         .route("/containers/{id}/{action}", post(container_action))
@@ -318,6 +339,7 @@ fn app(
             docker,
             apps,
             metrics,
+            notify,
         })
 }
 
@@ -702,7 +724,8 @@ async fn main() {
         disk_paths,
         cfg.data_dir.clone(),
     );
-    axum::serve(listener, app(auth, docker, apps, metrics))
+    let notify = notify::shared(&cfg.data_dir);
+    axum::serve(listener, app(auth, docker, apps, metrics, notify))
         .await
         .expect("server error");
 }
@@ -731,6 +754,7 @@ mod tests {
             docker,
             apps,
             metrics::Shared::default(),
+            Arc::new(std::sync::Mutex::new(notify::Store::memory())),
         )
     }
 
@@ -1132,6 +1156,11 @@ mod tests {
             ("GET", "/instances/gt/public"),
             ("POST", "/instances/gt/public"),
             ("POST", "/instances/gt/public/publish"),
+            ("GET", "/notifications"),
+            ("GET", "/notifications/list"),
+            ("GET", "/notifications/count"),
+            ("POST", "/notifications/dismiss-all"),
+            ("POST", "/notifications/1/dismiss"),
             ("GET", "/cloudflare"),
             ("GET", "/settings/cloudflare"),
             ("POST", "/settings/cloudflare/connect"),

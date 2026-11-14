@@ -1,0 +1,31 @@
+<div id="notifications" hx-get="/notifications/list" hx-trigger="every 15s" hx-swap="outerHTML">
+  <p><small>Things that need your attention: updates, failed backups and other warnings. They close by themselves when the problem is fixed.</small></p>
+  {% if open.is_empty() %}
+  <p class="muted">Nothing needs your attention.</p>
+  {% else %}
+  <p><button hx-post="/notifications/dismiss-all" hx-target="#notifications" hx-swap="outerHTML">Dismiss all</button></p>
+  <ul class="events">
+    {% for e in open %}
+    <li class="event" data-severity="{{ e.severity }}">
+      <div>
+        <b class="sev">{{ e.label }}</b>
+        {% if let Some(l) = e.link %}<a href="{{ l }}">{{ e.title }}</a>{% else %}<strong>{{ e.title }}</strong>{% endif %}
+        {% if let Some(b) = e.body %}<p class="muted">{{ b }}</p>{% endif %}
+        <small class="muted">{{ e.source }} · {{ e.age }}</small>
+      </div>
+      <button hx-post="/notifications/{{ e.id }}/dismiss" hx-target="#notifications" hx-swap="outerHTML" aria-label="Dismiss: {{ e.title }}">Dismiss</button>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if !closed.is_empty() %}
+  <details>
+    <summary>Recently closed ({{ closed.len() }})</summary>
+    <ul class="events closed">
+      {% for e in closed %}
+      <li class="event" data-severity="{{ e.severity }}"><div><b class="sev">{{ e.label }}</b> {{ e.title }} <small class="muted">· {{ e.age }}</small></div></li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+</div>
