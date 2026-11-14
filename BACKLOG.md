@@ -9,7 +9,6 @@ Open items only, one line each, with the date it was last verified open. Deliver
 - Terminal: the 3-session limit is untested on real connections. Verified open 2026-11-14.
 - One-step install + publish: the auto-publish branch is not verified live; needs a scoped Cloudflare token (only the Global API Key exists). Verified open 2026-11-14.
 - Backups: `backup.failed` recovery ("Resolved") is only unit-tested on the live status file path. Verified open 2026-11-14.
-- Restore: a bare `restore` (skips safety snapshots) is unit-tested but not re-run on a VPS. Verified open 2026-11-14.
 
 ## Decisions (do not re-propose)
 - Name stays "Dockwren" (user, 2026-11-13), despite the pending USPTO "DOCKWARE" filing.
