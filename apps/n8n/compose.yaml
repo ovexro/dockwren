@@ -1,0 +1,18 @@
+services:
+  n8n:
+    image: n8nio/n8n:3.2.2
+    restart: unless-stopped
+    user: "0:0"
+    environment:
+      N8N_ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      N8N_EDITOR_BASE_URL: ${PUBLIC_URL}
+      WEBHOOK_URL: ${PUBLIC_URL}/
+      N8N_PROXY_HOPS: "1"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      GENERIC_TIMEZONE: ${TIME_ZONE}
+      TZ: ${TIME_ZONE}
+    volumes:
+      - ./data:/home/node/.n8n
+    ports:
+      - "127.0.0.1:${WEB_PORT}:5678"

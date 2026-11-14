@@ -1,0 +1,66 @@
+[app]
+id = "grafana"
+name = "Grafana"
+description = "Dashboards and charts for metrics, logs and databases"
+homepage = "https://grafana.com/"
+version = 1
+note = "Dashboards for your data. Sign in with the admin user and the password shown once after the install, then add a data source."
+public_url_field = "PUBLIC_URL"
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "grafana"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers. It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "PUBLIC_URL"
+label = "Public URL"
+type = "string"
+default = "http://127.0.0.1:${WEB_PORT}"
+pattern = "^https?://[^/\\s]+$"
+help = "The full web address of the app, for example https://grafana.example.com, with nothing after the domain. Normally filled in for you from Public hostname."
+
+[[fields]]
+key = "TIME_ZONE"
+label = "Time zone"
+type = "string"
+default = "UTC"
+pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
+help = "Your region, so dates and times are right. For example Europe/Bucharest."
+
+[[fields]]
+key = "ADMIN_USER"
+label = "Admin user"
+type = "string"
+default = "admin"
+pattern = "^[a-z][a-z0-9_-]{2,30}$"
+help = "The username you will sign in with. Dockwren creates a strong password for you and shows it once after the install, so copy it then."
+
+[[secrets]]
+key = "ADMIN_PASSWORD"
+kind = "password"
+length = 20
+reveal = true
+
+[[services]]
+name = "grafana"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/api/health"], interval = "15s", start_period = "30s" }
+
+[backup]
+paths = ["data"]
+
+[update]
+image_pins = ["grafana/grafana"]
+pre_update = ["backup"]

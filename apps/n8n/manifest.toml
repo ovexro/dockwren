@@ -1,0 +1,57 @@
+[app]
+id = "n8n"
+name = "n8n"
+description = "Workflow automation: connect apps and APIs with a visual editor"
+homepage = "https://n8n.io/"
+version = 1
+note = "Automations between your apps. Create the owner account on first visit. Keep the Public URL correct: webhooks use it."
+public_url_field = "PUBLIC_URL"
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "n8n"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers. It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "PUBLIC_URL"
+label = "Public URL"
+type = "string"
+default = "http://127.0.0.1:${WEB_PORT}"
+pattern = "^https?://[^/\\s]+$"
+help = "The full web address of the app, for example https://n8n.example.com, with nothing after the domain. Normally filled in for you from Public hostname."
+
+[[fields]]
+key = "TIME_ZONE"
+label = "Time zone"
+type = "string"
+default = "UTC"
+pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
+help = "Your region, so dates and times are right. For example Europe/Bucharest."
+
+[[secrets]]
+key = "ENCRYPTION_KEY"
+kind = "hex"
+length = 48
+
+[[services]]
+name = "n8n"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "wget -q --spider http://127.0.0.1:5678/healthz"], interval = "15s", start_period = "30s" }
+
+[backup]
+paths = ["data"]
+
+[update]
+image_pins = ["n8nio/n8n"]
+pre_update = ["backup"]

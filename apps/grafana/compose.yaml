@@ -1,0 +1,17 @@
+services:
+  grafana:
+    image: grafana/grafana:13.2.6
+    restart: unless-stopped
+    user: "0:0"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: ${PUBLIC_URL}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      TZ: ${TIME_ZONE}
+    volumes:
+      - ./data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${WEB_PORT}:3000"
