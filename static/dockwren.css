@@ -196,3 +196,10 @@ ul.events, ul.alerts { list-style: none; padding: 0; margin: .75rem 0; display: 
 .side li { position: relative; }
 .side #bell { position: absolute; right: .75rem; top: 50%; transform: translateY(-50%); pointer-events: none; }
 .side #bell .count { margin-left: 0; }
+
+/* Settings: one switch per notification kind */
+ul.kinds { list-style: none; padding: 0; margin: .75rem 0; }
+ul.kinds li { display: block; }
+ul.kinds label { font-weight: 600; }
+ul.kinds input[type=checkbox] { display: inline-block; width: auto; margin: 0 .5rem 0 0; vertical-align: middle; }
+ul.kinds small { display: block; margin: .25rem 0 0 1.6rem; }

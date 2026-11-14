@@ -7,6 +7,7 @@ mod install;
 mod metrics;
 mod notify;
 mod public;
+mod release;
 mod runner;
 mod template;
 mod update;
@@ -309,6 +310,8 @@ fn app(
             "/instances/{name}/public/publish",
             post(apps::public_publish),
         )
+        .route("/settings/notifications", get(notify::kinds_show))
+        .route("/settings/notifications/{kind}", post(notify::kind_set))
         .route("/settings/cloudflare", get(apps::cloudflare_show))
         .route(
             "/settings/cloudflare/connect",
@@ -717,6 +720,7 @@ async fn main() {
     let notify = notify::shared(&cfg.data_dir);
     let apps = apps::Apps::new(templates, cfg.instances_dir()).with_notify(notify.clone());
     apps.spawn_update_checker();
+    release::spawn_checker(notify.clone());
     let metrics = metrics::Shared::default();
     let mut disk_paths = vec![cfg.data_dir.display().to_string()];
     disk_paths.extend(cfg.disk_paths.iter().cloned());

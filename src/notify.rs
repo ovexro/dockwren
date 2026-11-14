@@ -19,6 +19,25 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 const LOG_FILE: &str = "notifications.log";
+const PREFS_FILE: &str = "notify-settings.json";
+/// Every kind a producer raises: (kind, label, what it does). Settings lists exactly these.
+pub const KINDS: [(&str, &str, &str); 3] = [
+    (
+        "app.update_available",
+        "App updates available",
+        "A newer version of an installed app's template is bundled with this panel.",
+    ),
+    (
+        "job.failed",
+        "Failed installs, updates and restores",
+        "An install, update or restore finished with an error.",
+    ),
+    (
+        "dockwren.update_available",
+        "New Dockwren release",
+        "Checks GitHub for a newer release every 6 hours (one anonymous request, nothing about you is sent).",
+    ),
+];
 /// Resolved or dismissed events kept after compaction.
 const KEEP_CLOSED: usize = 200;
 /// Closed events older than this are dropped on compaction (90 days).
@@ -106,6 +125,9 @@ pub struct Store {
     events: Vec<Event>,
     next_id: u64,
     path: Option<PathBuf>,
+    /// Kinds the admin switched off in Settings: `raise` drops them.
+    muted: Vec<String>,
+    prefs_path: Option<PathBuf>,
 }
 
 pub type Shared = Arc<Mutex<Store>>;
@@ -145,8 +167,36 @@ impl Store {
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         let mut s = Store::from_log(&text, now);
         s.path = Some(path);
+        let prefs = data_dir.join(PREFS_FILE);
+        s.muted = std::fs::read_to_string(&prefs)
+            .ok()
+            .and_then(|t| serde_json::from_str::<Vec<String>>(&t).ok())
+            .unwrap_or_default();
+        s.prefs_path = Some(prefs);
         s.rewrite();
         s
+    }
+
+    pub fn is_enabled(&self, kind: &str) -> bool {
+        !self.muted.iter().any(|k| k == kind)
+    }
+
+    /// Switch one known kind on or off and remember it across restarts.
+    pub fn set_enabled(&mut self, kind: &str, on: bool) {
+        if !KINDS.iter().any(|k| k.0 == kind) {
+            return;
+        }
+        let mut muted: Vec<String> = self.muted.iter().filter(|k| *k != kind).cloned().collect();
+        if !on {
+            muted.push(kind.to_string());
+        }
+        self.set_muted(muted);
+        if let Some(p) = &self.prefs_path
+            && let Ok(mut f) = Self::open_file(p, true)
+            && let Ok(t) = serde_json::to_string(&self.muted)
+        {
+            let _ = f.write_all(t.as_bytes());
+        }
     }
 
     /// Replay a log: the last line per id wins, bad lines are skipped, then retention applies.
@@ -166,6 +216,8 @@ impl Store {
             events,
             next_id,
             path: None,
+            muted: Vec::new(),
+            prefs_path: None,
         };
         s.retain(now);
         s
@@ -239,7 +291,24 @@ impl Store {
         self.raise_at(n, now_unix())
     }
 
+    /// Switch kinds off: open events of those kinds are closed and new ones are ignored.
+    pub fn set_muted(&mut self, kinds: Vec<String>) {
+        let open: Vec<String> = self
+            .events
+            .iter()
+            .filter(|e| e.state != State::Resolved && kinds.contains(&e.kind))
+            .map(|e| e.key.clone())
+            .collect();
+        self.muted = kinds;
+        for k in open {
+            self.resolve(&k);
+        }
+    }
+
     fn raise_at(&mut self, n: NewEvent, now: u64) -> (u64, bool) {
+        if self.muted.contains(&n.kind) {
+            return (0, false);
+        }
         let key = clean(n.key.as_deref().unwrap_or(&n.kind), MAX_LINK, false);
         let title = clean(&n.title, MAX_TITLE, false);
         let body = n.body.as_deref().map(|b| clean(b, MAX_BODY, true));
@@ -513,6 +582,56 @@ fn count_html(n: usize) -> String {
     )
 }
 
+pub struct KindRow {
+    pub kind: &'static str,
+    pub label: &'static str,
+    pub help: &'static str,
+    pub on: bool,
+}
+
+#[derive(Template)]
+#[template(path = "notify_settings.html")]
+struct KindsTemplate {
+    kinds: Vec<KindRow>,
+}
+
+fn render_kinds(s: &Store) -> Html<String> {
+    let kinds = KINDS
+        .iter()
+        .map(|k| KindRow {
+            kind: k.0,
+            label: k.1,
+            help: k.2,
+            on: s.is_enabled(k.0),
+        })
+        .collect();
+    Html(
+        KindsTemplate { kinds }
+            .render()
+            .expect("notify settings render"),
+    )
+}
+
+/// Settings: one switch per kind of notification.
+pub async fn kinds_show(AxState(shared): AxState<Shared>) -> Html<String> {
+    render_kinds(&shared.lock().unwrap())
+}
+
+#[derive(Deserialize)]
+pub struct KindForm {
+    on: Option<String>,
+}
+
+pub async fn kind_set(
+    AxState(shared): AxState<Shared>,
+    UrlPath(kind): UrlPath<String>,
+    axum::Form(f): axum::Form<KindForm>,
+) -> Html<String> {
+    let mut s = shared.lock().unwrap();
+    s.set_enabled(&kind, f.on.is_some());
+    render_kinds(&s)
+}
+
 /// An open warning or critical event, for the strip on Overview.
 pub struct Alert {
     pub severity: &'static str,
@@ -548,6 +667,37 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn muted_kind_is_dropped_and_open_ones_close() {
+        let mut s = Store::memory();
+        s.raise_at(ev("k:a", Severity::Info), 100);
+        assert_eq!(s.open_events().len(), 1);
+        s.set_muted(vec!["app.update_available".into()]);
+        assert!(s.open_events().is_empty());
+        assert_eq!(s.raise_at(ev("k:b", Severity::Info), 200), (0, false));
+        assert!(s.open_events().is_empty());
+        s.set_muted(Vec::new());
+        s.raise_at(ev("k:b", Severity::Info), 300);
+        assert_eq!(s.open_events().len(), 1);
+    }
+
+    #[test]
+    fn switches_persist_and_unknown_kinds_are_ignored() {
+        let d = tmpdir("prefs");
+        let mut s = Store::open(&d);
+        assert!(s.is_enabled("job.failed"));
+        s.set_enabled("job.failed", false);
+        s.set_enabled("nonsense", false);
+        assert!(!s.is_enabled("job.failed"));
+        assert!(s.is_enabled("nonsense"));
+        let s2 = Store::open(&d);
+        assert!(!s2.is_enabled("job.failed"));
+        assert!(s2.is_enabled("app.update_available"));
+        let mut s3 = s2;
+        s3.set_enabled("job.failed", true);
+        assert!(Store::open(&d).is_enabled("job.failed"));
     }
 
     #[test]
