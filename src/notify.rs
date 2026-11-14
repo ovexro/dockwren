@@ -7,7 +7,6 @@
 //!
 //! Callers must never put secrets in `title`, `body` or `link`; text is only length-capped.
 
-
 use askama::Template;
 use axum::{
     extract::{Path as UrlPath, State as AxState},
