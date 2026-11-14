@@ -208,3 +208,12 @@ ul.kinds small { display: block; margin: .25rem 0 0 1.6rem; }
 .qr { background: #fff; display: inline-block; padding: .25rem; border-radius: 8px; line-height: 0; }
 .qr svg { width: 200px; height: 200px; }
 pre.codes { padding: .75rem 1rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); user-select: all; }
+
+/* A button straight after a field gets room (setup/disable forms, install forms) */
+form > label:has(+ button) { padding-bottom: .75rem; }
+
+/* Step-by-step help inside <details> is prose, not a row of cards */
+main details ol { list-style: decimal; padding-left: 1.4rem; margin: .5rem 0; }
+main details ul { list-style: disc; padding-left: 1.25rem; margin: .35rem 0; }
+main details li { display: list-item; padding: .2rem 0; margin: 0; border: 0; background: none; }
+main details { margin-top: 1.25rem; }
