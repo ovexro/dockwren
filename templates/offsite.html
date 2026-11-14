@@ -1,0 +1,39 @@
+<div id="offsite">
+  {% if let Some(e) = error %}<p role="alert">{{ e }}</p>{% endif %}
+  {% if let Some(n) = note %}<p role="status">{{ n }}</p>{% endif %}
+  {% if let Some(p) = new_password %}
+  <div role="alert">
+    <p><strong>Repository password (shown once):</strong> <code>{{ p }}</code></p>
+    <p>Save it in your password manager now. It encrypts the off-host copies, and without it they cannot be read, by anyone, ever. Dockwren cannot show it again.</p>
+  </div>
+  {% endif %}
+  <p>After every backup, a copy is uploaded to a place off this server, encrypted with restic, so your backups survive losing this disk. The newest snapshots (the "keep" number above) stay there.{% if kind != "off" %} Target: <code>{{ describe }}</code>.{% endif %}{% if let Some(l) = last %} Last upload: {{ l }}.{% endif %}</p>
+  <form hx-post="/settings/offsite" hx-target="#offsite" hx-swap="outerHTML" autocomplete="off">
+    <label>Where
+      <select name="kind">
+        <option value="off"{% if kind == "off" %} selected{% endif %}>Off</option>
+        <option value="sftp"{% if kind == "sftp" %} selected{% endif %}>SFTP (another server over SSH)</option>
+        <option value="s3"{% if kind == "s3" %} selected{% endif %}>S3-compatible (AWS, Backblaze B2, Wasabi, MinIO...)</option>
+      </select>
+    </label>
+    <fieldset class="target sftp">
+      <legend>SFTP</legend>
+      <label>Host <input name="host" value="{{ host }}"></label>
+      <label>Port <input name="port" type="number" min="1" max="65535" value="{{ port }}"></label>
+      <label>User <input name="user" value="{{ user }}"></label>
+      <label>Folder on that server <input name="path" value="{{ path }}" placeholder="/srv/dockwren"></label>
+      <label>SSH private key <textarea name="private_key" rows="5" placeholder="{% if has_secrets && kind == "sftp" %}saved; paste a new one to replace it{% else %}-----BEGIN OPENSSH PRIVATE KEY-----{% endif %}"></textarea></label>
+      <p><small>Use a key made only for this. The server's host key is trusted on first use and pinned afterwards.</small></p>
+    </fieldset>
+    <fieldset class="target s3">
+      <legend>S3-compatible</legend>
+      <label>Endpoint URL <input name="endpoint" value="{{ endpoint }}" placeholder="https://s3.example.com"></label>
+      <label>Bucket <input name="bucket" value="{{ bucket }}"></label>
+      <label>Access key <input name="access_key" placeholder="{% if has_secrets && kind == "s3" %}saved{% endif %}"></label>
+      <label>Secret key <input name="secret_key" type="password" placeholder="{% if has_secrets && kind == "s3" %}saved{% endif %}"></label>
+    </fieldset>
+    <label>Repository password <input name="password" type="password" placeholder="{% if has_secrets %}saved{% else %}leave empty to generate one{% endif %}"></label>
+    <p><small>Leave it empty to generate one (shown once). Type your existing one to connect to a repository you already have.</small></p>
+    <button type="submit" class="primary">Test and save</button>
+  </form>
+</div>

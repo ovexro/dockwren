@@ -6,7 +6,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 ## Open
 - OS updates: not tested on aarch64 Ubuntu (x86_64 Ubuntu 22.04/24.04/26.04, Debian 13 x86_64 and Debian 13 aarch64 on the Pi pass, 2026-11-14). Verified open 2026-11-14.
 - OS updates: real-packages run seen on a fresh Ubuntu 24.04 VPS (38 pkgs, exit 0, reboot notice) but not yet on the live server (nothing to install there). Verified open 2026-11-14.
-- IDEA (2026-11-14, in order): (1) external backup target (S3/B2/SFTP) so backups survive disk loss; (2) more catalog templates: done Nextcloud, Jellyfin, Grafana, n8n; left Immich, Syncthing, Homepage, Ghost, Wiki.js, Roundcube, Stirling-PDF, Navidrome; (3) "update available" badge + optional nightly auto-update using the existing rollback; (4) resource alerts (CPU/RAM/disk thresholds, container down/restart-loop) through the existing channels; (5) panel self-update (`dockwren self-update` / Settings button, SHA256-checked); (6) audit log (logins, install/update/remove); (7) "add stack" from pasted Compose YAML; (8) multi-server over SSH (last).
+- IDEA (2026-11-14, in order): (1) more catalog templates: done Nextcloud, Jellyfin, Grafana, n8n; left Immich, Syncthing, Homepage, Ghost, Wiki.js, Roundcube, Stirling-PDF, Navidrome; (2) "update available" badge + optional nightly auto-update using the existing rollback; (3) resource alerts (CPU/RAM/disk thresholds, container down/restart-loop) through the existing channels; (4) panel self-update (`dockwren self-update` / Settings button, SHA256-checked); (5) audit log (logins, install/update/remove); (6) "add stack" from pasted Compose YAML; (7) multi-server over SSH (last).
 - IDEA (2026-11-14): templates that need non-loopback ports or host networking (AdGuard Home/Pi-hole DNS on 53, Home Assistant) are refused by the compose linter; needs a security decision (e.g. an opt-in `lan_ports` manifest key shown clearly in the install form). Not started.
 
 ## Decisions (do not re-propose)
@@ -19,3 +19,4 @@ Open items only, one line each, with the date it was last verified open. Deliver
 
 ## Standing
 - At every tag/wrapup with new features re-check README, GitHub description/topics, SECURITY.md, docs/TEMPLATES.md (memory public-repo-freshness).
+- IDEA (2026-11-14): off-host follow-ups: "restore from off-host" button in the UI (CLI `backup pull` exists), list remote snapshots, show last upload per app; tested only against a local SFTP server and a Zenko S3 mock, not yet real B2/AWS. Not started.

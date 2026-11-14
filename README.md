@@ -48,14 +48,15 @@ Release binaries and `SHA256SUMS` are on the
   steps per template.
 - Backups (files plus database dumps) and restore, from the UI or the CLI; a safety snapshot is
   taken before a restore.
-- Scheduled backups: Settings → System → Scheduled backups takes a snapshot of every app daily or weekly (UTC hour of your choice) and keeps the newest N per app (default 7). **Back up now** on the Apps page takes one on demand and the table shows each app's last backup. Apps that are stopped or not healthy are skipped. A failed run raises a notification. These snapshots live in the data directory, so they only protect against mistakes, not disk loss; keep a copy elsewhere (an off-host target is planned).
+- Scheduled backups: Settings → System → Scheduled backups takes a snapshot of every app daily or weekly (UTC hour of your choice) and keeps the newest N per app (default 7). **Back up now** on the Apps page takes one on demand and the table shows each app's last backup. Apps that are stopped or not healthy are skipped. A failed run raises a notification. These snapshots live in the data directory, so on their own they only protect against mistakes, not disk loss; add an off-host target (next item).
+- Off-host backups: Settings → System → Off-host backups uploads a copy after every backup to another server (SFTP) or an S3-compatible bucket (AWS, Backblaze B2, Wasabi, MinIO...), encrypted and deduplicated with [restic](https://restic.net) run in a throwaway container (nothing to install). The settings are tested before they are saved. Dockwren generates the repository password and shows it **once**: store it in your password manager, without it the copies cannot be read. Credentials stay in a private file in the data directory and are never shown again. Disk lost? On the new server connect the same target with the same password, then `dockwren backup pull <app>` brings the snapshots back and `dockwren restore <app>` restores them. A failed upload raises a notification; the local snapshot is kept.
 - Cloudflare Tunnel publishing with DNS conflict handling and optional Cloudflare Access (see below).
 - `dockwren set-password` to rotate the admin password.
 - Web terminal (optional, off by default): a shell inside the containers of apps Dockwren installed, from the Containers page. Turn it on in Settings (or force it with `DOCKWREN_TERMINAL=1`); it asks for your password (and 2FA code) each time, is logged and shown in Notifications. Not a host shell.
 - OS updates (optional, off by default): the panel always tells you when the server has pending package updates or needs a reboot. To install them from Settings too, run `sudo dockwren setup-osupdate --data-dir <your data dir>` once, then turn it on in Settings. Each start asks for your password (and 2FA code); it runs `apt-get update` and `apt-get full-upgrade` as root through a small systemd helper, shows the log live, and never reboots. Debian and Ubuntu only. See SECURITY.md.
 - Two-factor sign-in (optional): turn it on in Settings with any authenticator app (Google Authenticator works). Locked out? `dockwren disable-2fa` turns it off.
 
-CLI: `dockwren [serve | set-password | disable-2fa | setup-osupdate | install | backup | update | restore | cleanup | expose | unexpose | remove]`.
+CLI: `dockwren [serve | set-password | disable-2fa | setup-osupdate | install | backup [pull] | update | restore | cleanup | expose | unexpose | remove]`.
 
 ## Requirements
 

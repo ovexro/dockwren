@@ -28,6 +28,7 @@ pub struct Apps {
     lock: Arc<tokio::sync::Mutex<()>>,
     notify: Option<crate::notify::Shared>,
     schedule: Arc<crate::schedule::Schedule>,
+    offsite: Arc<crate::offsite::Offsite>,
 }
 
 impl Apps {
@@ -39,7 +40,13 @@ impl Apps {
             lock: Arc::default(),
             notify: None,
             schedule: Arc::new(crate::schedule::Schedule::memory()),
+            offsite: Arc::new(crate::offsite::Offsite::memory()),
         }
+    }
+
+    pub fn with_offsite(mut self, o: Arc<crate::offsite::Offsite>) -> Self {
+        self.offsite = o;
+        self
     }
 
     pub fn with_schedule(mut self, s: Arc<crate::schedule::Schedule>) -> Self {
@@ -191,6 +198,18 @@ impl Apps {
                 keep,
             )
             .await;
+            // Local snapshot first; the off-host copy is a second step that can fail on its own.
+            let result = match result {
+                Ok(dir) if apps.offsite.get().enabled() => apps
+                    .offsite
+                    .push(&apps.backups_root(), &name, keep, &mut |s| {
+                        apps.with_job(&id, |j| j.log.push(s.to_string()));
+                    })
+                    .await
+                    .map(|_| dir)
+                    .map_err(|e| format!("local snapshot saved, off-host upload failed: {e}")),
+                other => other,
+            };
             apps.note_job(
                 "Backing up",
                 &name,
@@ -877,6 +896,98 @@ pub async fn schedule_save(
     Ok(schedule_html(&apps, Some("Saved."), None))
 }
 
+#[derive(Template)]
+#[template(path = "offsite.html")]
+struct OffsitePage {
+    kind: &'static str,
+    endpoint: String,
+    bucket: String,
+    host: String,
+    port: u16,
+    user: String,
+    path: String,
+    has_secrets: bool,
+    describe: String,
+    last: Option<String>,
+    new_password: Option<String>,
+    note: Option<&'static str>,
+    error: Option<String>,
+}
+
+fn offsite_html(
+    apps: &Apps,
+    note: Option<&'static str>,
+    error: Option<String>,
+    new_password: Option<String>,
+) -> Html<String> {
+    let c = apps.offsite.get();
+    let last = apps.offsite.last_ok();
+    render(OffsitePage {
+        kind: c.kind.as_str(),
+        endpoint: c.endpoint.clone(),
+        bucket: c.bucket.clone(),
+        host: c.host.clone(),
+        port: if c.port == 0 { 22 } else { c.port },
+        user: c.user.clone(),
+        path: c.path.clone(),
+        has_secrets: !c.password.is_empty(),
+        describe: c.describe(),
+        last: (c.enabled() && last > 0).then(|| utc_stamp(last)),
+        new_password,
+        note,
+        error,
+    })
+}
+
+pub async fn offsite_show(State(apps): State<Apps>) -> Html<String> {
+    offsite_html(&apps, None, None, None)
+}
+
+pub async fn offsite_save(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Form(f): Form<crate::offsite::Form>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let old = apps.offsite.get();
+    let (cfg, generated) = match crate::offsite::Config::from_form(&f, &old) {
+        Ok(v) => v,
+        Err(e) => return Ok(offsite_html(&apps, None, Some(e.to_string()), None)),
+    };
+    // Nothing is saved unless the target answers and the password fits the repository.
+    if cfg.enabled()
+        && let Err(e) = apps.offsite.ensure_repo(&cfg).await
+    {
+        return Ok(offsite_html(
+            &apps,
+            None,
+            Some(if e.contains("wrong password") {
+                format!(
+                    "Nothing was saved: {e}. If a repository already exists there, type its password; otherwise use an empty folder or bucket."
+                )
+            } else {
+                format!("Could not reach the target, nothing was saved: {e}")
+            }),
+            None,
+        ));
+    }
+    if let Err(e) = apps.offsite.set(cfg.clone()) {
+        return Ok(offsite_html(&apps, None, Some(e), None));
+    }
+    Ok(offsite_html(
+        &apps,
+        Some(if cfg.enabled() {
+            "Saved. The target works."
+        } else {
+            "Saved. Off-host copies are off."
+        }),
+        None,
+        generated.then_some(cfg.password),
+    ))
+}
+
 /// Register a running job for `name`; CONFLICT if one is already running for it.
 fn new_job(apps: &Apps, name: &str, verb: &'static str) -> Result<String, StatusCode> {
     let job_id = crate::auth::generate_password();
@@ -1489,5 +1600,25 @@ mod tests {
         assert_eq!(utc_stamp(0), "1970-01-01 00:00 UTC");
         assert_eq!(utc_stamp(951_782_400), "2000-02-29 00:00 UTC");
         assert_eq!(utc_stamp(1_794_582_685), "2026-11-13 15:11 UTC");
+    }
+}
+
+#[cfg(test)]
+mod offsite_page_tests {
+    use super::*;
+
+    #[test]
+    fn generated_password_is_shown_once_and_secrets_never_are() {
+        let apps = Apps::new(Vec::new(), PathBuf::from("/nonexistent"));
+        let html = offsite_html(
+            &apps,
+            Some("Saved."),
+            None,
+            Some("pw-shown-once-xyz".into()),
+        )
+        .0;
+        assert!(html.contains("pw-shown-once-xyz"), "{html}");
+        let again = offsite_html(&apps, None, None, None).0;
+        assert!(!again.contains("pw-shown-once-xyz"));
     }
 }

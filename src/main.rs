@@ -9,6 +9,7 @@ mod hostupdates;
 mod install;
 mod metrics;
 mod notify;
+mod offsite;
 mod osupdate;
 mod public;
 mod release;
@@ -357,6 +358,10 @@ fn app(
             get(apps::schedule_show).post(apps::schedule_save),
         )
         .route(
+            "/settings/offsite",
+            get(apps::offsite_show).post(apps::offsite_save),
+        )
+        .route(
             "/instances/{name}/public",
             get(apps::public_form).post(apps::public_submit),
         )
@@ -533,7 +538,7 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     Ok(())
 }
 
-const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | --version]";
+const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | --version]";
 
 /// CLI commands work on the panel's data directory; explain the usual permission mistake
 /// instead of failing later with a bare "Permission denied".
@@ -628,14 +633,48 @@ async fn main() {
             return;
         }
         Some("backup") => {
-            let name = std::env::args().nth(2).unwrap_or_default();
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            let (pull, name) = match args.as_slice() {
+                [n] => (false, n.clone()),
+                [p, n] if p == "pull" => (true, n.clone()),
+                _ => (false, String::new()),
+            };
             if !runner::valid_name(&name) {
-                eprintln!("usage: dockwren backup <instance>");
+                eprintln!("usage: dockwren backup <instance> | dockwren backup pull <instance>");
                 std::process::exit(2);
+            }
+            let off = offsite::Offsite::open(&cfg.data_dir);
+            let backups = cfg.data_dir.join("backups");
+            if pull {
+                match off.pull(&backups, &name, &mut |s| println!("  {s}")).await {
+                    Ok(added) if added.is_empty() => {
+                        println!("nothing new: every off-host snapshot is already here")
+                    }
+                    Ok(added) => println!(
+                        "{} snapshot(s) added; restore with: dockwren restore {name}",
+                        added.len()
+                    ),
+                    Err(e) => {
+                        eprintln!("pull failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
             }
             let result = async {
                 let templates = apps::catalog(&cfg)?;
-                backup::snapshot_instance(&cfg, &templates, &name, &mut |s| println!("  {s}")).await
+                let dir =
+                    backup::snapshot_instance(&cfg, &templates, &name, &mut |s| println!("  {s}"))
+                        .await?;
+                off.push(&backups, &name, backup::KEEP, &mut |s| println!("  {s}"))
+                    .await
+                    .map_err(|e| {
+                        format!(
+                            "local snapshot saved at {}, off-host upload failed: {e}",
+                            dir.display()
+                        )
+                    })?;
+                Ok::<_, String>(dir)
             }
             .await;
             match result {
@@ -820,7 +859,8 @@ async fn main() {
     let notify = notify::shared(&cfg.data_dir);
     let apps = apps::Apps::new(templates, cfg.instances_dir())
         .with_notify(notify.clone())
-        .with_schedule(Arc::new(schedule::Schedule::open(&cfg.data_dir)));
+        .with_schedule(Arc::new(schedule::Schedule::open(&cfg.data_dir)))
+        .with_offsite(Arc::new(offsite::Offsite::open(&cfg.data_dir)));
     apps.spawn_update_checker();
     apps.spawn_backup_scheduler();
     release::spawn_checker(notify.clone());
@@ -1564,6 +1604,31 @@ mod tests {
             "{ok}"
         );
         assert!(ok.contains("<option value=\"daily\" selected>"), "{ok}");
+    }
+
+    #[tokio::test]
+    async fn offsite_form_validates_and_turns_off_without_docker() {
+        let app = test_app();
+        let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+        let post = |body: &'static str| {
+            let app = app.clone();
+            let cookie = cookie.clone();
+            async move {
+                let req = Request::post("/settings/offsite")
+                    .header(header::COOKIE, cookie)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(body))
+                    .unwrap();
+                body_of(app.oneshot(req).await.unwrap()).await
+            }
+        };
+        let bad = post("kind=s3&endpoint=ftp%3A%2F%2Fx&bucket=b").await;
+        assert!(bad.contains("must be a URL"), "{bad}");
+        let bad = post("kind=sftp&host=h&user=u&path=..%2Fx&private_key=k").await;
+        assert!(bad.contains("folder may only"), "{bad}");
+        let off = post("kind=off").await;
+        assert!(off.contains("Off-host copies are off"), "{off}");
+        assert!(!off.contains("Repository password (shown once)"), "{off}");
     }
 
     #[tokio::test]

@@ -55,6 +55,8 @@
     {% else if tab == "system" %}
     <h2>Scheduled backups</h2>
     <div id="backup-schedule" hx-get="/settings/backups" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    <h2>Off-host backups</h2>
+    <div id="offsite" hx-get="/settings/offsite" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>OS updates</h2>
     <div id="osupdate" hx-get="/settings/osupdates" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     {% else %}

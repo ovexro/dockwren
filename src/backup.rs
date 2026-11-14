@@ -32,7 +32,7 @@ fn write_private(path: &Path, content: &[u8]) -> std::io::Result<()> {
 }
 
 /// Snapshot directory names are plain epoch seconds: sortable, no time crate needed.
-fn is_snapshot_name(n: &str) -> bool {
+pub fn is_snapshot_name(n: &str) -> bool {
     !n.is_empty() && n.len() <= 12 && n.bytes().all(|b| b.is_ascii_digit())
 }
 
