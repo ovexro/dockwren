@@ -123,6 +123,7 @@ that tunnel and those DNS records, so use a token scoped to the one zone.
 ## Adding apps
 
 Apps are small templates (a manifest plus a Compose file). See [docs/TEMPLATES.md](docs/TEMPLATES.md).
+Panel features can raise notifications for the admin: see [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
 
 ## Support
 
