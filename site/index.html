@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dockwren: a small Docker control panel for your own server</title>
+<meta name="description" content="Dockwren is a minimal, Docker-only control panel: one static Rust binary, no database. Install apps from templates, update with automatic rollback, back up, restore, and publish on a Cloudflare Tunnel.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="Dockwren">
+<meta property="og:description" content="A small Docker control panel for your own server. One binary, no database.">
+<style>
+:root {
+  --bg:#fafaf8; --surface:#fff; --text:#17171a; --muted:#5f5f66; --border:#dcdcd6;
+  --accent:#9a5316; --accent-text:#fff; --code-bg:#f0f0ec; --glow:rgba(180,96,28,.12);
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+  color-scheme:light dark;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#101012; --surface:#18181b; --text:#ececea; --muted:#a0a0a8; --border:#2f2f35;
+  --accent:#d98a45; --accent-text:#101012; --code-bg:#0b0b0d; --glow:rgba(217,138,69,.14);}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.6 var(--font);
+  background-image:radial-gradient(60rem 28rem at 50% -8rem,var(--glow),transparent)}
+a{color:var(--accent)}
+.wrap{max-width:68rem;margin:0 auto;padding:0 1.25rem}
+header.top{display:flex;align-items:center;gap:1rem;padding:1.1rem 0}
+.brand{display:flex;align-items:center;gap:.6rem;font-weight:700;font-size:1.15rem;color:var(--text);text-decoration:none}
+.brand img{width:32px;height:32px}
+nav{margin-left:auto;display:flex;align-items:center;gap:1.1rem}
+nav a.link{color:var(--muted);text-decoration:none;font-size:.95rem}
+nav a.link:hover{color:var(--text)}
+
+/* GitHub star badge */
+.gh{display:inline-flex;align-items:stretch;border:1px solid var(--border);border-radius:8px;overflow:hidden;
+  text-decoration:none;color:var(--text);background:var(--surface);font-size:.9rem;font-weight:600;
+  transition:border-color .15s,transform .15s}
+.gh:hover{border-color:var(--accent);transform:translateY(-1px)}
+.gh span{display:flex;align-items:center;gap:.45rem;padding:.38rem .7rem}
+.gh svg{width:18px;height:18px;fill:currentColor}
+.gh .count{border-left:1px solid var(--border);background:var(--code-bg);font-variant-numeric:tabular-nums;min-width:3.2rem;justify-content:center}
+.gh .count svg{fill:var(--accent);width:15px;height:15px}
+.gh .count b{font-weight:700}
+.gh.pop .count svg{animation:pop .6s}
+@keyframes pop{40%{transform:scale(1.5) rotate(18deg)}}
+
+.hero{text-align:center;padding:3.5rem 0 2rem}
+.hero h1{font-size:clamp(2.1rem,5.5vw,3.5rem);line-height:1.1;margin:0 0 1rem;letter-spacing:-.02em}
+.hero h1 em{font-style:normal;color:var(--accent)}
+.hero p.lead{max-width:40rem;margin:0 auto 1.8rem;color:var(--muted);font-size:1.15rem}
+.cta{display:flex;gap:.8rem;justify-content:center;flex-wrap:wrap;align-items:center}
+.btn{display:inline-block;padding:.65rem 1.2rem;border-radius:8px;font-weight:600;text-decoration:none;border:1px solid var(--border);color:var(--text);background:var(--surface)}
+.btn.primary{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+.btn:hover{filter:brightness(1.08)}
+.install{max-width:46rem;margin:2rem auto 0;text-align:left;position:relative}
+.install pre{margin:0;background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:1rem 4.5rem 1rem 1.1rem;
+  overflow-x:auto;font:.9rem/1.5 var(--mono)}
+.install button{position:absolute;right:.6rem;top:.6rem;font:inherit;font-size:.8rem;padding:.3rem .65rem;border-radius:6px;
+  border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer}
+.install small{display:block;margin-top:.5rem;color:var(--muted);font-size:.85rem;text-align:center}
+
+.shot{margin:3rem auto 0;max-width:60rem}
+.shot .frame{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface);
+  box-shadow:0 20px 50px -20px rgba(0,0,0,.35)}
+.shot img{display:block;width:100%;height:auto;aspect-ratio:1100/820;object-fit:cover;object-position:top}
+.shot img.dark-only{display:none}
+@media (prefers-color-scheme:dark){.shot img.light-only{display:none}.shot img.dark-only{display:block}}
+@media (max-width:560px){nav a.link{display:none}.hero{padding-top:2rem}}
+
+section{padding:3rem 0}
+section h2{font-size:1.7rem;margin:0 0 .4rem;letter-spacing:-.01em}
+section .sub{color:var(--muted);margin:0 0 1.8rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:1rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.1rem 1.2rem}
+.card h3{margin:0 0 .35rem;font-size:1.05rem}
+.card p{margin:0;color:var(--muted);font-size:.95rem}
+.apps{display:flex;flex-wrap:wrap;gap:.6rem}
+.apps span{border:1px solid var(--border);background:var(--surface);border-radius:999px;padding:.3rem .9rem;font-size:.95rem}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:1rem;text-align:center}
+.facts div{padding:1rem;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+.facts b{display:block;font-size:1.5rem;color:var(--accent)}
+.facts span{color:var(--muted);font-size:.9rem}
+footer{border-top:1px solid var(--border);padding:2rem 0 3rem;color:var(--muted);font-size:.92rem;text-align:center}
+footer a{color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="/"><img src="favicon.svg" alt="" width="32" height="32">Dockwren</a>
+    <nav>
+      <a class="link" href="https://github.com/ovexro/dockwren#readme">Docs</a>
+      <a class="link" href="https://github.com/ovexro/dockwren/releases">Releases</a>
+      <a class="gh" id="gh" href="https://github.com/ovexro/dockwren" aria-label="Dockwren on GitHub: stars">
+        <span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>Star</span>
+        <span class="count"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 .25a.75.75 0 0 1 .67.42l1.88 3.8 4.2.61a.75.75 0 0 1 .42 1.28l-3.04 2.96.72 4.18a.75.75 0 0 1-1.09.79L8 12.3l-3.76 1.98a.75.75 0 0 1-1.09-.79l.72-4.18L.83 6.36a.75.75 0 0 1 .42-1.28l4.2-.61L7.33.67A.75.75 0 0 1 8 .25z"/></svg><b id="stars">&nbsp;</b></span>
+      </a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <h1>A small Docker panel<br>for <em>your own</em> server.</h1>
+      <p class="lead">Install apps from templates, update them with automatic rollback, back up and restore their data, and publish them on a Cloudflare Tunnel. One static binary. No database. No agents.</p>
+      <div class="cta">
+        <a class="btn primary" href="#install">Install in one command</a>
+        <a class="btn" href="https://github.com/ovexro/dockwren">View on GitHub</a>
+      </div>
+      <div class="install" id="install">
+        <pre id="cmd">curl -fsSL https://raw.githubusercontent.com/ovexro/dockwren/main/install.sh | sudo bash</pre>
+        <button type="button" id="copy">Copy</button>
+        <small>Debian or Ubuntu, x86_64 or aarch64. Installs Docker if missing. Read the script before piping it to a shell.</small>
+      </div>
+    </div>
+
+    <div class="shot">
+      <div class="frame">
+        <img class="light-only" src="shots/apps-light.png" alt="Dockwren app catalog with Gitea, Memos, Miniflux, Paperless-ngx, Uptime Kuma, Vaultwarden and WordPress" width="1100" height="900" loading="eager">
+        <img class="dark-only" src="shots/apps-dark.png" alt="Dockwren app catalog, dark theme" width="1100" height="900" loading="eager">
+      </div>
+    </div>
+
+    <section>
+      <h2>Everything for a self-hosted box, nothing else</h2>
+      <p class="sub">It does a few things and does them carefully.</p>
+      <div class="grid">
+        <div class="card"><h3>App catalog</h3><p>Install from Compose templates with generated passwords and short hints on every field. Add your own with a manifest and a Compose file.</p></div>
+        <div class="card"><h3>Updates that roll back</h3><p>If the new version is not healthy, the old one comes back on its own. Templates can run migration steps.</p></div>
+        <div class="card"><h3>Backups and restore</h3><p>Files plus database dumps, from the UI or the CLI. A safety snapshot is taken before every restore.</p></div>
+        <div class="card"><h3>Resource graphs</h3><p>CPU, memory, network and disk, per host and per container, up to 30 days. Plain one-colour lines. A full disk gets flagged.</p></div>
+        <div class="card"><h3>Publish with Cloudflare</h3><p>Put an app on a Tunnel hostname in one step, with DNS conflict handling and optional Cloudflare Access.</p></div>
+        <div class="card"><h3>Careful by default</h3><p>Argon2id login, strict session cookies, rate limiting. Listens on localhost only; reach it over an SSH tunnel.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Bundled apps</h2>
+      <p class="sub">Each one is installed, backed up, restored and updated for real before it ships.</p>
+      <div class="apps"><span>Gitea</span><span>Memos</span><span>Miniflux</span><span>Paperless-ngx</span><span>Uptime Kuma</span><span>Vaultwarden</span><span>WordPress</span></div>
+    </section>
+
+    <section>
+      <div class="facts">
+        <div><b>1 binary</b><span>static Rust, axum + bollard</span></div>
+        <div><b>0 databases</b><span>state lives in plain files</span></div>
+        <div><b>x86_64 + ARM</b><span>tested on a Raspberry Pi 5</span></div>
+        <div><b>Apache-2.0</b><span>open source</span></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Dockwren is early software (v0.1.x): it works and is tested, but expect rough edges.<br>
+    <a href="https://github.com/ovexro/dockwren">GitHub</a> ·
+    <a href="https://github.com/ovexro/dockwren/releases">Releases</a> ·
+    <a href="https://github.com/ovexro/dockwren/blob/main/SECURITY.md">Security</a> ·
+    <a href="https://github.com/ovexro/dockwren/blob/main/LICENSE">Apache-2.0</a>
+  </footer>
+</div>
+
+<script>
+(function () {
+  // Live GitHub star count: cached 10 min in localStorage, last known value as fallback.
+  var el = document.getElementById('stars'), gh = document.getElementById('gh');
+  var KEY = 'dockwren-stars', TTL = 10 * 60 * 1000;
+  function show(n, animate) {
+    var s = n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.0', '') + 'k' : String(n);
+    el.textContent = s;
+    gh.setAttribute('aria-label', 'Dockwren on GitHub: ' + n + ' stars');
+    if (animate) { gh.classList.add('pop'); setTimeout(function () { gh.classList.remove('pop'); }, 700); }
+  }
+  var cached = null;
+  try { cached = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+  if (cached) show(cached.n, false); else el.textContent = '–';
+  if (cached && Date.now() - cached.t < TTL) return;
+  fetch('https://api.github.com/repos/ovexro/dockwren', { headers: { Accept: 'application/vnd.github+json' } })
+    .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+    .then(function (d) {
+      if (typeof d.stargazers_count !== 'number') return;
+      show(d.stargazers_count, !cached || cached.n !== d.stargazers_count);
+      try { localStorage.setItem(KEY, JSON.stringify({ n: d.stargazers_count, t: Date.now() })); } catch (e) {}
+    })
+    .catch(function () {});
+  var cp = document.getElementById('copy');
+  cp.addEventListener('click', function () {
+    navigator.clipboard.writeText(document.getElementById('cmd').textContent).then(function () {
+      cp.textContent = 'Copied'; setTimeout(function () { cp.textContent = 'Copy'; }, 1500);
+    });
+  });
+})();
+</script>
+</body>
+</html>
