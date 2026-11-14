@@ -36,22 +36,33 @@
     {% else if active == "resources" %}
     <div id="metrics" hx-get="/metrics" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     {% else %}
-    <h2>About</h2>
-    <p>Dockwren version {{ version }}</p>
-    <p><small>Apps are updated from the Apps page; an "Update available" button appears there when a newer version exists.</small></p>
+    <nav class="tabs" aria-label="Settings">
+      <a href="/settings/tab/general"{% if tab == "general" %} aria-current="page"{% endif %}>General</a>
+      <a href="/settings/tab/notifications"{% if tab == "notifications" %} aria-current="page"{% endif %}>Notifications</a>
+      <a href="/settings/tab/security"{% if tab == "security" %} aria-current="page"{% endif %}>Security</a>
+      <a href="/settings/tab/system"{% if tab == "system" %} aria-current="page"{% endif %}>System</a>
+    </nav>
+    {% if tab == "notifications" %}
     <h2>Notifications</h2>
     <div id="notify-settings" hx-get="/settings/notifications" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h3>Send notifications elsewhere</h3>
     <div id="channels" hx-get="/settings/channels" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    {% else if tab == "security" %}
     <h2>Two-factor sign-in</h2>
     <div id="twofa" hx-get="/settings/2fa" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>Web terminal</h2>
     <div id="terminal-setting" hx-get="/settings/terminal" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    {% else if tab == "system" %}
     <h2>OS updates</h2>
     <div id="osupdate" hx-get="/settings/osupdates" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    {% else %}
+    <h2>About</h2>
+    <p>Dockwren version {{ version }}</p>
+    <p><small>Apps are updated from the Apps page; an "Update available" button appears there when a newer version exists.</small></p>
     <h2>Session</h2>
     <form method="post" action="/logout"><button type="submit">Sign out</button></form>
     <p><small>Ends this browser session. Your apps keep running.</small></p>
+    {% endif %}
     {% endif %}
   </main>
 </body>

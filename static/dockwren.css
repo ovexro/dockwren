@@ -229,3 +229,11 @@ a.btn:hover { border-color: var(--muted); }
 #screen { background: #ffffff; border: 1px solid var(--border); padding: .5rem; border-radius: 8px; height: 70vh; }
 #screen[hidden] { display: none; }
 @media (prefers-color-scheme: dark) { #screen { background: #0d1117; } }
+
+/* Settings tabs: real links, scroll sideways when they do not fit */
+.tabs { display: flex; gap: .25rem; margin: 0 0 1rem; overflow-x: auto; border-bottom: 1px solid var(--border); scrollbar-width: none; }
+.tabs a { flex: none; padding: .5rem .9rem; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs a:hover { color: var(--text); }
+.tabs a[aria-current="page"] { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+.tabs + h2 { margin-top: 1rem; }
+@media (max-width: 40rem) { .tabs a { padding: .5rem .6rem; font-size: .95rem; } }

@@ -27,7 +27,7 @@ use axum::{
     extract::{FromRef, Path, State},
     http::{HeaderMap, StatusCode, header},
     middleware::from_fn_with_state,
-    response::{Html, IntoResponse},
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
 use docker::{Action, ContainerInfo, DockerClient};
@@ -214,7 +214,16 @@ struct PageTemplate {
     nav: &'static [(&'static str, &'static str, &'static str)],
     version: &'static str,
     assets: String,
+    tab: &'static str,
 }
+
+/// Tabs of the Settings page: (key, label). The first is the default.
+const SETTINGS_TABS: [(&str, &str); 4] = [
+    ("general", "General"),
+    ("notifications", "Notifications"),
+    ("security", "Security"),
+    ("system", "System"),
+];
 
 /// (href, key, label) of the sidebar entries.
 const NAV: [(&str, &str, &str); 7] = [
@@ -228,6 +237,10 @@ const NAV: [(&str, &str, &str); 7] = [
 ];
 
 fn page(active: &'static str) -> Html<String> {
+    page_tab(active, "")
+}
+
+fn page_tab(active: &'static str, tab: &'static str) -> Html<String> {
     let title = NAV
         .iter()
         .find(|n| n.1 == active)
@@ -238,6 +251,7 @@ fn page(active: &'static str) -> Html<String> {
         nav: &NAV,
         version: env!("CARGO_PKG_VERSION"),
         assets: asset_version(),
+        tab,
     };
     Html(page.render().expect("page template renders"))
 }
@@ -278,7 +292,14 @@ async fn notifications_page() -> Html<String> {
     page("notifications")
 }
 async fn settings_page() -> Html<String> {
-    page("settings")
+    page_tab("settings", SETTINGS_TABS[0].0)
+}
+/// `GET /settings/tab/{tab}`: one tab of Settings; every tab has its own URL.
+async fn settings_tab(Path(tab): Path<String>) -> Response {
+    match SETTINGS_TABS.iter().find(|t| t.0 == tab) {
+        Some(t) => page_tab("settings", t.0).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 fn app(
@@ -304,6 +325,7 @@ fn app(
         .route("/containers", get(containers_page))
         .route("/resources", get(resources_page))
         .route("/settings", get(settings_page))
+        .route("/settings/tab/{tab}", get(settings_tab))
         .route("/cloudflare", get(cloudflare_page))
         .route("/notifications", get(notifications_page))
         .route("/notifications/list", get(notify::list))
@@ -1456,12 +1478,56 @@ mod tests {
             assert_eq!(res.status(), StatusCode::OK, "{path}");
             let html = body_of(res).await;
             assert!(html.contains(&format!("<h1>{title}</h1>")), "{path}");
-            assert_eq!(html.matches("aria-current=\"page\"").count(), 1, "{path}");
+            // Settings also marks its active tab.
+            let expected = if path == "/settings" { 2 } else { 1 };
+            assert_eq!(
+                html.matches("aria-current=\"page\"").count(),
+                expected,
+                "{path}"
+            );
             assert!(
                 html.contains(&format!("href=\"{path}\" aria-current")),
                 "{path}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn settings_tabs_have_their_own_urls_and_only_their_own_sections() {
+        let app = test_app();
+        let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+        let get = |path: &'static str| {
+            let app = app.clone();
+            let cookie = cookie.clone();
+            async move {
+                let req = Request::get(path)
+                    .header(header::COOKIE, cookie)
+                    .body(Body::empty())
+                    .unwrap();
+                app.oneshot(req).await.unwrap()
+            }
+        };
+        for (tab, has, hasnt) in [
+            ("general", "<h2>About</h2>", "/settings/2fa"),
+            ("notifications", "/settings/channels", "<h2>About</h2>"),
+            ("security", "/settings/terminal", "/settings/osupdates"),
+            ("system", "/settings/osupdates", "/settings/2fa"),
+        ] {
+            let path: &'static str = Box::leak(format!("/settings/tab/{tab}").into_boxed_str());
+            let res = get(path).await;
+            assert_eq!(res.status(), StatusCode::OK, "{tab}");
+            let html = body_of(res).await;
+            assert!(html.contains(has), "{tab} should contain {has}");
+            assert!(!html.contains(hasnt), "{tab} should not load {hasnt}");
+            assert!(
+                html.contains(&format!("href=\"{path}\" aria-current")),
+                "{tab}"
+            );
+        }
+        assert_eq!(
+            get("/settings/tab/nope").await.status(),
+            StatusCode::NOT_FOUND
+        );
     }
 
     #[tokio::test]
