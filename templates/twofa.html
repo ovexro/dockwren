@@ -1,0 +1,29 @@
+<div id="twofa">
+  {% if !available %}
+  <p class="muted">Two-factor sign-in needs the panel's data directory.</p>
+  {% else %}
+  {% if let Some(e) = error %}<p role="alert">{{ e }}</p>{% endif %}
+  {% if !recovery.is_empty() %}
+  <p role="status"><strong>Two-factor sign-in is on.</strong> Save these recovery codes now; they are shown only once. Each works one time if you lose your phone.</p>
+  <pre class="codes">{% for c in recovery %}{{ c }}
+{% endfor %}</pre>
+  {% else if enabled %}
+  <p><strong>On.</strong> Signing in needs your password and a 6-digit code from your authenticator app (or a recovery code).</p>
+  <form hx-post="/settings/2fa/disable" hx-target="#twofa" hx-swap="outerHTML" autocomplete="off">
+    <label>Current code, to turn it off <input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>
+    <button type="submit">Turn off</button>
+  </form>
+  {% else if let Some(s) = setup %}
+  <p>Open Google Authenticator (or any authenticator app) and add an account by scanning this code, or enter the key by hand.</p>
+  <div class="qr">{{ s.svg|safe }}</div>
+  <p><small>Key: <code>{{ s.key }}</code></small></p>
+  <form hx-post="/settings/2fa/enable" hx-target="#twofa" hx-swap="outerHTML" autocomplete="off">
+    <label>Then type the 6-digit code the app shows <input name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus></label>
+    <button class="primary" type="submit">Turn on</button>
+  </form>
+  {% else %}
+  <p>Off. Add a second step to sign-in: a 6-digit code from an authenticator app on your phone.</p>
+  <button class="primary" hx-post="/settings/2fa/start" hx-target="#twofa" hx-swap="outerHTML">Set up</button>
+  {% endif %}
+  {% endif %}
+</div>

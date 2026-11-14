@@ -50,8 +50,9 @@ Release binaries and `SHA256SUMS` are on the
   taken before a restore.
 - Cloudflare Tunnel publishing with DNS conflict handling and optional Cloudflare Access (see below).
 - `dockwren set-password` to rotate the admin password.
+- Two-factor sign-in (optional): turn it on in Settings with any authenticator app (Google Authenticator works). Locked out? `dockwren disable-2fa` turns it off.
 
-CLI: `dockwren [serve | set-password | install | backup | update | restore | cleanup | expose | unexpose | remove]`.
+CLI: `dockwren [serve | set-password | disable-2fa | install | backup | update | restore | cleanup | expose | unexpose | remove]`.
 
 ## Requirements
 

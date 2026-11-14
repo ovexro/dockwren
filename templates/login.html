@@ -13,6 +13,7 @@
     <form method="post" action="/login">
       {% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
       <label>Password <input type="password" name="password" autocomplete="current-password" autofocus required></label>
+      <label>Code <small>(only if you turned on two-factor)</small> <input name="code" inputmode="numeric" autocomplete="one-time-code"></label>
       <button type="submit">Sign in</button>
     </form>
   </main>

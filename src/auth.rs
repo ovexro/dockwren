@@ -27,6 +27,12 @@ const SESSION_TTL_SECS: u64 = 12 * 60 * 60;
 const MAX_FAILURES: u32 = 5;
 const FAILURE_WINDOW: Duration = Duration::from_secs(5 * 60);
 const LOCKOUT: Duration = Duration::from_secs(60);
+mod twofa;
+pub use twofa::{
+    disable as disable_two_factor, enable as twofa_enable, show as twofa_show,
+    start as twofa_start, turn_off as twofa_disable,
+};
+
 const HASH_FILE: &str = "admin.hash";
 const SESSION_FILE: &str = "sessions";
 const PASSWORD_LEN: usize = 24;
@@ -59,6 +65,12 @@ pub struct Auth {
     secure_cookie: bool,
     sessions: Mutex<HashMap<String, Session>>, // key: sha256(token) in hex
     limiter: Mutex<Limiter>,
+    /// Data dir: where the optional 2FA files live (`None` in tests = 2FA unavailable).
+    dir: Option<PathBuf>,
+    /// Last accepted TOTP step, so a code cannot be used twice.
+    last_step: Mutex<u64>,
+    /// Secret shown during setup, not active until confirmed with a code.
+    pending: Mutex<Option<Vec<u8>>>,
 }
 
 pub type SharedAuth = Arc<Auth>;
@@ -168,6 +180,9 @@ impl Auth {
             secure_cookie,
             sessions: Mutex::default(),
             limiter: Mutex::default(),
+            dir: None,
+            last_step: Mutex::default(),
+            pending: Mutex::default(),
         })
     }
 
@@ -186,6 +201,9 @@ impl Auth {
             secure_cookie,
             sessions: Mutex::new(load_sessions(&sessions_path)),
             limiter: Mutex::default(),
+            dir: Some(data_dir.to_path_buf()),
+            last_step: Mutex::default(),
+            pending: Mutex::default(),
         };
         Ok(auth)
     }
@@ -353,6 +371,9 @@ pub async fn login_form() -> Response {
 #[derive(Deserialize)]
 pub struct LoginForm {
     password: String,
+    /// Authenticator or recovery code; only needed when 2FA is on.
+    #[serde(default)]
+    code: String,
 }
 
 pub async fn login_submit(State(auth): State<SharedAuth>, Form(form): Form<LoginForm>) -> Response {
@@ -364,12 +385,14 @@ pub async fn login_submit(State(auth): State<SharedAuth>, Form(form): Form<Login
     }
     // Argon2 is CPU-heavy: keep it off the async workers.
     let checker = Arc::clone(&auth);
+    let code = form.code.clone();
     let ok = tokio::task::spawn_blocking(move || checker.verify(&form.password))
         .await
         .unwrap_or(false);
-    if !ok {
+    // One message for every failure, so it does not say which factor was wrong.
+    if !ok || !auth.second_factor_ok(&code) {
         auth.record_failure();
-        return login_page(StatusCode::UNAUTHORIZED, Some("Wrong password."));
+        return login_page(StatusCode::UNAUTHORIZED, Some("Wrong password or code."));
     }
     auth.record_success();
     let token = auth.create_session();
@@ -455,5 +478,69 @@ mod tests {
         let loaded = load_sessions(&dir.join(SESSION_FILE));
         assert_eq!(loaded.len(), 1);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn auth_with_2fa() -> (SharedAuth, Vec<u8>, Vec<String>, PathBuf) {
+        let dir = temp_dir();
+        load_or_create(&dir).unwrap();
+        let auth = Auth::open(&dir, false).unwrap();
+        assert!(!auth.two_factor_enabled());
+        let secret = crate::totp::new_secret();
+        let codes = auth.turn_on(&secret).unwrap();
+        (Arc::new(auth), secret, codes, dir)
+    }
+
+    #[test]
+    fn second_factor_accepts_a_fresh_code_once_and_refuses_junk() {
+        let (auth, secret, _, dir) = auth_with_2fa();
+        assert!(auth.two_factor_enabled());
+        let code = crate::totp::code_at(&secret, now_unix());
+        assert!(!auth.second_factor_ok(""));
+        assert!(!auth.second_factor_ok("000000") || code == "000000");
+        assert!(auth.second_factor_ok(&code));
+        assert!(!auth.second_factor_ok(&code), "same code twice");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn recovery_codes_work_once_and_are_stored_hashed() {
+        let (auth, _, codes, dir) = auth_with_2fa();
+        assert_eq!(codes.len(), 8);
+        let file = fs::read_to_string(dir.join("totp.recovery")).unwrap();
+        assert!(!file.contains(&codes[0]));
+        assert!(auth.second_factor_ok(&codes[0].to_uppercase()));
+        assert!(!auth.second_factor_ok(&codes[0]));
+        assert!(auth.second_factor_ok(&codes[1]));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn login_needs_the_code_when_on_and_cli_turns_it_off() {
+        let (auth, secret, _, dir) = auth_with_2fa();
+        // The test password is the one in admin.hash, which we do not know: replace it.
+        let pw = set_password(&dir).unwrap();
+        let login = |code: String| {
+            let a = Arc::clone(&auth);
+            let pw = pw.clone();
+            async move {
+                login_submit(State(a), Form(LoginForm { password: pw, code }))
+                    .await
+                    .status()
+            }
+        };
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            assert_eq!(login(String::new()).await, StatusCode::UNAUTHORIZED);
+            let code = crate::totp::code_at(&secret, now_unix());
+            assert_eq!(login(code).await, StatusCode::SEE_OTHER);
+        });
+        assert!(twofa::disable(&dir).unwrap());
+        assert!(!auth.two_factor_enabled());
+        rt.block_on(async {
+            assert_eq!(login(String::new()).await, StatusCode::SEE_OTHER);
+        });
+        let _ = fs::remove_dir_all(dir);
     }
 }

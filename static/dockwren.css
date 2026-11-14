@@ -203,3 +203,8 @@ ul.kinds li { display: block; }
 ul.kinds label { font-weight: 600; }
 ul.kinds input[type=checkbox] { display: inline-block; width: auto; margin: 0 .5rem 0 0; vertical-align: middle; }
 ul.kinds small { display: block; margin: .25rem 0 0 1.6rem; }
+
+/* Two-factor setup */
+.qr { background: #fff; display: inline-block; padding: .25rem; border-radius: 8px; line-height: 0; }
+.qr svg { width: 200px; height: 200px; }
+pre.codes { padding: .75rem 1rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); user-select: all; }

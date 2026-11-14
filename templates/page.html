@@ -41,6 +41,8 @@
     <p><small>Apps are updated from the Apps page; an "Update available" button appears there when a newer version exists.</small></p>
     <h2>Notifications</h2>
     <div id="notify-settings" hx-get="/settings/notifications" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    <h2>Two-factor sign-in</h2>
+    <div id="twofa" hx-get="/settings/2fa" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>Session</h2>
     <form method="post" action="/logout"><button type="submit">Sign out</button></form>
     <p><small>Ends this browser session. Your apps keep running.</small></p>

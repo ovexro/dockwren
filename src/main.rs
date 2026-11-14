@@ -11,6 +11,7 @@ mod public;
 mod release;
 mod runner;
 mod template;
+mod totp;
 mod update;
 
 use std::sync::Arc;
@@ -313,6 +314,10 @@ fn app(
         )
         .route("/settings/notifications", get(notify::kinds_show))
         .route("/settings/notifications/{kind}", post(notify::kind_set))
+        .route("/settings/2fa", get(auth::twofa_show))
+        .route("/settings/2fa/start", post(auth::twofa_start))
+        .route("/settings/2fa/enable", post(auth::twofa_enable))
+        .route("/settings/2fa/disable", post(auth::twofa_disable))
         .route("/settings/cloudflare", get(apps::cloudflare_show))
         .route(
             "/settings/cloudflare/connect",
@@ -471,7 +476,7 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     Ok(())
 }
 
-const USAGE: &str = "usage: dockwren [serve | set-password | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | --version]";
+const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | --version]";
 
 /// CLI commands work on the panel's data directory; explain the usual permission mistake
 /// instead of failing later with a bare "Permission denied".
@@ -502,7 +507,7 @@ async fn main() {
             println!("{USAGE}");
             return;
         }
-        None | Some("serve") | Some("set-password") => {}
+        None | Some("serve") | Some("set-password") | Some("disable-2fa") => {}
         Some(
             "install" | "backup" | "update" | "restore" | "cleanup" | "expose" | "unexpose"
             | "remove",
@@ -511,6 +516,17 @@ async fn main() {
     }
     match cmd.as_deref() {
         None | Some("serve") => {}
+        Some("disable-2fa") => {
+            match auth::disable_two_factor(&cfg.data_dir) {
+                Ok(true) => println!("Two-factor sign-in is off. Set it up again in Settings."),
+                Ok(false) => println!("Two-factor sign-in was not on."),
+                Err(e) => {
+                    eprintln!("cannot turn it off in {}: {e}", cfg.data_dir.display());
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
         Some("set-password") => {
             let password = auth::set_password(&cfg.data_dir).unwrap_or_else(|e| {
                 panic!("cannot set password in {}: {e}", cfg.data_dir.display())
@@ -1169,6 +1185,10 @@ mod tests {
             ("POST", "/notifications/dismiss-all"),
             ("POST", "/notifications/1/dismiss"),
             ("GET", "/cloudflare"),
+            ("GET", "/settings/2fa"),
+            ("POST", "/settings/2fa/start"),
+            ("POST", "/settings/2fa/enable"),
+            ("POST", "/settings/2fa/disable"),
             ("GET", "/settings/cloudflare"),
             ("POST", "/settings/cloudflare/connect"),
             ("POST", "/settings/cloudflare/tunnel"),
