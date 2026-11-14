@@ -1,0 +1,26 @@
+<div id="osupdate">
+  {% if let Some(e) = error %}<p role="alert">{{ e }}</p>{% endif %}
+  {% if !installed %}
+  <p>Off. The panel only tells you when updates are available. To install them from here, set up a small root-owned helper once on this server: <code>sudo dockwren setup-osupdate --data-dir /path/to/dockwren-data</code>, then come back and turn this on.</p>
+  {% else %}
+  {% if on %}
+  <p><strong>On.</strong>
+    {% if let Some(n) = pending %}{% if *n == 0 %}No OS updates are waiting.{% else if *n == 1 %}1 OS update is waiting.{% else %}{{ n }} OS updates are waiting.{% endif %}{% endif %}
+    It runs <code>apt-get update</code> and <code>apt-get full-upgrade</code> as root, never reboots, and logs each start. Each start asks for your password again.</p>
+  <form hx-post="/host/os-updates/run" hx-target="#osupdate" hx-swap="outerHTML" autocomplete="off">
+    <label>Password, to confirm <input type="password" name="password" required autocomplete="current-password"></label>
+    {% if two_factor %}<label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>{% endif %}
+    <button type="submit" class="primary">Install updates now</button>
+  </form>
+  <div id="osupdate-log" hx-get="/host/os-updates/log" hx-trigger="load" hx-swap="outerHTML"></div>
+  {% else %}
+  <p>Off. Turning it on adds an "Install updates now" button here. It runs <code>apt-get full-upgrade</code> as root through a helper you set up on this server, and never reboots.</p>
+  {% endif %}
+  <form hx-post="/settings/osupdates" hx-target="#osupdate" hx-swap="outerHTML" autocomplete="off">
+    <input type="hidden" name="on" value="{% if on %}0{% else %}1{% endif %}">
+    <label>Password, to confirm <input type="password" name="password" required autocomplete="current-password"></label>
+    {% if two_factor %}<label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>{% endif %}
+    <button type="submit"{% if !on %} class="primary"{% endif %}>{% if on %}Turn off{% else %}Turn on{% endif %}</button>
+  </form>
+  {% endif %}
+</div>

@@ -1,0 +1,13 @@
+<div id="osupdate-log"{% if active %} hx-get="/host/os-updates/log" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  {% if !lines.is_empty() %}<pre>{% for l in lines %}{{ l }}
+{% endfor %}</pre>{% endif %}
+  {% if queued %}
+  <p>Waiting for the helper to start…</p>
+  {% else if active %}
+  <p>Working… this can take several minutes. Leaving this page does not stop it.</p>
+  {% else if let Some(c) = code %}
+  {% if *c == 0 %}<p>Last run finished. If a reboot is needed, a notice says so.</p>{% else %}<p role="alert">Last run failed (apt-get exit {{ c }}). Read the log above.</p>{% endif %}
+  {% else if interrupted %}
+  <p role="alert">The last run was interrupted before it finished (the server may have restarted). Check the log above and start it again.</p>
+  {% endif %}
+</div>

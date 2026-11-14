@@ -1,6 +1,6 @@
 //! Tells the admin when the host has pending OS package updates or needs a reboot.
 //! Detection only: `apt-get -s dist-upgrade` runs unprivileged against the package lists
-//! the system's own apt timer keeps fresh. The panel never installs OS packages.
+//! the system's own apt timer keeps fresh. Installing is a separate, opt-in step (`osupdate`).
 
 use std::process::Stdio;
 use std::time::{Duration, Instant};
@@ -76,7 +76,7 @@ fn apply(shared: &Shared, p: &Pending, reboot: bool) {
             names.push("…");
         }
         body = format!(
-            "{}. Install them in a terminal: sudo apt update && sudo apt upgrade",
+            "{}. Install them in a terminal (sudo apt update && sudo apt upgrade) or, if turned on, from Settings.",
             names.join(", ")
         );
     }
@@ -90,6 +90,21 @@ fn apply(shared: &Shared, p: &Pending, reboot: bool) {
         e = e.body(body);
     }
     notify::raise(shared, e);
+}
+
+/// How many packages `apt-get -s` would upgrade right now (None when apt is unavailable).
+pub async fn pending_count() -> Option<usize> {
+    pending().await.ok().map(|p| p.packages.len())
+}
+
+/// Look again now and raise or clear the notification (used when an update run ends).
+pub async fn recheck(shared: &Shared) {
+    if !shared.lock().unwrap().is_enabled(KIND) {
+        return;
+    }
+    if let Ok(p) = pending().await {
+        apply(shared, &p, std::path::Path::new(REBOOT_FLAG).exists());
+    }
 }
 
 pub fn spawn_checker(shared: Shared) {

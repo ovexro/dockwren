@@ -63,6 +63,16 @@ Each event remembers the highest severity sent (`notified`). A failed send is re
 - When a condition clears by itself after it was sent, one low-priority "Resolved: ..." message follows (`clear_pending`, `Store::pending_resolved`). Dismissing an event by hand sends nothing; e-mail is not built.
 - Event text goes to a third party: keep secrets out of titles and bodies (already the rule above).
 
+## OS updates
+
+`src/hostupdates.rs` checks every 6 hours (`apt-get -s dist-upgrade`, unprivileged) and raises
+`host.os_updates` with the package count, how many are security updates, and whether
+`/var/run/reboot-required` exists. Installing is a separate opt-in (`src/osupdate.rs`, see
+SECURITY.md): a start raises `host.os_update_run` (audit), a failure or an interrupted run raises
+`job.failed` with the first `E:` line apt printed, and when a run ends the pending check runs again
+so `host.os_updates` closes itself. The watcher handles each finished run once, identified by the
+timestamp on the log's `== exit` line, so a run too short to be seen while active is still reported.
+
 ## Host backup status
 
 Scheduled backups run outside the panel (for example a systemd timer), so they cannot raise

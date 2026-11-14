@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 const LOG_FILE: &str = "notifications.log";
 const PREFS_FILE: &str = "notify-settings.json";
 /// Every kind a producer raises: (kind, label, what it does). Settings lists exactly these.
-pub const KINDS: [(&str, &str, &str); 6] = [
+pub const KINDS: [(&str, &str, &str); 7] = [
     (
         "terminal.opened",
         "Web terminal opened",
@@ -45,7 +45,12 @@ pub const KINDS: [(&str, &str, &str); 6] = [
     (
         "host.os_updates",
         "OS updates and reboot needed",
-        "Every 6 hours, checks whether this server has pending package updates or needs a reboot. It only looks; it never installs anything.",
+        "Every 6 hours, checks whether this server has pending package updates or needs a reboot. It only looks; installing is a separate opt-in in Settings.",
+    ),
+    (
+        "host.os_update_run",
+        "OS update started from the panel",
+        "Someone started an OS package update from Settings (only when installing OS updates from the panel is turned on).",
     ),
     (
         "backup.failed",

@@ -9,6 +9,7 @@ mod hostupdates;
 mod install;
 mod metrics;
 mod notify;
+mod osupdate;
 mod public;
 mod release;
 mod runner;
@@ -287,6 +288,7 @@ fn app(
     metrics: metrics::Shared,
     notify: notify::Shared,
     terminal: Arc<terminal::Switch>,
+    os: Arc<osupdate::Control>,
 ) -> Router {
     let terminal_routes = terminal::router(
         auth.clone(),
@@ -294,6 +296,7 @@ fn app(
         notify.clone(),
         terminal.clone(),
     );
+    let os_routes = osupdate::router(auth.clone(), notify.clone(), os);
     let protected = Router::new()
         .route("/", get(index))
         .route("/metrics", get(metrics::page))
@@ -375,7 +378,7 @@ fn app(
             notify,
             terminal,
         });
-    router.merge(terminal_routes)
+    router.merge(terminal_routes).merge(os_routes)
 }
 
 /// `dockwren install <app> [KEY=VALUE...]`: resolve, prepare, bring up.
@@ -502,7 +505,7 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     Ok(())
 }
 
-const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | --version]";
+const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | backup <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | --version]";
 
 /// CLI commands work on the panel's data directory; explain the usual permission mistake
 /// instead of failing later with a bare "Permission denied".
@@ -533,7 +536,11 @@ async fn main() {
             println!("{USAGE}");
             return;
         }
-        None | Some("serve") | Some("set-password") | Some("disable-2fa") => {}
+        None
+        | Some("serve")
+        | Some("set-password")
+        | Some("disable-2fa")
+        | Some("setup-osupdate") => {}
         Some(
             "install" | "backup" | "update" | "restore" | "cleanup" | "expose" | "unexpose"
             | "remove",
@@ -542,6 +549,28 @@ async fn main() {
     }
     match cmd.as_deref() {
         None | Some("serve") => {}
+        Some("setup-osupdate") => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            let dir = match args.as_slice() {
+                [] => cfg.data_dir.clone(),
+                [flag, d] if flag == "--data-dir" => std::path::PathBuf::from(d),
+                _ => {
+                    eprintln!("usage: dockwren setup-osupdate [--data-dir DIR]");
+                    std::process::exit(2);
+                }
+            };
+            match osupdate::setup(&dir) {
+                Ok(()) => println!(
+                    "OS-update helper installed for {}. Turn it on in the panel: Settings, OS updates.",
+                    dir.display()
+                ),
+                Err(e) => {
+                    eprintln!("setup-osupdate failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
         Some("disable-2fa") => {
             match auth::disable_two_factor(&cfg.data_dir) {
                 Ok(true) => println!("Two-factor sign-in is off. Set it up again in Settings."),
@@ -766,6 +795,8 @@ async fn main() {
     release::spawn_checker(notify.clone());
     hostupdates::spawn_checker(notify.clone());
     backupwatch::spawn_checker(notify.clone());
+    let os_control = Arc::new(osupdate::Control::new(Some(&cfg.data_dir)));
+    osupdate::spawn_watcher(os_control.clone(), notify.clone());
     deliver::spawn(notify.clone());
     let metrics = metrics::Shared::default();
     let mut disk_paths = vec![cfg.data_dir.display().to_string()];
@@ -785,6 +816,7 @@ async fn main() {
             metrics,
             notify,
             Arc::new(terminal::Switch::new(cfg.terminal, Some(&cfg.data_dir))),
+            os_control,
         ),
     )
     .await
@@ -817,6 +849,7 @@ mod tests {
             metrics::Shared::default(),
             Arc::new(std::sync::Mutex::new(notify::Store::memory())),
             Arc::new(terminal::Switch::new(false, None)),
+            Arc::new(osupdate::Control::new(None)),
         )
     }
 
@@ -834,6 +867,7 @@ mod tests {
             metrics::Shared::default(),
             Arc::new(std::sync::Mutex::new(notify::Store::memory())),
             Arc::new(terminal::Switch::new(true, None)),
+            Arc::new(osupdate::Control::new(None)),
         )
     }
 
@@ -885,6 +919,125 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn os_update_run_needs_session_origin_helper_switch_and_password() {
+        let dir = std::env::temp_dir().join(format!("dockwren-os-{}", auth::generate_password()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let unit = dir.join("unit");
+        let log = dir.join("log");
+        let hash = auth::hash_password(PASSWORD);
+        let app = app(
+            Arc::new(auth::Auth::new(&hash, false).unwrap()),
+            DockerClient::connect().unwrap(),
+            apps::Apps::new(template::catalog(None).unwrap(), dir.join("none")),
+            metrics::Shared::default(),
+            Arc::new(std::sync::Mutex::new(notify::Store::memory())),
+            Arc::new(terminal::Switch::new(false, None)),
+            Arc::new(osupdate::Control::with_paths(&dir, &log, &unit)),
+        );
+        let post = |cookie: Option<&str>, origin: &str, path: &str, body: &str| {
+            let mut r = Request::post(path)
+                .header(header::HOST, "panel.test")
+                .header(header::ORIGIN, origin)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+            if let Some(c) = cookie {
+                r = r.header(header::COOKIE, c);
+            }
+            app.clone()
+                .oneshot(r.body(Body::from(body.to_string())).unwrap())
+        };
+        let good = format!("password={PASSWORD}");
+        let run = "/host/os-updates/run";
+        assert_eq!(
+            post(None, "http://panel.test", run, &good)
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+        let res = post(Some(&cookie), "http://evil.test", run, &good)
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        // Helper not set up: the page says how, nothing is written.
+        let res = app
+            .clone()
+            .oneshot(
+                Request::get("/settings/osupdates")
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(body_of(res).await.contains("setup-osupdate"));
+        let res = post(Some(&cookie), "http://panel.test", run, &good)
+            .await
+            .unwrap();
+        assert!(body_of(res).await.contains("turned off"));
+        assert!(!dir.join("osupdate.trigger").exists());
+        // Helper present but switch off: still refused.
+        std::fs::write(&unit, "").unwrap();
+        let res = post(Some(&cookie), "http://panel.test", run, &good)
+            .await
+            .unwrap();
+        assert!(body_of(res).await.contains("turned off"));
+        // Turning it on needs the password.
+        let tog = "/settings/osupdates";
+        let res = post(
+            Some(&cookie),
+            "http://panel.test",
+            tog,
+            "on=1&password=wrong",
+        )
+        .await
+        .unwrap();
+        assert!(body_of(res).await.contains("Wrong password"));
+        assert!(!dir.join("osupdate.enabled").exists());
+        post(
+            Some(&cookie),
+            "http://panel.test",
+            tog,
+            &format!("on=1&{good}"),
+        )
+        .await
+        .unwrap();
+        assert!(dir.join("osupdate.enabled").exists());
+        // Start: wrong password writes nothing, right password writes the trigger once.
+        let res = post(Some(&cookie), "http://panel.test", run, "password=wrong")
+            .await
+            .unwrap();
+        assert!(body_of(res).await.contains("Wrong password"));
+        assert!(!dir.join("osupdate.trigger").exists());
+        post(Some(&cookie), "http://panel.test", run, &good)
+            .await
+            .unwrap();
+        assert!(dir.join("osupdate.trigger").exists());
+        let res = post(Some(&cookie), "http://panel.test", run, &good)
+            .await
+            .unwrap();
+        assert!(body_of(res).await.contains("already running"));
+        // The log fragment follows the helper's log and stops polling when it ends.
+        std::fs::remove_file(dir.join("osupdate.trigger")).unwrap();
+        std::fs::write(&log, "== started x\nGet:1 <b>x</b>\n").unwrap();
+        let get_log = || {
+            app.clone().oneshot(
+                Request::get("/host/os-updates/log")
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+        };
+        let html = body_of(get_log().await.unwrap()).await;
+        assert!(html.contains("every 2s") && html.contains("Working"));
+        assert!(html.contains("&#60;b&#62;") || html.contains("&lt;b&gt;"));
+        std::fs::write(&log, "== started x\nE: boom\n== exit 100\n").unwrap();
+        let html = body_of(get_log().await.unwrap()).await;
+        assert!(!html.contains("every 2s") && html.contains("exit 100"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
     async fn terminal_setting_needs_session_origin_and_password() {
         let dir = std::env::temp_dir().join(format!("dockwren-tset-{}", auth::generate_password()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -897,6 +1050,7 @@ mod tests {
             metrics::Shared::default(),
             Arc::new(std::sync::Mutex::new(notify::Store::memory())),
             sw.clone(),
+            Arc::new(osupdate::Control::new(None)),
         );
         let post = |cookie: Option<&str>, origin: &str, body: &str| {
             let mut r = Request::post("/settings/terminal")

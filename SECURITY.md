@@ -18,6 +18,30 @@ Only the latest release receives fixes while the project is pre-1.0.
 See "Security notes" in the README: keep the default loopback bind, put TLS and an identity layer
 in front, and never expose the panel on a public port without HTTPS.
 
+## Installing OS updates from the panel
+
+Off by default and needs two separate steps by you: running `sudo dockwren setup-osupdate` on the
+server (as root), and turning it on in Settings (password and 2FA code required; flag file
+`osupdate.enabled` in the data directory).
+
+The panel stays sandboxed and unprivileged: it cannot run `apt-get` and gets no sudo or polkit rule.
+It can only create the file `osupdate.trigger` in its own data directory. A root-owned systemd path
+unit (`dockwren-osupdate.path`) watches for that file and starts `dockwren-osupdate.service`, which
+runs a fixed script (`/usr/local/lib/dockwren/osupdate.sh`): `apt-get update`, then
+`apt-get full-upgrade` non-interactively, keeping your existing config files. The script ignores
+the content of the trigger, so the only thing a compromised panel process could do with this feature
+is start a package update. It never reboots. The log is written by root to
+`/var/log/dockwren-osupdate.log` and only read by the panel.
+
+- Each start needs the session cookie, a same-origin request and the password (plus the 2FA code when on).
+- One run at a time; a second start while one runs is refused.
+- Every start is written to the panel log and raises a `host.os_update_run` notification; a failed or
+  interrupted run raises `job.failed`.
+- `full-upgrade` can install new packages (for example a new kernel) and remove obsolete ones, which
+  is what Debian recommends for routine updates; a plain `upgrade` would leave kernel updates behind.
+- To remove it: `systemctl disable --now dockwren-osupdate.path`, then delete the two unit files in
+  `/etc/systemd/system/` and `/usr/local/lib/dockwren/`.
+
 ## Web terminal
 
 Off by default. It is turned on either in Settings (password and 2FA code required; stored as a flag file `terminal.enabled` in the data directory, and the change is logged and raises a notification) or forced on with `DOCKWREN_TERMINAL=1`. While off, every terminal route answers 404. Turning it off does not close sessions already open. When on, a logged-in admin
