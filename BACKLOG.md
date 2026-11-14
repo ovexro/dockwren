@@ -4,7 +4,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 (delete the line in the SAME commit that delivers it; grep this file for the feature's keywords first).
 
 ## Open
-- OS updates: not tested on aarch64 Ubuntu (x86_64 Ubuntu 22.04/24.04/26.04 and Debian 13 pass). Verified open 2026-11-14.
+- OS updates: not tested on aarch64 Ubuntu (x86_64 Ubuntu 22.04/24.04/26.04, Debian 13 x86_64 and Debian 13 aarch64 on the Pi pass, 2026-11-14). Verified open 2026-11-14.
 - OS updates: real-packages run seen on a fresh Ubuntu 24.04 VPS (38 pkgs, exit 0, reboot notice) but not yet on the live server (nothing to install there). Verified open 2026-11-14.
 - Terminal: the 3-session limit is untested on real connections. Verified open 2026-11-14.
 - One-step install + publish: the auto-publish branch is not verified live; needs a scoped Cloudflare token (only the Global API Key exists). Verified open 2026-11-14.
