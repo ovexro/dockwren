@@ -17,3 +17,28 @@ Only the latest release receives fixes while the project is pre-1.0.
 
 See "Security notes" in the README: keep the default loopback bind, put TLS and an identity layer
 in front, and never expose the panel on a public port without HTTPS.
+
+## Web terminal
+
+Off unless `DOCKWREN_TERMINAL=1`; without it the routes do not exist. When on, a logged-in admin
+can open a shell (bash, else sh, as the container's default user) inside a container of an app
+Dockwren installed (Compose project `dockwren-<name>`). It is never a shell on the host, and other
+containers are refused.
+
+Threat model: anyone who controls the panel session could already control Docker, but the terminal
+makes that one click, so it is guarded:
+
+- Needs the session cookie, and the WebSocket upgrade must carry an `Origin` equal to the panel's host
+  (a missing or foreign `Origin` is refused).
+- Each open needs the password again (plus the 2FA code when 2FA is on); the grant lasts 10 minutes and
+  is tied to that session. It shares the login rate limit.
+- Requests that arrive through a Cloudflare Tunnel (`Cf-Connecting-Ip` present) are refused unless 2FA is on.
+  This header is set by Cloudflare; if you run your own proxy that is not Cloudflare, it is not detected,
+  so keep 2FA on there too.
+- At most 3 terminals at once, closed after 30 minutes without typing or 4 hours in total; messages over 64 KiB are dropped.
+- Every open and close is written to the panel log (container, short session hash, duration, reason) and
+  raises a `terminal.opened` notification (bell, ntfy, webhook). Keystrokes and output are not recorded.
+- On close the panel sends Ctrl-C and `exit` and closes stdin. Docker cannot kill an exec directly, so a
+  process that ignores this can outlive the session.
+- xterm.js is third-party JavaScript served from the panel's own origin; versions and checksums are in
+  `static/README.md`.

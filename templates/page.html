@@ -45,6 +45,9 @@
     <div id="channels" hx-get="/settings/channels" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>Two-factor sign-in</h2>
     <div id="twofa" hx-get="/settings/2fa" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    <h2>Web terminal</h2>
+    {% if terminal %}<p><strong>On.</strong> Containers of apps Dockwren installed get a Terminal button. Each open asks for your password again and is logged.</p>
+    {% else %}<p>Off. To allow shells inside your app containers, set <code>DOCKWREN_TERMINAL=1</code> in the panel's environment and restart it. See SECURITY.md.</p>{% endif %}
     <h2>Session</h2>
     <form method="post" action="/logout"><button type="submit">Sign out</button></form>
     <p><small>Ends this browser session. Your apps keep running.</small></p>

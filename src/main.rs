@@ -210,6 +210,7 @@ struct PageTemplate {
     nav: &'static [(&'static str, &'static str, &'static str)],
     version: &'static str,
     assets: String,
+    terminal: bool,
 }
 
 /// (href, key, label) of the sidebar entries.
@@ -224,6 +225,10 @@ const NAV: [(&str, &str, &str); 7] = [
 ];
 
 fn page(active: &'static str) -> Html<String> {
+    page_with(active, false)
+}
+
+fn page_with(active: &'static str, terminal: bool) -> Html<String> {
     let title = NAV
         .iter()
         .find(|n| n.1 == active)
@@ -234,6 +239,7 @@ fn page(active: &'static str) -> Html<String> {
         nav: &NAV,
         version: env!("CARGO_PKG_VERSION"),
         assets: asset_version(),
+        terminal,
     };
     Html(page.render().expect("page template renders"))
 }
@@ -273,8 +279,8 @@ async fn cloudflare_page() -> Html<String> {
 async fn notifications_page() -> Html<String> {
     page("notifications")
 }
-async fn settings_page() -> Html<String> {
-    page("settings")
+async fn settings_page(State(state): State<AppState>) -> Html<String> {
+    page_with("settings", state.terminal)
 }
 
 fn app(
