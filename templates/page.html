@@ -41,6 +41,8 @@
     <p><small>Apps are updated from the Apps page; an "Update available" button appears there when a newer version exists.</small></p>
     <h2>Notifications</h2>
     <div id="notify-settings" hx-get="/settings/notifications" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    <h3>Send notifications elsewhere</h3>
+    <div id="channels" hx-get="/settings/channels" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>Two-factor sign-in</h2>
     <div id="twofa" hx-get="/settings/2fa" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>Session</h2>

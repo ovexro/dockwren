@@ -1,0 +1,40 @@
+<div id="channels">
+  <p><small>Besides the Notifications page, Dockwren can push new or escalated notifications to your phone (ntfy) or to any service that accepts a webhook. Only the text of the notification is sent, never passwords or tokens. Delivery is best effort: a failed send is retried a few times, then dropped.</small></p>
+  {% if let Some((ok, text)) = message %}
+  <p role="status"><strong>{% if *ok %}Done:{% else %}Failed:{% endif %}</strong> {{ text }}</p>
+  {% endif %}
+  <form hx-post="/settings/channels" hx-target="#channels" hx-swap="outerHTML" autocomplete="off">
+    <p><label>ntfy server
+      <input type="text" name="ntfy_server" value="{{ ntfy_server }}" placeholder="https://ntfy.sh" spellcheck="false"></label></p>
+    <p><label>ntfy topic
+      <input type="text" name="ntfy_topic" value="{{ ntfy_topic }}" placeholder="a long random name" spellcheck="false"></label><br>
+      <small>Anyone who knows the topic name can read it on a public server, so pick something long and random. Leave empty to turn ntfy off.</small></p>
+    <p><label>ntfy access token (optional)
+      <input type="password" name="ntfy_token" autocomplete="off" spellcheck="false" placeholder="{% if has_token %}saved, leave empty to keep{% else %}only for protected topics{% endif %}"></label></p>
+    <p><label>Webhook address
+      <input type="password" name="webhook_url" autocomplete="off" spellcheck="false" placeholder="{% if has_webhook %}saved ({{ webhook_host }}), leave empty to keep{% else %}https://…{% endif %}"></label><br>
+      <small>Dockwren sends a JSON POST with <code>title</code>, <code>body</code>, <code>severity</code>, <code>kind</code>, <code>link</code>, <code>ts</code>, plus <code>text</code> and <code>content</code> (what Slack and Discord read).</small></p>
+    <p><label>Send me
+      <select name="min">
+        <option value="info" {% if min == "info" %}selected{% endif %}>everything (info, warnings, critical)</option>
+        <option value="warning" {% if min == "warning" %}selected{% endif %}>warnings and critical</option>
+        <option value="critical" {% if min == "critical" %}selected{% endif %}>critical only</option>
+      </select></label></p>
+    <button type="submit">Save</button>
+  </form>
+  {% if configured %}
+  <form hx-post="/settings/channels/test" hx-target="#channels" hx-swap="outerHTML">
+    <button type="submit">Send a test notification</button>
+  </form>
+  {% endif %}
+  {% if has_ntfy %}
+  <form hx-post="/settings/channels/ntfy/remove" hx-target="#channels" hx-swap="outerHTML" hx-confirm="Stop sending to ntfy and forget its settings?">
+    <button type="submit">Remove ntfy</button>
+  </form>
+  {% endif %}
+  {% if has_webhook %}
+  <form hx-post="/settings/channels/webhook/remove" hx-target="#channels" hx-swap="outerHTML" hx-confirm="Stop sending to the webhook and forget its address?">
+    <button type="submit">Remove webhook</button>
+  </form>
+  {% endif %}
+</div>

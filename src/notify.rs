@@ -51,7 +51,7 @@ const MAX_TITLE: usize = 200;
 const MAX_BODY: usize = 2000;
 const MAX_LINK: usize = 300;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Info,
@@ -84,6 +84,9 @@ pub struct Event {
     pub link: Option<String>,
     pub key: String,
     pub state: State,
+    /// Highest severity already sent to the delivery channels (None = never sent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notified: Option<Severity>,
 }
 
 /// What a producer builds; the store assigns id, time and state.
@@ -133,6 +136,9 @@ pub struct Store {
     /// Kinds the admin switched off in Settings: `raise` drops them.
     muted: Vec<String>,
     prefs_path: Option<PathBuf>,
+    /// Where events are sent besides the panel (ntfy, webhook).
+    pub channels: crate::deliver::Config,
+    channels_path: Option<PathBuf>,
 }
 
 pub type Shared = Arc<Mutex<Store>>;
@@ -178,6 +184,12 @@ impl Store {
             .and_then(|t| serde_json::from_str::<Vec<String>>(&t).ok())
             .unwrap_or_default();
         s.prefs_path = Some(prefs);
+        let chan = data_dir.join(crate::deliver::FILE);
+        s.channels = std::fs::read_to_string(&chan)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        s.channels_path = Some(chan);
         s.rewrite();
         s
     }
@@ -204,6 +216,62 @@ impl Store {
         }
     }
 
+    /// Replace the delivery settings and remember them (file mode 0600: URLs and tokens are secrets).
+    /// Events already open are marked as sent, so turning a channel on does not flood it.
+    pub fn set_channels(&mut self, c: crate::deliver::Config) {
+        let was_off = !self.channels.any();
+        self.channels = c;
+        if was_off {
+            self.mark_open_notified();
+        }
+        if let Some(p) = &self.channels_path
+            && let Ok(mut f) = Self::open_file(p, true)
+            && let Ok(t) = serde_json::to_string(&self.channels)
+        {
+            let _ = f.write_all(t.as_bytes());
+        }
+    }
+
+    fn mark_open_notified(&mut self) {
+        let ids: Vec<(u64, Severity)> = self
+            .events
+            .iter()
+            .filter(|e| e.state != State::Resolved)
+            .map(|e| (e.id, e.severity))
+            .collect();
+        for (id, sev) in ids {
+            self.mark_notified(id, sev);
+        }
+    }
+
+    /// Open events the channels have not received yet at their current severity.
+    pub fn pending_delivery(&self, min: Severity) -> Vec<Event> {
+        let mut v: Vec<Event> = self
+            .events
+            .iter()
+            .filter(|e| {
+                e.state != State::Resolved
+                    && e.severity >= min
+                    && e.notified.is_none_or(|n| e.severity > n)
+            })
+            .cloned()
+            .collect();
+        v.sort_by_key(|e| e.id);
+        v
+    }
+
+    pub fn mark_notified(&mut self, id: u64, sev: Severity) {
+        let Some(e) = self.events.iter_mut().find(|e| e.id == id) else {
+            return;
+        };
+        if e.notified.is_some_and(|n| n >= sev) {
+            return;
+        }
+        e.notified = Some(sev);
+        let snapshot = e.clone();
+        self.append(&snapshot);
+    }
+
     /// Replay a log: the last line per id wins, bad lines are skipped, then retention applies.
     fn from_log(text: &str, now: u64) -> Self {
         let mut events: Vec<Event> = Vec::new();
@@ -223,6 +291,8 @@ impl Store {
             path: None,
             muted: Vec::new(),
             prefs_path: None,
+            channels: Default::default(),
+            channels_path: None,
         };
         s.retain(now);
         s
@@ -347,6 +417,7 @@ impl Store {
             link,
             key,
             state: State::New,
+            notified: None,
         };
         self.next_id += 1;
         let id = e.id;
@@ -483,7 +554,7 @@ impl Severity {
             Severity::Critical => "Critical",
         }
     }
-    fn slug(self) -> &'static str {
+    pub fn slug(self) -> &'static str {
         match self {
             Severity::Info => "info",
             Severity::Warning => "warning",
@@ -866,6 +937,7 @@ mod tests {
             link: None,
             key: "k".into(),
             state: State::New,
+            notified: None,
         })
         .unwrap();
         let s = Store::from_log(&format!("not json\n{good}\n{{\"id\":1}}\n\n"), 20);

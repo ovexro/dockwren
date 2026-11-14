@@ -2,6 +2,7 @@ mod apps;
 mod auth;
 mod backup;
 mod config;
+mod deliver;
 mod docker;
 mod hostupdates;
 mod install;
@@ -314,6 +315,9 @@ fn app(
         )
         .route("/settings/notifications", get(notify::kinds_show))
         .route("/settings/notifications/{kind}", post(notify::kind_set))
+        .route("/settings/channels", get(deliver::show).post(deliver::save))
+        .route("/settings/channels/test", post(deliver::test))
+        .route("/settings/channels/{which}/remove", post(deliver::remove))
         .route("/settings/2fa", get(auth::twofa_show))
         .route("/settings/2fa/start", post(auth::twofa_start))
         .route("/settings/2fa/enable", post(auth::twofa_enable))
@@ -739,6 +743,7 @@ async fn main() {
     apps.spawn_update_checker();
     release::spawn_checker(notify.clone());
     hostupdates::spawn_checker(notify.clone());
+    deliver::spawn(notify.clone());
     let metrics = metrics::Shared::default();
     let mut disk_paths = vec![cfg.data_dir.display().to_string()];
     disk_paths.extend(cfg.disk_paths.iter().cloned());
@@ -1185,6 +1190,10 @@ mod tests {
             ("POST", "/notifications/dismiss-all"),
             ("POST", "/notifications/1/dismiss"),
             ("GET", "/cloudflare"),
+            ("GET", "/settings/channels"),
+            ("POST", "/settings/channels"),
+            ("POST", "/settings/channels/test"),
+            ("POST", "/settings/channels/ntfy/remove"),
             ("GET", "/settings/2fa"),
             ("POST", "/settings/2fa/start"),
             ("POST", "/settings/2fa/enable"),

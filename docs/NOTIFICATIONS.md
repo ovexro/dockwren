@@ -49,7 +49,16 @@ Rules:
 wins, mode 0600. It is compacted at start (every open event plus up to 200 closed ones from the
 last 90 days). Switch state lives in `notify-settings.json` next to it.
 
-## Not here yet
+## Delivery channels
 
-Delivery channels (ntfy, webhook, e-mail) are designed but not built; the dispatch point will be
-the "new or escalated" result that `raise` already returns.
+`src/deliver.rs` pushes events out of the panel: ntfy (JSON publish, priority by severity) and a generic
+webhook (JSON POST with `title`, `body`, `severity`, `kind`, `link`, `ts`, plus `text` and `content` for
+Slack and Discord). Producers do nothing: a loop checks every 20 s for open events that were not sent yet at
+their current severity (`Store::pending_delivery`), so a new event and an escalation are sent, a repeat is not.
+Each event remembers the highest severity sent (`notified`). A failed send is retried 3 times, then dropped.
+
+- Settings: ntfy server/topic/token, webhook address, and a minimum severity (default warnings and critical).
+  Addresses and tokens live in `notify-channels.json` (0600), go to curl on stdin and are never shown again.
+- Turning the first channel on marks the events already open as sent, so it is not flooded.
+- Nothing is sent when a condition clears; e-mail is not built.
+- Event text goes to a third party: keep secrets out of titles and bodies (already the rule above).
