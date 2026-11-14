@@ -5,6 +5,7 @@ mod config;
 mod docker;
 mod install;
 mod metrics;
+mod notify;
 mod public;
 mod runner;
 mod template;
