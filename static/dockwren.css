@@ -89,6 +89,7 @@ form button + button { margin-left: .5rem; }
   border: 1px solid var(--border); border-radius: 8px; }
 [role="alert"] { color: var(--bad); font-weight: 600; }
 #job li { display: block; padding: .15rem 0; margin: 0; border: 0; background: none; }
+#job ul { list-style: none; padding: 0; margin: .5rem 0; }
 
 /* Sign-in */
 body > main > form[action="/login"] { max-width: 22rem; margin: 2rem auto 0; padding: 1.5rem; background: var(--surface);
