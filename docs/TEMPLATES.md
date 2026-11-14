@@ -28,7 +28,7 @@ and runs `docker compose --env-file .env`, so `compose.yaml` is copied verbatim 
 id = "hello"                      # [a-z0-9-]+
 name = "Hello"
 description = "Tiny static web server"
-version = 1                        # bump when the manifest or compose file changes
+version = 1                        # bump when compose, images or migrations change
 needs_public_https = false         # true = unusable remotely without HTTPS (shows a note)
 public_url_field = "PUBLIC_URL"    # optional: field holding the app's address; the install form's
                                    # "Public hostname" fills it with https://<host> and hides it
@@ -72,7 +72,7 @@ services:
 
 ## Manifest reference
 
-**`[app]`**: `id`, `name`, `version` are required. Optional: `description`, `homepage`, `needs_public_https`.
+**`[app]`**: `id`, `name`, `version` are required. Bump `version` only when the compose file, an image tag or a migration changes: a bump makes `dockwren update` back up and recreate every installed copy, so do not bump for UI-only edits (labels, help, notes). Optional: `description`, `homepage`, `needs_public_https`.
 
 **`[[fields]]`** are the install form, in order. Keys are `UPPER_SNAKE_CASE`.
 - `type`: `string`, `password`, `int`, `bool`, `port`, `url`, `email`, `select`.
