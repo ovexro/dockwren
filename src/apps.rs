@@ -225,6 +225,11 @@ impl Apps {
                 apps.schedule.mark_run(crate::schedule::now());
                 let keep = apps.schedule.get().keep;
                 for name in apps.instance_names() {
+                    // Stopped or unhealthy apps are skipped: dumps need a running container,
+                    // and a nightly failure for an app the user stopped on purpose is noise.
+                    if !apps.is_healthy(&name).await {
+                        continue;
+                    }
                     // Busy (an update or restore is running) or not backed up here: next slot.
                     let Ok(id) = apps.spawn_backup(&name, keep) else {
                         continue;
@@ -235,6 +240,17 @@ impl Apps {
                 }
             }
         });
+    }
+
+    async fn is_healthy(&self, name: &str) -> bool {
+        let inst = runner::Instance {
+            name: name.to_string(),
+            dir: self.root.join(name),
+        };
+        match runner::compose(&inst, &["ps", "-a", "--format", "json"]).await {
+            Ok(ps) => runner::judge(&ps) == runner::Status::Healthy,
+            Err(_) => false,
+        }
     }
 
     fn instance_names(&self) -> Vec<String> {
