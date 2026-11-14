@@ -254,12 +254,19 @@ fn docker_cmd(inst: &Instance) -> Command {
     cmd
 }
 
-/// Pick the snapshot to restore: the named one, or the newest.
+/// File inside a snapshot that marks it as a safety snapshot taken by `restore`.
+const SAFETY_MARK: &str = ".safety";
+
+/// Pick the snapshot to restore: the named one, or the newest regular one
+/// (safety snapshots are only chosen by name, or when nothing else exists).
 fn pick(backups_root: &Path, instance: &str, name: Option<&str>) -> Result<PathBuf, String> {
     let all = list(backups_root, instance);
     match name {
         None => all
-            .last()
+            .iter()
+            .rev()
+            .find(|p| !p.join(SAFETY_MARK).exists())
+            .or(all.last())
             .cloned()
             .ok_or_else(|| format!("no snapshots of {instance}")),
         Some(n) => all
@@ -307,6 +314,7 @@ pub async fn restore(
         let s = snapshot_keep(backups_root, inst, t, log, keep)
             .await
             .map_err(|e| format!("safety snapshot failed, nothing was changed: {e} (--no-safety-snapshot skips it)"))?;
+        let _ = std::fs::write(s.join(SAFETY_MARK), b"");
         log(&format!("safety snapshot in {}", s.display()));
     }
     let image = first_image(inst).await?;
@@ -583,6 +591,11 @@ mod tests {
                 "{bad}"
             );
         }
+        std::fs::write(root.join("app/200").join(SAFETY_MARK), b"").unwrap();
+        assert!(pick(&root, "app", None).unwrap().ends_with("100"));
+        assert!(pick(&root, "app", Some("200")).unwrap().ends_with("200"));
+        std::fs::write(root.join("app/100").join(SAFETY_MARK), b"").unwrap();
+        assert!(pick(&root, "app", None).unwrap().ends_with("200"));
         assert!(
             pick(&root, "none", None)
                 .unwrap_err()
