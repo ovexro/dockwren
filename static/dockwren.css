@@ -182,6 +182,9 @@ form p { margin: .9rem 0 1.1rem; }
 ul.events, ul.alerts { list-style: none; padding: 0; margin: .75rem 0; display: grid; gap: .5rem; }
 .event { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; padding: .75rem 1rem;
   background: var(--surface); border: 1px solid var(--border); border-left-width: 4px; border-radius: 8px; }
+.event { flex-wrap: nowrap; }
+.event > div { min-width: 0; overflow-wrap: anywhere; }
+.event > button { flex: none; }
 .event p { margin: .2rem 0; }
 .events.closed .event { opacity: .7; padding: .5rem 1rem; }
 .event[data-severity="info"] { border-left-color: var(--muted); }

@@ -9,7 +9,7 @@
     {% for s in snapshots %}
     <label><input type="radio" name="snapshot" value="{{ s.name }}"{% if loop.first %} checked{% endif %}> {{ s.when }}{% if loop.first %} (newest){% endif %}</label>
     {% endfor %}
-    <button class="danger" type="submit">Restore selected snapshot</button>
+    <button class="danger" type="submit">Restore selected snapshot</button> <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
   </form>
   {% endif %}
   {% if leftovers > 0 %}
