@@ -32,11 +32,11 @@ a { color: var(--accent); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Lists of apps */
-main ul { list-style: none; margin: 0; padding: 0; }
-main li { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; padding: .75rem 1rem; margin-bottom: .5rem;
+main ul:where(.cards) { list-style: none; margin: 0; padding: 0; }
+main ul:where(.cards) > li { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; padding: .75rem 1rem; margin-bottom: .5rem;
   background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
-main li button { margin-left: auto; }
-main li em { color: var(--muted); font-style: normal; font-size: .875rem; }
+main ul:where(.cards) > li button { margin-left: auto; }
+main ul:where(.cards) > li em { color: var(--muted); font-style: normal; font-size: .875rem; }
 
 /* Tables */
 table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border);

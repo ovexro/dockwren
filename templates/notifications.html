@@ -4,7 +4,7 @@
   <p class="muted">Nothing needs your attention.</p>
   {% else %}
   <p><button hx-post="/notifications/dismiss-all" hx-target="#notifications" hx-swap="outerHTML">Dismiss all</button></p>
-  <ul class="events">
+  <ul class="events cards">
     {% for e in open %}
     <li class="event" data-severity="{{ e.severity }}">
       <div>
@@ -21,7 +21,7 @@
   {% if !closed.is_empty() %}
   <details>
     <summary>Recently closed ({{ closed.len() }})</summary>
-    <ul class="events closed">
+    <ul class="events closed cards">
       {% for e in closed %}
       <li class="event" data-severity="{{ e.severity }}"><div><b class="sev">{{ e.label }}</b> {{ e.title }} <small class="muted">· {{ e.age }}</small></div></li>
       {% endfor %}

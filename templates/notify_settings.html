@@ -1,6 +1,6 @@
 <div id="notify-settings">
   <p><small>Choose what shows up on the Notifications page. Switching a kind off also closes its open notifications.</small></p>
-  <ul class="kinds">
+  <ul class="kinds cards">
     {% for k in kinds %}
     <li>
       <label><input type="checkbox" name="on" value="1" {% if k.on %}checked{% endif %} hx-post="/settings/notifications/{{ k.kind }}" hx-target="#notify-settings" hx-swap="outerHTML"> {{ k.label }}</label>
