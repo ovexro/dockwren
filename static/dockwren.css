@@ -180,7 +180,7 @@ form p { margin: .9rem 0 1.1rem; }
 .count { display: inline-block; margin-left: .45rem; min-width: 1.3rem; padding: 0 .4rem; border-radius: 999px; text-align: center;
   font-size: .75rem; line-height: 1.3rem; background: var(--accent); color: var(--accent-text); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-ul.events, ul.alerts { list-style: none; padding: 0; margin: .75rem 0; display: grid; gap: .5rem; }
+ul.events, ul.alerts { list-style: none; padding: 0; margin: .75rem 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; }
 .event { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; padding: .75rem 1rem;
   background: var(--surface); border: 1px solid var(--border); border-left-width: 4px; border-radius: 8px; }
 .event { flex-wrap: nowrap; }
@@ -201,6 +201,10 @@ ul.events, ul.alerts { list-style: none; padding: 0; margin: .75rem 0; display: 
 .side li { position: relative; }
 .side #bell { position: absolute; right: .75rem; top: 50%; transform: translateY(-50%); pointer-events: none; }
 .side #bell .count { margin-left: 0; }
+@media (max-width: 48rem) {
+  .side #bell { right: .1rem; top: .2rem; transform: none; }
+  .side #bell .count { min-width: 1rem; padding: 0 .25rem; font-size: .6rem; line-height: 1rem; }
+}
 
 /* Settings: one switch per notification kind */
 ul.kinds { list-style: none; padding: 0; margin: .75rem 0; }
