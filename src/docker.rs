@@ -5,7 +5,10 @@ use bollard::{
     models::ContainerSummary,
     query_parameters::{ListContainersOptionsBuilder, LogsOptionsBuilder, StatsOptionsBuilder},
 };
+use bollard::exec::StartExecResults;
 use futures_util::StreamExt;
+use std::pin::Pin;
+use tokio::io::AsyncWrite;
 
 /// Upper bound for log text sent to the browser (the newest bytes are kept).
 const MAX_LOG_BYTES: usize = 256 * 1024;
@@ -82,6 +85,44 @@ impl DockerClient {
         Ok(limit_tail(out, MAX_LOG_BYTES))
     }
 
+    /// Opens an interactive shell (tty) inside a running container. `id` must pass [`valid_id`].
+    /// Runs as the container's default user; prefers bash, falls back to sh.
+    pub async fn open_shell(&self, id: &str) -> Result<ShellSession, bollard::errors::Error> {
+        let config = bollard::models::ExecConfig {
+            attach_stdin: Some(true),
+            attach_stdout: Some(true),
+            attach_stderr: Some(true),
+            tty: Some(true),
+            cmd: Some(shell_command()),
+            ..Default::default()
+        };
+        let exec = self.inner.create_exec(id, config).await?;
+        match self.inner.start_exec(&exec.id, None).await? {
+            StartExecResults::Attached { output, input } => Ok(ShellSession {
+                exec_id: exec.id,
+                output: Box::pin(output.map(|r| r.map(|chunk| chunk.into_bytes().to_vec()))),
+                input,
+            }),
+            StartExecResults::Detached => Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 500,
+                message: "exec started detached".into(),
+            }),
+        }
+    }
+
+    /// Tells the shell's tty its new size (clamped, see [`clamp_size`]).
+    pub async fn resize_shell(
+        &self,
+        exec_id: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<(), bollard::errors::Error> {
+        let (width, height) = clamp_size(cols, rows);
+        self.inner
+            .resize_exec(exec_id, bollard::exec::ResizeExecOptions { height, width })
+            .await
+    }
+
     /// Lists all containers, running or not, sorted by name.
     pub async fn containers(&self) -> Result<Vec<ContainerInfo>, bollard::errors::Error> {
         let options = ListContainersOptionsBuilder::default().all(true).build();
@@ -95,6 +136,26 @@ impl DockerClient {
         list.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(list)
     }
+}
+
+/// An attached interactive shell: bytes out of the tty, bytes into it.
+pub struct ShellSession {
+    pub exec_id: String,
+    pub output: Pin<Box<dyn futures_util::Stream<Item = Result<Vec<u8>, bollard::errors::Error>> + Send>>,
+    pub input: Pin<Box<dyn AsyncWrite + Send>>,
+}
+
+/// Command that starts bash when present and plain sh otherwise.
+pub fn shell_command() -> Vec<String> {
+    ["sh", "-c", "command -v bash >/dev/null 2>&1 && exec bash || exec sh"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// Browser-supplied terminal sizes are untrusted: keep them in a sane range.
+pub fn clamp_size(cols: u16, rows: u16) -> (u16, u16) {
+    (cols.clamp(20, 500), rows.clamp(5, 200))
 }
 
 /// Current resource use of one running container.
@@ -205,6 +266,20 @@ impl From<ContainerSummary> for ContainerInfo {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn shell_command_prefers_bash_then_sh() {
+        let c = shell_command();
+        assert_eq!(c[0], "sh");
+        assert!(c[2].contains("exec bash") && c[2].contains("exec sh"));
+    }
+
+    #[test]
+    fn terminal_size_is_clamped() {
+        assert_eq!(clamp_size(0, 0), (20, 5));
+        assert_eq!(clamp_size(80, 24), (80, 24));
+        assert_eq!(clamp_size(60000, 60000), (500, 200));
+    }
+
     use super::*;
     use bollard::models::ContainerSummaryStateEnum;
 
@@ -272,5 +347,44 @@ mod tests {
             Ok(list) => assert!(list.windows(2).all(|w| w[0].name <= w[1].name)),
             Err(e) => eprintln!("skipping, daemon not reachable: {e}"),
         }
+    }
+
+    /// Opens a real shell in a throwaway container; skipped without Docker or the image.
+    #[tokio::test]
+    async fn shell_session_runs_commands_in_a_container() {
+        use tokio::io::AsyncWriteExt;
+        let Ok(client) = DockerClient::connect() else {
+            return;
+        };
+        let name = "dockwren-term-test";
+        let run = std::process::Command::new("docker")
+            .args(["run", "-d", "--rm", "--name", name, "postgres:17-alpine", "sleep", "60"])
+            .output();
+        let Ok(out) = run else { return };
+        if !out.status.success() {
+            eprintln!("skipping, cannot start test container");
+            return;
+        }
+        let id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let result = async {
+            let mut sh = client.open_shell(&id).await.map_err(|e| e.to_string())?;
+            client.resize_shell(&sh.exec_id, 100, 30).await.map_err(|e| e.to_string())?;
+            sh.input.write_all(b"echo hi-$((1+2))\nexit\n").await.map_err(|e| e.to_string())?;
+            let mut seen = Vec::new();
+            let read = async {
+                while let Some(chunk) = sh.output.next().await {
+                    seen.extend(chunk.map_err(|e| e.to_string())?);
+                }
+                Ok::<(), String>(())
+            };
+            tokio::time::timeout(std::time::Duration::from_secs(10), read)
+                .await
+                .map_err(|_| "timeout".to_string())??;
+            Ok::<String, String>(String::from_utf8_lossy(&seen).to_string())
+        }
+        .await;
+        let _ = std::process::Command::new("docker").args(["rm", "-f", name]).output();
+        let text = result.expect("shell session");
+        assert!(text.contains("hi-3"), "output was: {text:?}");
     }
 }
