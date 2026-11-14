@@ -20,7 +20,7 @@ in front, and never expose the panel on a public port without HTTPS.
 
 ## Web terminal
 
-Off unless `DOCKWREN_TERMINAL=1`; without it the routes do not exist. When on, a logged-in admin
+Off by default. It is turned on either in Settings (password and 2FA code required; stored as a flag file `terminal.enabled` in the data directory, and the change is logged and raises a notification) or forced on with `DOCKWREN_TERMINAL=1`. While off, every terminal route answers 404. Turning it off does not close sessions already open. When on, a logged-in admin
 can open a shell (bash, else sh, as the container's default user) inside a container of an app
 Dockwren installed (Compose project `dockwren-<name>`). It is never a shell on the host, and other
 containers are refused.

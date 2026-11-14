@@ -38,7 +38,7 @@ struct AppState {
     apps: apps::Apps,
     metrics: metrics::Shared,
     notify: notify::Shared,
-    terminal: bool,
+    terminal: Arc<terminal::Switch>,
 }
 
 impl FromRef<AppState> for notify::Shared {
@@ -91,7 +91,7 @@ fn render_containers(result: Result<Vec<ContainerInfo>, String>, terminal: bool)
 
 async fn containers(State(state): State<AppState>) -> Html<String> {
     let result = state.docker.containers().await.map_err(|e| e.to_string());
-    Html(render_containers(result, state.terminal))
+    Html(render_containers(result, state.terminal.is_on()))
 }
 
 #[derive(Template)]
@@ -150,7 +150,10 @@ async fn container_action(
         return Err(StatusCode::NOT_FOUND);
     }
     if let Err(e) = state.docker.act(&id, action).await {
-        return Ok(Html(render_containers(Err(e.to_string()), state.terminal)));
+        return Ok(Html(render_containers(
+            Err(e.to_string()),
+            state.terminal.is_on(),
+        )));
     }
     Ok(containers(State(state)).await)
 }
@@ -210,7 +213,6 @@ struct PageTemplate {
     nav: &'static [(&'static str, &'static str, &'static str)],
     version: &'static str,
     assets: String,
-    terminal: bool,
 }
 
 /// (href, key, label) of the sidebar entries.
@@ -225,10 +227,6 @@ const NAV: [(&str, &str, &str); 7] = [
 ];
 
 fn page(active: &'static str) -> Html<String> {
-    page_with(active, false)
-}
-
-fn page_with(active: &'static str, terminal: bool) -> Html<String> {
     let title = NAV
         .iter()
         .find(|n| n.1 == active)
@@ -239,7 +237,6 @@ fn page_with(active: &'static str, terminal: bool) -> Html<String> {
         nav: &NAV,
         version: env!("CARGO_PKG_VERSION"),
         assets: asset_version(),
-        terminal,
     };
     Html(page.render().expect("page template renders"))
 }
@@ -279,8 +276,8 @@ async fn cloudflare_page() -> Html<String> {
 async fn notifications_page() -> Html<String> {
     page("notifications")
 }
-async fn settings_page(State(state): State<AppState>) -> Html<String> {
-    page_with("settings", state.terminal)
+async fn settings_page() -> Html<String> {
+    page("settings")
 }
 
 fn app(
@@ -289,10 +286,14 @@ fn app(
     apps: apps::Apps,
     metrics: metrics::Shared,
     notify: notify::Shared,
-    terminal: bool,
+    terminal: Arc<terminal::Switch>,
 ) -> Router {
-    let terminal_routes =
-        terminal.then(|| terminal::router(auth.clone(), docker.clone(), notify.clone()));
+    let terminal_routes = terminal::router(
+        auth.clone(),
+        docker.clone(),
+        notify.clone(),
+        terminal.clone(),
+    );
     let protected = Router::new()
         .route("/", get(index))
         .route("/metrics", get(metrics::page))
@@ -374,10 +375,7 @@ fn app(
             notify,
             terminal,
         });
-    match terminal_routes {
-        Some(t) => router.merge(t),
-        None => router,
-    }
+    router.merge(terminal_routes)
 }
 
 /// `dockwren install <app> [KEY=VALUE...]`: resolve, prepare, bring up.
@@ -780,7 +778,14 @@ async fn main() {
     );
     axum::serve(
         listener,
-        app(auth, docker, apps, metrics, notify, cfg.terminal),
+        app(
+            auth,
+            docker,
+            apps,
+            metrics,
+            notify,
+            Arc::new(terminal::Switch::new(cfg.terminal, Some(&cfg.data_dir))),
+        ),
     )
     .await
     .expect("server error");
@@ -811,7 +816,7 @@ mod tests {
             apps,
             metrics::Shared::default(),
             Arc::new(std::sync::Mutex::new(notify::Store::memory())),
-            false,
+            Arc::new(terminal::Switch::new(false, None)),
         )
     }
 
@@ -828,7 +833,7 @@ mod tests {
             apps,
             metrics::Shared::default(),
             Arc::new(std::sync::Mutex::new(notify::Store::memory())),
-            true,
+            Arc::new(terminal::Switch::new(true, None)),
         )
     }
 
@@ -877,6 +882,55 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn terminal_setting_needs_session_origin_and_password() {
+        let dir = std::env::temp_dir().join(format!("dockwren-tset-{}", auth::generate_password()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let hash = auth::hash_password(PASSWORD);
+        let sw = Arc::new(terminal::Switch::new(false, Some(&dir)));
+        let app = app(
+            Arc::new(auth::Auth::new(&hash, false).unwrap()),
+            DockerClient::connect().unwrap(),
+            apps::Apps::new(template::catalog(None).unwrap(), dir.join("none")),
+            metrics::Shared::default(),
+            Arc::new(std::sync::Mutex::new(notify::Store::memory())),
+            sw.clone(),
+        );
+        let post = |cookie: Option<&str>, origin: &str, body: &str| {
+            let mut r = Request::post("/settings/terminal")
+                .header(header::HOST, "panel.test")
+                .header(header::ORIGIN, origin)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+            if let Some(c) = cookie {
+                r = r.header(header::COOKIE, c);
+            }
+            app.clone()
+                .oneshot(r.body(Body::from(body.to_string())).unwrap())
+        };
+        let on = format!("on=1&password={PASSWORD}");
+        assert_eq!(
+            post(None, "http://panel.test", &on).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+        let res = post(Some(&cookie), "http://evil.test", &on).await.unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let res = post(Some(&cookie), "http://panel.test", "on=1&password=wrong")
+            .await
+            .unwrap();
+        assert!(body_of(res).await.contains("Wrong password"));
+        assert!(!sw.is_on());
+        let res = post(Some(&cookie), "http://panel.test", &on).await.unwrap();
+        assert!(body_of(res).await.contains("Turn off"));
+        assert!(sw.is_on());
+        let off = format!("on=0&password={PASSWORD}");
+        post(Some(&cookie), "http://panel.test", &off)
+            .await
+            .unwrap();
+        assert!(!sw.is_on());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

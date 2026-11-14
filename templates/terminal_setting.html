@@ -1,0 +1,18 @@
+<div id="terminal-setting">
+  {% if let Some(e) = error %}<p role="alert">{{ e }}</p>{% endif %}
+  {% if forced %}
+  <p><strong>On</strong>, set by <code>DOCKWREN_TERMINAL=1</code> in the panel's environment. Remove that variable to control it here.</p>
+  {% else %}
+  {% if on %}
+  <p><strong>On.</strong> Containers of apps Dockwren installed get a Terminal button. Each open asks for your password again and is logged. Turning it off does not close sessions already open.</p>
+  {% else %}
+  <p>Off. Turning it on lets you open a shell inside containers of apps Dockwren installed.{% if !two_factor %} Turn on two-factor sign-in first: it is required for a terminal reached through a Cloudflare Tunnel.{% endif %}</p>
+  {% endif %}
+  <form hx-post="/settings/terminal" hx-target="#terminal-setting" hx-swap="outerHTML" autocomplete="off">
+    <input type="hidden" name="on" value="{% if on %}0{% else %}1{% endif %}">
+    <label>Password, to confirm <input type="password" name="password" required autocomplete="current-password"></label>
+    {% if two_factor %}<label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>{% endif %}
+    <button type="submit"{% if !on %} class="primary"{% endif %}>{% if on %}Turn off{% else %}Turn on{% endif %}</button>
+  </form>
+  {% endif %}
+</div>

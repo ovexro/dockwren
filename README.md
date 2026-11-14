@@ -50,7 +50,7 @@ Release binaries and `SHA256SUMS` are on the
   taken before a restore.
 - Cloudflare Tunnel publishing with DNS conflict handling and optional Cloudflare Access (see below).
 - `dockwren set-password` to rotate the admin password.
-- Web terminal (optional, off by default): a shell inside the containers of apps Dockwren installed, from the Containers page. Needs `DOCKWREN_TERMINAL=1`, asks for your password (and 2FA code) each time, is logged and shown in Notifications. Not a host shell.
+- Web terminal (optional, off by default): a shell inside the containers of apps Dockwren installed, from the Containers page. Turn it on in Settings (or force it with `DOCKWREN_TERMINAL=1`); it asks for your password (and 2FA code) each time, is logged and shown in Notifications. Not a host shell.
 - Two-factor sign-in (optional): turn it on in Settings with any authenticator app (Google Authenticator works). Locked out? `dockwren disable-2fa` turns it off.
 
 CLI: `dockwren [serve | set-password | disable-2fa | install | backup | update | restore | cleanup | expose | unexpose | remove]`.
@@ -81,7 +81,7 @@ All settings are environment variables.
 | `DOCKWREN_BIND` | `127.0.0.1:8080` | Listen address. Local-only by default. |
 | `DOCKWREN_DISKS` | unset | Extra directories (comma separated) whose disks get a graph; the data directory's disk is always shown. |
 | `DOCKWREN_BACKUP_STATUS` | unset | Status file of your host backup job (one line, containing `FAIL` when the last run failed). Raises a notification on failure or when the file is older than 36 hours. See docs/NOTIFICATIONS.md. |
-| `DOCKWREN_TERMINAL` | unset | Set to `1` to enable the web terminal (a shell inside containers Dockwren installed). Off by default; see SECURITY.md. |
+| `DOCKWREN_TERMINAL` | unset | Set to `1` to force the web terminal on (a shell inside containers Dockwren installed). Unset, it is off until you turn it on in Settings (asks for your password). See SECURITY.md. |
 | `DOCKWREN_SECURE_COOKIE` | unset | Set to `1` when served over HTTPS so the session cookie is marked `Secure`. |
 
 ## Changing the password

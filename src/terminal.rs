@@ -49,6 +49,44 @@ const MAX_MESSAGE: usize = 64 * 1024;
 /// Panel-managed Compose projects are named `dockwren-<instance>` (see `runner::compose`).
 const PROJECT_PREFIX: &str = "dockwren-";
 
+/// Whether the terminal is on: forced by `DOCKWREN_TERMINAL=1`, or turned on in Settings
+/// (a flag file in the data directory).
+pub struct Switch {
+    forced: bool,
+    file: Option<std::path::PathBuf>,
+}
+
+impl Switch {
+    pub fn new(forced: bool, data_dir: Option<&std::path::Path>) -> Self {
+        Self {
+            forced,
+            file: data_dir.map(|d| d.join("terminal.enabled")),
+        }
+    }
+
+    pub fn is_on(&self) -> bool {
+        self.forced || self.file.as_ref().is_some_and(|f| f.exists())
+    }
+
+    pub fn forced(&self) -> bool {
+        self.forced
+    }
+
+    fn set(&self, on: bool) -> std::io::Result<()> {
+        let Some(f) = &self.file else {
+            return Err(std::io::Error::other("no data directory"));
+        };
+        if on {
+            std::fs::write(f, "1\n")
+        } else {
+            match std::fs::remove_file(f) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+                _ => Ok(()),
+            }
+        }
+    }
+}
+
 /// Re-auth grants and the live-session counter.
 #[derive(Default)]
 pub struct Gate {
@@ -97,9 +135,15 @@ struct TermState {
     docker: DockerClient,
     notify: notify::Shared,
     gate: Arc<Gate>,
+    switch: Arc<Switch>,
 }
 
-pub fn router(auth: SharedAuth, docker: DockerClient, notify: notify::Shared) -> Router {
+pub fn router(
+    auth: SharedAuth,
+    docker: DockerClient,
+    notify: notify::Shared,
+    switch: Arc<Switch>,
+) -> Router {
     Router::new()
         .route("/containers/{id}/terminal", get(page))
         .route(
@@ -115,6 +159,7 @@ pub fn router(auth: SharedAuth, docker: DockerClient, notify: notify::Shared) ->
             "/static/terminal.js",
             get(|| asset("text/javascript", TERMINAL_JS)),
         )
+        .route("/settings/terminal", get(setting_show).post(setting_set))
         .route("/containers/{id}/terminal/grant", post(grant))
         .route("/containers/{id}/terminal/ws", get(ws))
         .with_state(TermState {
@@ -122,6 +167,7 @@ pub fn router(auth: SharedAuth, docker: DockerClient, notify: notify::Shared) ->
             docker,
             notify,
             gate: Arc::new(Gate::default()),
+            switch,
         })
 }
 
@@ -151,6 +197,82 @@ async fn asset(kind: &'static str, body: &'static str) -> Response {
 }
 
 #[derive(Template)]
+#[template(path = "terminal_setting.html")]
+struct SettingTemplate {
+    on: bool,
+    forced: bool,
+    two_factor: bool,
+    error: Option<&'static str>,
+}
+
+fn setting_html(s: &TermState, error: Option<&'static str>) -> Response {
+    let t = SettingTemplate {
+        on: s.switch.is_on(),
+        forced: s.switch.forced(),
+        two_factor: s.auth.two_factor_enabled(),
+        error,
+    };
+    Html(t.render().expect("terminal setting renders")).into_response()
+}
+
+/// `GET /settings/terminal`: the on/off control shown in Settings.
+async fn setting_show(State(s): State<TermState>, headers: HeaderMap) -> Response {
+    if s.auth.session_of(&headers).is_none() {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    setting_html(&s, None)
+}
+
+#[derive(Deserialize)]
+struct SettingForm {
+    on: String,
+    password: String,
+    #[serde(default)]
+    code: String,
+}
+
+/// `POST /settings/terminal`: turn the terminal on or off; needs the password (and 2FA code) again.
+async fn setting_set(
+    State(s): State<TermState>,
+    headers: HeaderMap,
+    Form(form): Form<SettingForm>,
+) -> Response {
+    if s.auth.session_of(&headers).is_none() {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    if !crate::same_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if s.switch.forced() {
+        return setting_html(
+            &s,
+            Some("Set by DOCKWREN_TERMINAL=1; remove that variable to control it here."),
+        );
+    }
+    if !s.auth.reauth(form.password, &form.code).await {
+        return setting_html(&s, Some("Wrong password or code."));
+    }
+    let on = form.on == "1";
+    if let Err(e) = s.switch.set(on) {
+        eprintln!("terminal: cannot change setting: {e}");
+        return setting_html(&s, Some("Could not save the setting (see the panel log)."));
+    }
+    let word = if on { "on" } else { "off" };
+    eprintln!("terminal: turned {word} from Settings");
+    notify::raise(
+        &s.notify,
+        NewEvent::new(
+            "terminal",
+            "terminal.opened",
+            Severity::Info,
+            &format!("Web terminal turned {word}"),
+        )
+        .key(format!("terminal.setting:{}", rand_tag())),
+    );
+    setting_html(&s, None)
+}
+
+#[derive(Template)]
 #[template(path = "terminal.html")]
 struct PageTemplate {
     id: String,
@@ -161,6 +283,9 @@ struct PageTemplate {
 
 /// `GET /containers/{id}/terminal`: the page with the re-auth form and the terminal.
 async fn page(State(s): State<TermState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    if !s.switch.is_on() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
     if s.auth.session_of(&headers).is_none() {
         return Redirect::to("/login").into_response();
     }
@@ -192,6 +317,9 @@ struct GrantForm {
 
 /// Checks the common preconditions; returns the session token on success.
 fn precheck<'a>(s: &TermState, headers: &'a HeaderMap, id: &str) -> Result<&'a str, StatusCode> {
+    if !s.switch.is_on() {
+        return Err(StatusCode::NOT_FOUND);
+    }
     let token = s.auth.session_of(headers).ok_or(StatusCode::UNAUTHORIZED)?;
     if !origin_ok(headers) {
         return Err(StatusCode::FORBIDDEN);
@@ -346,6 +474,22 @@ fn rand_tag() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn switch_follows_the_flag_file_unless_forced() {
+        let dir = std::env::temp_dir().join(format!("dockwren-sw-{}", rand_tag()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sw = Switch::new(false, Some(&dir));
+        assert!(!sw.is_on());
+        sw.set(true).unwrap();
+        assert!(sw.is_on());
+        sw.set(false).unwrap();
+        sw.set(false).unwrap(); // already off is fine
+        assert!(!sw.is_on());
+        assert!(Switch::new(true, None).is_on());
+        assert!(Switch::new(false, None).set(true).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn origin_must_be_present_and_match() {
