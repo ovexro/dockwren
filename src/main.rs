@@ -211,7 +211,7 @@ async fn htmx_js() -> impl IntoResponse {
 struct PageTemplate {
     title: &'static str,
     active: &'static str,
-    nav: &'static [(&'static str, &'static str, &'static str)],
+    nav: &'static [(&'static str, &'static str, &'static str, &'static str)],
     version: &'static str,
     assets: String,
     tab: &'static str,
@@ -225,15 +225,15 @@ const SETTINGS_TABS: [(&str, &str); 4] = [
     ("system", "System"),
 ];
 
-/// (href, key, label) of the sidebar entries.
-const NAV: [(&str, &str, &str); 7] = [
-    ("/", "overview", "Overview"),
-    ("/apps", "apps", "Apps"),
-    ("/containers", "containers", "Containers"),
-    ("/resources", "resources", "Resources"),
-    ("/notifications", "notifications", "Notifications"),
-    ("/cloudflare", "cloudflare", "Cloudflare"),
-    ("/settings", "settings", "Settings"),
+/// (href, key, label, short label for the narrow bottom bar) of the sidebar entries.
+const NAV: [(&str, &str, &str, &str); 7] = [
+    ("/", "overview", "Overview", "Overview"),
+    ("/apps", "apps", "Apps", "Apps"),
+    ("/containers", "containers", "Containers", "Docker"),
+    ("/resources", "resources", "Resources", "Stats"),
+    ("/notifications", "notifications", "Notifications", "Alerts"),
+    ("/cloudflare", "cloudflare", "Cloudflare", "Cloudflare"),
+    ("/settings", "settings", "Settings", "Settings"),
 ];
 
 fn page(active: &'static str) -> Html<String> {

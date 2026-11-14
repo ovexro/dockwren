@@ -12,7 +12,7 @@
   <nav class="side" aria-label="Main">
     <a class="brand" href="/"><img src="/favicon.svg" alt="" width="28" height="28">Dockwren</a>
     <ul>
-      {% for n in nav %}<li><a href="{{ n.0 }}"{% if n.1 == active %} aria-current="page"{% endif %}>{{ n.2 }}</a>{% if n.1 == "notifications" %}<span id="bell" hx-get="/notifications/count" hx-trigger="load, every 30s" hx-swap="outerHTML"></span>{% endif %}</li>
+      {% for n in nav %}<li><a href="{{ n.0 }}"{% if n.1 == active %} aria-current="page"{% endif %} aria-label="{{ n.2 }}"><span class="full">{{ n.2 }}</span><span class="short" aria-hidden="true">{{ n.3 }}</span></a>{% if n.1 == "notifications" %}<span id="bell" hx-get="/notifications/count" hx-trigger="load, every 30s" hx-swap="outerHTML"></span>{% endif %}</li>
       {% endfor %}
     </ul>
   </nav>
