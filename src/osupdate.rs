@@ -122,6 +122,10 @@ fn run_id(run: Run, log: &str) -> Option<String> {
 
 /// First `E:` line apt printed, else a generic hint.
 fn summary(log: &str) -> String {
+    if log.contains("Unable to acquire the dpkg") || log.contains("Waiting for cache lock") {
+        // A fresh server runs unattended-upgrades for a while after its first boot.
+        return "Another package manager (often automatic updates after a fresh install) was busy for 15 minutes. Try again in a few minutes.".to_string();
+    }
     log.lines()
         .find(|l| l.starts_with("E: "))
         .map(|l| l.chars().take(300).collect())
@@ -245,8 +249,8 @@ exec >"$LOG" 2>&1
 echo "== started $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 rm -f -- "$TRIGGER"
 export DEBIAN_FRONTEND=noninteractive LC_ALL=C NEEDRESTART_SUSPEND=1
-apt-get -q -o DPkg::Lock::Timeout=300 update &&
-apt-get -q -y -o DPkg::Lock::Timeout=300 \
+apt-get -q -o DPkg::Lock::Timeout=900 update &&
+apt-get -q -y -o DPkg::Lock::Timeout=900 \
   -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold full-upgrade
 rc=$?
 echo "== exit $rc $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -605,6 +609,10 @@ mod tests {
             "E: Unable to lock"
         );
         assert!(summary("nothing\n").contains("log"));
+        let busy = summary(
+            "Waiting for cache lock: held by 8331\nE: Unable to acquire the dpkg frontend lock\n",
+        );
+        assert!(busy.contains("Try again"));
     }
 
     #[test]
