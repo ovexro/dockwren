@@ -1,0 +1,13 @@
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:12.4
+    restart: unless-stopped
+    environment:
+      JELLYFIN_PublishedServerUrl: ${PUBLIC_URL}
+      TZ: ${TIME_ZONE}
+    volumes:
+      - ./config:/config
+      - ./cache:/cache
+      - ${MEDIA_PATH}:/media:ro
+    ports:
+      - "127.0.0.1:${WEB_PORT}:8096"

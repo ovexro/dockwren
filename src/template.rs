@@ -284,6 +284,16 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/paperless-ngx/icon.svg"),
     ),
     (
+        include_str!("../apps/jellyfin/manifest.toml"),
+        include_str!("../apps/jellyfin/compose.yaml"),
+        include_str!("../apps/jellyfin/icon.svg"),
+    ),
+    (
+        include_str!("../apps/nextcloud/manifest.toml"),
+        include_str!("../apps/nextcloud/compose.yaml"),
+        include_str!("../apps/nextcloud/icon.svg"),
+    ),
+    (
         include_str!("../apps/wordpress/manifest.toml"),
         include_str!("../apps/wordpress/compose.yaml"),
         include_str!("../apps/wordpress/icon.svg"),
@@ -618,8 +628,10 @@ mod tests {
             ids,
             [
                 "gitea",
+                "jellyfin",
                 "memos",
                 "miniflux",
+                "nextcloud",
                 "paperless-ngx",
                 "uptime-kuma",
                 "vaultwarden",
@@ -628,7 +640,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 7);
+        assert_eq!(c.len(), 9);
     }
 
     #[test]
@@ -652,8 +664,10 @@ mod tests {
             ids,
             [
                 "gitea",
+                "jellyfin",
                 "memos",
                 "miniflux",
+                "nextcloud",
                 "paperless-ngx",
                 "uptime-kuma",
                 "vaultwarden",

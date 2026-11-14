@@ -1,0 +1,82 @@
+[app]
+id = "nextcloud"
+name = "Nextcloud"
+description = "Your own cloud: files, calendar, contacts and more"
+homepage = "https://nextcloud.com/"
+version = 1
+note = "Files, calendar and contacts, synced to your devices. First start takes a few minutes while the database is prepared. After it is up, sign in with the admin user and the password shown once after the install."
+public_url_field = "PUBLIC_URL"
+needs_public_https = true
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "nextcloud"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers. It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "PUBLIC_URL"
+label = "Public URL"
+type = "string"
+default = "http://127.0.0.1:${WEB_PORT}"
+pattern = "^https?://[^/\\s]+$"
+help = "The full web address of the app, for example https://cloud.example.com, with nothing after the domain. Normally filled in for you from Public hostname."
+
+[[fields]]
+key = "ADMIN_USER"
+label = "Admin user"
+type = "string"
+default = "admin"
+pattern = "^[a-z][a-z0-9_-]{2,30}$"
+help = "The username you will sign in with. Dockwren creates a strong password for you and shows it once after the install, so copy it then."
+
+[[secrets]]
+key = "POSTGRES_PASSWORD"
+kind = "password"
+length = 32
+
+[[secrets]]
+key = "REDIS_PASSWORD"
+kind = "hex"
+length = 32
+
+[[secrets]]
+key = "ADMIN_PASSWORD"
+kind = "password"
+length = 20
+reveal = true
+
+[[services]]
+name = "db"
+health = { source = "image" }
+
+[[services]]
+name = "redis"
+health = { source = "image" }
+
+[[services]]
+name = "nextcloud"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "curl -fsS -H 'Host: localhost' http://127.0.0.1/status.php | grep -q '\"installed\":true'"], interval = "15s", start_period = "120s" }
+
+[backup]
+paths = ["html"]
+[[backup.dumps]]
+service = "db"
+run = ["pg_dump", "--clean", "--if-exists", "-U", "nextcloud", "nextcloud"]
+restore = ["psql", "-v", "ON_ERROR_STOP=1", "-q", "-U", "nextcloud", "nextcloud"]
+output = "db.sql"
+
+[update]
+image_pins = ["nextcloud", "redis"]
+pre_update = ["backup"]
+pinned_major = ["postgres"]
