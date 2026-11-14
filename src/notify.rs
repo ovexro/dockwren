@@ -7,8 +7,6 @@
 //!
 //! Callers must never put secrets in `title`, `body` or `link`; text is only length-capped.
 
-// The producers that call raise/resolve arrive in the next steps.
-#![allow(dead_code)]
 
 use askama::Template;
 use axum::{
@@ -354,6 +352,15 @@ impl Store {
     /// Number of events not yet looked at (the bell badge).
     pub fn unread(&self) -> usize {
         self.events.iter().filter(|e| e.state == State::New).count()
+    }
+
+    /// Keys of open events that start with `prefix`.
+    pub fn open_keys_with_prefix(&self, prefix: &str) -> Vec<String> {
+        self.events
+            .iter()
+            .filter(|e| e.state != State::Resolved && e.key.starts_with(prefix))
+            .map(|e| e.key.clone())
+            .collect()
     }
 
     /// Open (not resolved) events, newest first.

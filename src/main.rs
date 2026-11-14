@@ -714,7 +714,9 @@ async fn main() {
         .unwrap_or_else(|e| panic!("cannot bind {}: {e}", cfg.bind));
     println!("dockwren listening on http://{}", cfg.bind);
     let templates = apps::catalog(&cfg).unwrap_or_else(|e| panic!("bad template: {e}"));
-    let apps = apps::Apps::new(templates, cfg.instances_dir());
+    let notify = notify::shared(&cfg.data_dir);
+    let apps = apps::Apps::new(templates, cfg.instances_dir()).with_notify(notify.clone());
+    apps.spawn_update_checker();
     let metrics = metrics::Shared::default();
     let mut disk_paths = vec![cfg.data_dir.display().to_string()];
     disk_paths.extend(cfg.disk_paths.iter().cloned());
@@ -724,7 +726,6 @@ async fn main() {
         disk_paths,
         cfg.data_dir.clone(),
     );
-    let notify = notify::shared(&cfg.data_dir);
     axum::serve(listener, app(auth, docker, apps, metrics, notify))
         .await
         .expect("server error");

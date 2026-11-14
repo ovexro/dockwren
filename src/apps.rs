@@ -26,6 +26,7 @@ pub struct Apps {
     jobs: Arc<Mutex<Vec<(String, Job)>>>,
     /// Serialises "pick ports + create instance dir" so parallel installs cannot clash.
     lock: Arc<tokio::sync::Mutex<()>>,
+    notify: Option<crate::notify::Shared>,
 }
 
 impl Apps {
@@ -35,7 +36,122 @@ impl Apps {
             root,
             jobs: Arc::default(),
             lock: Arc::default(),
+            notify: None,
         }
+    }
+
+    /// Let jobs and the update check raise notifications.
+    pub fn with_notify(mut self, notify: crate::notify::Shared) -> Self {
+        self.notify = Some(notify);
+        self
+    }
+
+    /// Raise (on failure) or clear (on success) the "job failed" notification for a job.
+    fn note_job(&self, verb: &str, instance: &str, error: Option<&str>) {
+        let Some(n) = &self.notify else { return };
+        let key = format!("job.failed:{verb}:{instance}");
+        match error {
+            Some(e) => {
+                let first = e
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .chars()
+                    .take(300)
+                    .collect::<String>();
+                crate::notify::raise(
+                    n,
+                    crate::notify::NewEvent::new(
+                        "apps",
+                        "job.failed",
+                        crate::notify::Severity::Warning,
+                        &format!("{verb} {instance} failed"),
+                    )
+                    .body(first)
+                    .link("/apps")
+                    .key(key),
+                );
+            }
+            None => {
+                crate::notify::resolve(n, &key);
+            }
+        }
+    }
+
+    /// Instances whose bundled template is newer: (name, installed version, bundled version).
+    fn pending_updates(&self) -> Vec<(String, u32, u32)> {
+        let Ok(rd) = std::fs::read_dir(&self.root) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for e in rd.flatten() {
+            let Ok(name) = e.file_name().into_string() else {
+                continue;
+            };
+            if !runner::valid_name(&name) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(e.path().join("state.toml")) else {
+                continue;
+            };
+            let Ok(st) = toml::from_str::<InstanceState>(&text) else {
+                continue;
+            };
+            if let Some(t) = self.template(&st.template)
+                && t.manifest.app.version > st.version
+            {
+                out.push((name, st.version, t.manifest.app.version));
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// Make the "update available" notifications match reality: raise one per instance with
+    /// a newer bundled template, close the ones whose condition is gone.
+    pub fn sync_update_notifications(&self) {
+        const PREFIX: &str = "app.update_available:";
+        let Some(n) = &self.notify else { return };
+        let pending = self.pending_updates();
+        for (name, from, to) in &pending {
+            crate::notify::raise(
+                n,
+                crate::notify::NewEvent::new(
+                    "apps",
+                    "app.update_available",
+                    crate::notify::Severity::Info,
+                    &format!("Update available for {name}"),
+                )
+                .body(format!("Version {from} → {to}. A snapshot is taken first and the old version is restored if the update fails."))
+                .link("/apps")
+                .key(format!("{PREFIX}{name}")),
+            );
+        }
+        let stale: Vec<String> = n
+            .lock()
+            .unwrap()
+            .open_keys_with_prefix(PREFIX)
+            .into_iter()
+            .filter(|k| {
+                !pending
+                    .iter()
+                    .any(|(name, _, _)| format!("{PREFIX}{name}") == *k)
+            })
+            .collect();
+        for k in stale {
+            crate::notify::resolve(n, &k);
+        }
+    }
+
+    /// Check at start and then every hour.
+    pub fn spawn_update_checker(&self) {
+        let apps = self.clone();
+        tokio::spawn(async move {
+            loop {
+                apps.sync_update_notifications();
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        });
     }
 
     fn template(&self, id: &str) -> Option<&AppTemplate> {
@@ -346,6 +462,11 @@ pub async fn install_submit(
             Ok::<_, String>(shown)
         }
         .await;
+        task_apps.note_job(
+            "Installing",
+            &inst.name,
+            result.as_ref().err().map(|e| e.as_str()),
+        );
         task_apps.with_job(&task_id, |j| match result {
             Ok(shown) => {
                 j.secrets = shown;
@@ -540,6 +661,8 @@ pub async fn instance_update(
             },
         )
         .await;
+        task_apps.note_job("Updating", &name, result.as_ref().err().map(|e| e.as_str()));
+        task_apps.sync_update_notifications();
         task_apps.with_job(&task_id, |j| match result {
             Ok(crate::update::Outcome::UpToDate) => {
                 j.log.push("already up to date".into());
@@ -695,6 +818,11 @@ pub async fn restore_submit(
             },
         )
         .await;
+        task_apps.note_job(
+            "Restoring",
+            &name,
+            result.as_ref().err().map(|e| e.as_str()),
+        );
         task_apps.with_job(&task_id, |j| match result {
             Ok(p) => {
                 j.log.push(format!("restored from {}", p.display()));
@@ -1060,6 +1188,101 @@ pub async fn public_publish(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use std::sync::Mutex as StdMutex;
+
+    fn notifying_apps(tag: &str) -> (Apps, crate::notify::Shared, PathBuf) {
+        let root = std::env::temp_dir().join(format!("dw-apps-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let n: crate::notify::Shared = Arc::new(StdMutex::new(crate::notify::Store::memory()));
+        let apps =
+            Apps::new(crate::template::catalog(None).unwrap(), root.clone()).with_notify(n.clone());
+        (apps, n, root)
+    }
+
+    fn instance(root: &std::path::Path, name: &str, template: &str, version: u32) {
+        let d = root.join(name);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            d.join("state.toml"),
+            format!("template = \"{template}\"\nversion = {version}\n"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn update_notifications_follow_the_template_versions() {
+        let (apps, n, root) = notifying_apps("upd");
+        let bundled = apps.template("gitea").unwrap().manifest.app.version;
+        instance(&root, "old", "gitea", bundled - 1);
+        instance(&root, "cur", "gitea", bundled);
+        apps.sync_update_notifications();
+        apps.sync_update_notifications(); // idempotent
+        {
+            let s = n.lock().unwrap();
+            let open = s.open_events();
+            assert_eq!(open.len(), 1);
+            assert_eq!(open[0].key, "app.update_available:old");
+            assert_eq!(open[0].severity, crate::notify::Severity::Info);
+        }
+        instance(&root, "old", "gitea", bundled); // updated
+        apps.sync_update_notifications();
+        assert!(n.lock().unwrap().open_events().is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn removed_instance_clears_its_update_notification() {
+        let (apps, n, root) = notifying_apps("rm");
+        let bundled = apps.template("gitea").unwrap().manifest.app.version;
+        instance(&root, "gone", "gitea", bundled - 1);
+        apps.sync_update_notifications();
+        assert_eq!(n.lock().unwrap().open_events().len(), 1);
+        std::fs::remove_dir_all(root.join("gone")).unwrap();
+        apps.sync_update_notifications();
+        assert!(n.lock().unwrap().open_events().is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn failed_jobs_raise_and_a_later_success_clears() {
+        let (apps, n, root) = notifying_apps("job");
+        apps.note_job(
+            "Updating",
+            "gt",
+            Some("pull failed\nsecond line with detail"),
+        );
+        apps.note_job("Updating", "gt", Some("pull failed again"));
+        {
+            let s = n.lock().unwrap();
+            let open = s.open_events();
+            assert_eq!(open.len(), 1);
+            assert_eq!(open[0].title, "Updating gt failed");
+            assert_eq!(open[0].body.as_deref(), Some("pull failed again"));
+        }
+        apps.note_job("Updating", "other", None); // other key: no effect
+        assert_eq!(n.lock().unwrap().open_events().len(), 1);
+        apps.note_job("Updating", "gt", None);
+        assert!(n.lock().unwrap().open_events().is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn first_error_line_only_goes_into_the_notification() {
+        let (apps, n, root) = notifying_apps("line");
+        apps.note_job("Installing", "x", Some("short\nTOKEN=abc123"));
+        let s = n.lock().unwrap();
+        assert!(
+            !s.open_events()[0]
+                .body
+                .as_deref()
+                .unwrap()
+                .contains("abc123")
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     use super::utc_stamp;
 
     #[test]
