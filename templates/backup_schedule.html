@@ -1,0 +1,17 @@
+<div id="backup-schedule">
+  {% if let Some(e) = error %}<p role="alert">{{ e }}</p>{% endif %}
+  {% if let Some(n) = note %}<p role="status">{{ n }}</p>{% endif %}
+  <p>Takes a snapshot of every installed app (files plus database dumps) on a schedule and keeps the newest ones. Times are UTC. Weekly runs on Sundays.{% if let Some(l) = last %} Last scheduled run: {{ l }}.{% endif %}</p>
+  <form hx-post="/settings/backups" hx-target="#backup-schedule" hx-swap="outerHTML" autocomplete="off">
+    <label>How often
+      <select name="mode">
+        <option value="off"{% if mode == "off" %} selected{% endif %}>Off</option>
+        <option value="daily"{% if mode == "daily" %} selected{% endif %}>Daily</option>
+        <option value="weekly"{% if mode == "weekly" %} selected{% endif %}>Weekly</option>
+      </select>
+    </label>
+    <label>Hour (UTC, 0 to 23) <input name="hour" type="number" min="0" max="23" value="{{ hour }}" required></label>
+    <label>Snapshots to keep per app <input name="keep" type="number" min="1" max="60" value="{{ keep }}" required></label>
+    <button type="submit" class="primary">Save</button>
+  </form>
+</div>

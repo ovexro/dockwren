@@ -3,12 +3,12 @@
 <p>No apps installed yet.</p>
 {% else %}
 <table>
-  <thead><tr><th>Name</th><th>App</th><th>Ports</th><th>Status</th><th></th></tr></thead>
+  <thead><tr><th>Name</th><th>App</th><th>Ports</th><th>Status</th><th>Last backup</th><th></th></tr></thead>
   <tbody>
   {% for i in instances %}
-    <tr><td><img class="app-icon" src="/apps/{{ i.app }}/icon.svg" alt="" width="24" height="24"> {{ i.name }}{% if let Some(h) = i.hostname %}<br><small><a href="https://{{ h }}" target="_blank" rel="noopener">{{ h }}</a></small>{% endif %}</td><td>{{ i.app }}</td><td>{{ i.ports }}</td><td>{{ i.status }}</td>
+    <tr><td><img class="app-icon" src="/apps/{{ i.app }}/icon.svg" alt="" width="24" height="24"> {{ i.name }}{% if let Some(h) = i.hostname %}<br><small><a href="https://{{ h }}" target="_blank" rel="noopener">{{ h }}</a></small>{% endif %}</td><td>{{ i.app }}</td><td>{{ i.ports }}</td><td>{{ i.status }}</td><td style="white-space:nowrap">{% if let Some(b) = i.last_backup %}<span title="UTC">{{ b }}</span>{% else %}never{% endif %}</td>
       <td>{% if let Some(u) = i.update %}<button class="primary" hx-post="/instances/{{ i.name }}/update" hx-target="#install" hx-swap="innerHTML"
-          hx-confirm="Update {{ i.name }} (version {{ u }})? A snapshot is taken first and the old version is restored if the update fails.">Update available ({{ u }})</button> {% endif %}<button hx-get="/instances/{{ i.name }}/public" hx-target="#install" hx-swap="innerHTML">Public URL</button> {% if i.snapshots > 0 %}<button hx-get="/instances/{{ i.name }}/restore" hx-target="#install" hx-swap="innerHTML">Restore ({{ i.snapshots }})</button> {% endif %}<button class="danger" hx-post="/instances/{{ i.name }}/remove" hx-target="#instances" hx-swap="innerHTML"
+          hx-confirm="Update {{ i.name }} (version {{ u }})? A snapshot is taken first and the old version is restored if the update fails.">Update available ({{ u }})</button> {% endif %}<button hx-post="/instances/{{ i.name }}/backup" hx-target="#install" hx-swap="innerHTML">Back up now</button> <button hx-get="/instances/{{ i.name }}/public" hx-target="#install" hx-swap="innerHTML">Public URL</button> {% if i.snapshots > 0 %}<button hx-get="/instances/{{ i.name }}/restore" hx-target="#install" hx-swap="innerHTML">Restore ({{ i.snapshots }})</button> {% endif %}<button class="danger" hx-post="/instances/{{ i.name }}/remove" hx-target="#instances" hx-swap="innerHTML"
           hx-confirm="Stop {{ i.name }} and remove its containers? Data is kept.">Stop &amp; remove containers</button></td></tr>
   {% endfor %}
   </tbody>

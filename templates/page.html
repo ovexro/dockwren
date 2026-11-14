@@ -53,6 +53,8 @@
     <h2>Web terminal</h2>
     <div id="terminal-setting" hx-get="/settings/terminal" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     {% else if tab == "system" %}
+    <h2>Scheduled backups</h2>
+    <div id="backup-schedule" hx-get="/settings/backups" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>OS updates</h2>
     <div id="osupdate" hx-get="/settings/osupdates" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     {% else %}

@@ -13,6 +13,7 @@ mod osupdate;
 mod public;
 mod release;
 mod runner;
+mod schedule;
 mod template;
 mod terminal;
 mod totp;
@@ -350,6 +351,11 @@ fn app(
         .route("/instances/list", get(apps::instances))
         .route("/instances/{name}/remove", post(apps::instance_remove))
         .route("/instances/{name}/update", post(apps::instance_update))
+        .route("/instances/{name}/backup", post(apps::instance_backup))
+        .route(
+            "/settings/backups",
+            get(apps::schedule_show).post(apps::schedule_save),
+        )
         .route(
             "/instances/{name}/public",
             get(apps::public_form).post(apps::public_submit),
@@ -812,8 +818,11 @@ async fn main() {
     println!("dockwren listening on http://{}", cfg.bind);
     let templates = apps::catalog(&cfg).unwrap_or_else(|e| panic!("bad template: {e}"));
     let notify = notify::shared(&cfg.data_dir);
-    let apps = apps::Apps::new(templates, cfg.instances_dir()).with_notify(notify.clone());
+    let apps = apps::Apps::new(templates, cfg.instances_dir())
+        .with_notify(notify.clone())
+        .with_schedule(Arc::new(schedule::Schedule::open(&cfg.data_dir)));
     apps.spawn_update_checker();
+    apps.spawn_backup_scheduler();
     release::spawn_checker(notify.clone());
     hostupdates::spawn_checker(notify.clone());
     backupwatch::spawn_checker(notify.clone());
@@ -1528,6 +1537,33 @@ mod tests {
             get("/settings/tab/nope").await.status(),
             StatusCode::NOT_FOUND
         );
+    }
+
+    #[tokio::test]
+    async fn backup_schedule_form_validates_and_saves() {
+        let app = test_app();
+        let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+        let post = |body: &'static str| {
+            let app = app.clone();
+            let cookie = cookie.clone();
+            async move {
+                let req = Request::post("/settings/backups")
+                    .header(header::COOKIE, cookie)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(body))
+                    .unwrap();
+                body_of(app.oneshot(req).await.unwrap()).await
+            }
+        };
+        let bad = post("mode=hourly&hour=3&keep=7").await;
+        assert!(bad.contains("Pick off, daily or weekly"), "{bad}");
+        let ok = post("mode=daily&hour=4&keep=5").await;
+        assert!(ok.contains("Saved."), "{ok}");
+        assert!(
+            ok.contains("value=\"4\"") && ok.contains("value=\"5\""),
+            "{ok}"
+        );
+        assert!(ok.contains("<option value=\"daily\" selected>"), "{ok}");
     }
 
     #[tokio::test]

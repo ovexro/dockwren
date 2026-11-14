@@ -48,6 +48,7 @@ Release binaries and `SHA256SUMS` are on the
   steps per template.
 - Backups (files plus database dumps) and restore, from the UI or the CLI; a safety snapshot is
   taken before a restore.
+- Scheduled backups: Settings → System → Scheduled backups takes a snapshot of every app daily or weekly (UTC hour of your choice) and keeps the newest N per app (default 7). **Back up now** on the Apps page takes one on demand and the table shows each app's last backup. A failed run raises a notification. These snapshots live in the data directory, so they only protect against mistakes, not disk loss; keep a copy elsewhere (an off-host target is planned).
 - Cloudflare Tunnel publishing with DNS conflict handling and optional Cloudflare Access (see below).
 - `dockwren set-password` to rotate the admin password.
 - Web terminal (optional, off by default): a shell inside the containers of apps Dockwren installed, from the Containers page. Turn it on in Settings (or force it with `DOCKWREN_TERMINAL=1`); it asks for your password (and 2FA code) each time, is logged and shown in Notifications. Not a host shell.

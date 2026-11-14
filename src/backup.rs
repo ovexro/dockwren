@@ -87,7 +87,7 @@ pub async fn snapshot(
 }
 
 /// `snapshot` with an explicit number of snapshots to keep afterwards.
-async fn snapshot_keep(
+pub async fn snapshot_keep(
     backups_root: &Path,
     inst: &Instance,
     t: &Template,

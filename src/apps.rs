@@ -27,6 +27,7 @@ pub struct Apps {
     /// Serialises "pick ports + create instance dir" so parallel installs cannot clash.
     lock: Arc<tokio::sync::Mutex<()>>,
     notify: Option<crate::notify::Shared>,
+    schedule: Arc<crate::schedule::Schedule>,
 }
 
 impl Apps {
@@ -37,7 +38,13 @@ impl Apps {
             jobs: Arc::default(),
             lock: Arc::default(),
             notify: None,
+            schedule: Arc::new(crate::schedule::Schedule::memory()),
         }
+    }
+
+    pub fn with_schedule(mut self, s: Arc<crate::schedule::Schedule>) -> Self {
+        self.schedule = s;
+        self
     }
 
     /// Let jobs and the update check raise notifications.
@@ -154,6 +161,97 @@ impl Apps {
         });
     }
 
+    /// Start a backup job for `name`, keeping `keep` snapshots. CONFLICT when a job for it runs.
+    fn spawn_backup(&self, name: &str, keep: usize) -> Result<String, StatusCode> {
+        let dir = self.root.join(name);
+        let text =
+            std::fs::read_to_string(dir.join("state.toml")).map_err(|_| StatusCode::NOT_FOUND)?;
+        let st: InstanceState =
+            toml::from_str(&text).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        self.template(&st.template)
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        let tpl_id = st.template;
+        let job_id = new_job(self, name, "Backing up")?;
+        let apps = self.clone();
+        let id = job_id.clone();
+        let name = name.to_string();
+        tokio::spawn(async move {
+            let inst = runner::Instance {
+                name: name.clone(),
+                dir,
+            };
+            let t = apps.template(&tpl_id).expect("checked above");
+            let result = crate::backup::snapshot_keep(
+                &apps.backups_root(),
+                &inst,
+                t,
+                &mut |s| {
+                    apps.with_job(&id, |j| j.log.push(s.to_string()));
+                },
+                keep,
+            )
+            .await;
+            apps.note_job(
+                "Backing up",
+                &name,
+                result.as_ref().err().map(|e| e.as_str()),
+            );
+            apps.with_job(&id, |j| match result {
+                Ok(_) => {
+                    j.log.push("backup done".into());
+                    j.state = JobState::Done;
+                }
+                Err(e) => j.state = JobState::Failed(e),
+            });
+        });
+        Ok(job_id)
+    }
+
+    fn job_running(&self, id: &str) -> bool {
+        self.with_job(id, |j| j.state == JobState::Running)
+            .unwrap_or(false)
+    }
+
+    /// Every minute: when a scheduled slot has passed, back up each app one after the other.
+    pub fn spawn_backup_scheduler(&self) {
+        let apps = self.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                if !apps.schedule.is_due() {
+                    continue;
+                }
+                // Record the run first: a crash mid-way must not repeat it every minute.
+                apps.schedule.mark_run(crate::schedule::now());
+                let keep = apps.schedule.get().keep;
+                for name in apps.instance_names() {
+                    // Busy (an update or restore is running) or not backed up here: next slot.
+                    let Ok(id) = apps.spawn_backup(&name, keep) else {
+                        continue;
+                    };
+                    while apps.job_running(&id) {
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    }
+                }
+            }
+        });
+    }
+
+    fn instance_names(&self) -> Vec<String> {
+        let mut v: Vec<String> = std::fs::read_dir(&self.root)
+            .map(|rd| {
+                rd.flatten()
+                    .filter_map(|e| e.file_name().into_string().ok())
+                    .filter(|n| {
+                        runner::valid_name(n) && self.root.join(n).join("state.toml").is_file()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        v.sort();
+        v
+    }
+
     fn template(&self, id: &str) -> Option<&AppTemplate> {
         self.templates.iter().find(|t| t.manifest.app.id == id)
     }
@@ -250,6 +348,7 @@ struct InstanceView {
     /// "1 → 2" when the bundled template is newer than the instance.
     update: Option<String>,
     snapshots: usize,
+    last_backup: Option<String>,
     hostname: Option<String>,
 }
 
@@ -570,7 +669,12 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             .template(&state.template)
             .filter(|t| t.manifest.app.version > state.version)
             .map(|t| format!("{} → {}", state.version, t.manifest.app.version));
-        let snapshots = crate::backup::list(&apps.backups_root(), &name).len();
+        let snaps = crate::backup::list(&apps.backups_root(), &name);
+        let snapshots = snaps.len();
+        let last_backup = snaps
+            .last()
+            .and_then(|p| p.file_name()?.to_str()?.parse::<u64>().ok())
+            .map(|e| utc_stamp(e).trim_end_matches(" UTC").to_string());
         out.push(InstanceView {
             name,
             app: state.template,
@@ -578,6 +682,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             status,
             update,
             snapshots,
+            last_backup,
             hostname: crate::public::read(&dir),
         });
     }
@@ -676,6 +781,84 @@ pub async fn instance_update(
         });
     });
     job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// `POST /instances/{name}/backup`: take a snapshot now.
+pub async fn instance_backup(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    if !runner::valid_name(&name) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let keep = apps.schedule.get().keep;
+    let id = apps.spawn_backup(&name, keep)?;
+    job_fragment(&apps, &id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+#[derive(Template)]
+#[template(path = "backup_schedule.html")]
+struct SchedulePage {
+    mode: &'static str,
+    hour: u8,
+    keep: usize,
+    last: Option<String>,
+    note: Option<&'static str>,
+    error: Option<&'static str>,
+}
+
+fn schedule_html(
+    apps: &Apps,
+    note: Option<&'static str>,
+    error: Option<&'static str>,
+) -> Html<String> {
+    let s = apps.schedule.get();
+    let last = apps.schedule.last_run();
+    render(SchedulePage {
+        mode: s.mode.as_str(),
+        hour: s.hour,
+        keep: s.keep,
+        last: (s.mode != crate::schedule::Mode::Off && last > 0).then(|| utc_stamp(last)),
+        note,
+        error,
+    })
+}
+
+pub async fn schedule_show(State(apps): State<Apps>) -> Html<String> {
+    schedule_html(&apps, None, None)
+}
+
+#[derive(Deserialize)]
+pub struct ScheduleForm {
+    mode: String,
+    hour: String,
+    keep: String,
+}
+
+pub async fn schedule_save(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Form(f): Form<ScheduleForm>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let s = match crate::schedule::Settings::from_form(&f.mode, &f.hour, &f.keep) {
+        Ok(s) => s,
+        Err(e) => return Ok(schedule_html(&apps, None, Some(e))),
+    };
+    if apps.schedule.set(s).is_err() {
+        return Ok(schedule_html(
+            &apps,
+            None,
+            Some("Could not save the schedule."),
+        ));
+    }
+    Ok(schedule_html(&apps, Some("Saved."), None))
 }
 
 /// Register a running job for `name`; CONFLICT if one is already running for it.
