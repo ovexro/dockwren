@@ -222,3 +222,10 @@ main details ol { list-style: decimal; padding-left: 1.4rem; margin: .5rem 0; }
 main details ul { list-style: disc; padding-left: 1.25rem; margin: .35rem 0; }
 main details li { display: list-item; padding: .2rem 0; margin: 0; border: 0; background: none; }
 main details { margin-top: 1.25rem; }
+a.btn { font-size: .875rem; padding: .35rem .8rem; border-radius: 6px; border: 1px solid var(--border); color: var(--text); text-decoration: none; background: var(--surface); }
+a.btn:hover { border-color: var(--muted); }
+.termpage form#reauth label { max-width: 22rem; margin: .5rem 0; }
+.termpage form#reauth input { display: block; width: 100%; }
+#screen { background: #ffffff; border: 1px solid var(--border); padding: .5rem; border-radius: 8px; height: 70vh; }
+#screen[hidden] { display: none; }
+@media (prefers-color-scheme: dark) { #screen { background: #0d1117; } }

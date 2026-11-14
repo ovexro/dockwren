@@ -38,6 +38,7 @@ struct AppState {
     apps: apps::Apps,
     metrics: metrics::Shared,
     notify: notify::Shared,
+    terminal: bool,
 }
 
 impl FromRef<AppState> for notify::Shared {
@@ -69,17 +70,20 @@ impl FromRef<AppState> for SharedAuth {
 struct ContainersTemplate {
     containers: Vec<ContainerInfo>,
     error: Option<String>,
+    terminal: bool,
 }
 
-fn render_containers(result: Result<Vec<ContainerInfo>, String>) -> String {
+fn render_containers(result: Result<Vec<ContainerInfo>, String>, terminal: bool) -> String {
     let page = match result {
         Ok(containers) => ContainersTemplate {
             containers,
             error: None,
+            terminal,
         },
         Err(e) => ContainersTemplate {
             containers: Vec::new(),
             error: Some(format!("Docker is not reachable: {e}")),
+            terminal,
         },
     };
     page.render().expect("containers template renders")
@@ -87,7 +91,7 @@ fn render_containers(result: Result<Vec<ContainerInfo>, String>) -> String {
 
 async fn containers(State(state): State<AppState>) -> Html<String> {
     let result = state.docker.containers().await.map_err(|e| e.to_string());
-    Html(render_containers(result))
+    Html(render_containers(result, state.terminal))
 }
 
 #[derive(Template)]
@@ -146,7 +150,7 @@ async fn container_action(
         return Err(StatusCode::NOT_FOUND);
     }
     if let Err(e) = state.docker.act(&id, action).await {
-        return Ok(Html(render_containers(Err(e.to_string()))));
+        return Ok(Html(render_containers(Err(e.to_string()), state.terminal)));
     }
     Ok(containers(State(state)).await)
 }
@@ -158,7 +162,11 @@ const FAVICON: &str = include_str!("../static/favicon.svg");
 /// Short content hash of the bundled assets, appended to their URLs so a new build is never served from a stale cache.
 pub fn asset_version() -> String {
     let mut h: u64 = 0xcbf29ce484222325;
-    for b in CSS.bytes().chain(HTMX.bytes()) {
+    for b in CSS
+        .bytes()
+        .chain(HTMX.bytes())
+        .chain(terminal::TERMINAL_JS.bytes())
+    {
         h = (h ^ u64::from(b)).wrapping_mul(0x100000001b3);
     }
     format!("{:08x}", h >> 32)
@@ -358,6 +366,7 @@ fn app(
             apps,
             metrics,
             notify,
+            terminal,
         });
     match terminal_routes {
         Some(t) => router.merge(t),
@@ -1078,15 +1087,20 @@ mod tests {
 
     #[test]
     fn containers_table_lists_rows_and_escapes() {
-        let html = render_containers(Ok(vec![ContainerInfo {
-            id: "abc".into(),
-            name: "<web>".into(),
-            image: "nginx:1".into(),
-            state: "running".into(),
-            status: "Up 3 hours".into(),
-        }]));
+        let html = render_containers(
+            Ok(vec![ContainerInfo {
+                id: "abc".into(),
+                name: "<web>".into(),
+                image: "nginx:1".into(),
+                state: "running".into(),
+                status: "Up 3 hours".into(),
+                managed: true,
+            }]),
+            true,
+        );
         assert!(html.contains("&#60;web&#62;") && !html.contains("<web>"));
         assert!(html.contains("nginx:1") && html.contains("Up 3 hours"));
+        assert!(html.contains("/containers/abc/terminal"));
     }
 
     #[test]
@@ -1185,8 +1199,8 @@ mod tests {
 
     #[test]
     fn containers_empty_and_error_states() {
-        assert!(render_containers(Ok(vec![])).contains("No containers yet"));
-        let err = render_containers(Err("boom".into()));
+        assert!(render_containers(Ok(vec![]), false).contains("No containers yet"));
+        let err = render_containers(Err("boom".into()), false);
         assert!(err.contains("Docker is not reachable: boom"));
     }
 

@@ -14,6 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use askama::Template;
 use axum::{
     Form, Router,
     extract::{
@@ -21,7 +22,7 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade, rejection::WebSocketUpgradeRejection},
     },
     http::{HeaderMap, StatusCode, header},
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
 use futures_util::{SinkExt, StreamExt};
@@ -33,6 +34,11 @@ use crate::{
     docker::{self, DockerClient, ShellSession},
     notify::{self, NewEvent, Severity},
 };
+
+pub const XTERM_JS: &str = include_str!("../static/xterm.js");
+pub const XTERM_CSS: &str = include_str!("../static/xterm.css");
+pub const FIT_JS: &str = include_str!("../static/addon-fit.js");
+pub const TERMINAL_JS: &str = include_str!("../static/terminal.js");
 
 const MAX_SESSIONS: usize = 3;
 const GRANT_TTL: Duration = Duration::from_secs(10 * 60);
@@ -95,6 +101,20 @@ struct TermState {
 
 pub fn router(auth: SharedAuth, docker: DockerClient, notify: notify::Shared) -> Router {
     Router::new()
+        .route("/containers/{id}/terminal", get(page))
+        .route(
+            "/static/xterm.js",
+            get(|| asset("text/javascript", XTERM_JS)),
+        )
+        .route("/static/xterm.css", get(|| asset("text/css", XTERM_CSS)))
+        .route(
+            "/static/addon-fit.js",
+            get(|| asset("text/javascript", FIT_JS)),
+        )
+        .route(
+            "/static/terminal.js",
+            get(|| asset("text/javascript", TERMINAL_JS)),
+        )
         .route("/containers/{id}/terminal/grant", post(grant))
         .route("/containers/{id}/terminal/ws", get(ws))
         .with_state(TermState {
@@ -115,8 +135,52 @@ fn via_tunnel(headers: &HeaderMap) -> bool {
     headers.contains_key("cf-connecting-ip")
 }
 
-fn managed(project: Option<&str>) -> bool {
+pub fn managed(project: Option<&str>) -> bool {
     project.is_some_and(|p| p.len() > PROJECT_PREFIX.len() && p.starts_with(PROJECT_PREFIX))
+}
+
+async fn asset(kind: &'static str, body: &'static str) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, kind),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        body,
+    )
+        .into_response()
+}
+
+#[derive(Template)]
+#[template(path = "terminal.html")]
+struct PageTemplate {
+    id: String,
+    name: String,
+    two_factor: bool,
+    assets: String,
+}
+
+/// `GET /containers/{id}/terminal`: the page with the re-auth form and the terminal.
+async fn page(State(s): State<TermState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    if s.auth.session_of(&headers).is_none() {
+        return Redirect::to("/login").into_response();
+    }
+    if !docker::valid_id(&id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let list = s.docker.containers().await.unwrap_or_default();
+    let Some(c) = list
+        .into_iter()
+        .find(|c| id.starts_with(&c.id) && c.managed && c.state == "running")
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let page = PageTemplate {
+        id,
+        name: c.name,
+        two_factor: s.auth.two_factor_enabled(),
+        assets: crate::asset_version(),
+    };
+    Html(page.render().expect("terminal template renders")).into_response()
 }
 
 #[derive(Deserialize)]

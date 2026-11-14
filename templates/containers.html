@@ -17,6 +17,7 @@
       <div class="cactions">
         <button hx-get="/containers/{{ c.id }}/logs" hx-target="#logs" hx-swap="innerHTML">Logs</button>
         {% if c.state == "running" %}
+        {% if terminal && c.managed %}<a class="btn" href="/containers/{{ c.id }}/terminal" target="_blank" rel="noopener">Terminal</a>{% endif %}
         <button hx-post="/containers/{{ c.id }}/restart" hx-target="#containers" hx-swap="innerHTML">Restart</button>
         <button hx-post="/containers/{{ c.id }}/stop" hx-target="#containers" hx-swap="innerHTML" hx-confirm="Stop {{ c.name }}?" class="danger">Stop</button>
         {% else %}

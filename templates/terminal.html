@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Terminal · Dockwren</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/dockwren.css?v={{ assets }}">
+  <link rel="stylesheet" href="/static/xterm.css?v={{ assets }}">
+</head>
+<body>
+  <main id="term" data-id="{{ id }}" class="termpage">
+    <h1>Terminal: {{ name }}</h1>
+    <p><a href="/containers">&larr; Back to containers</a></p>
+    <form id="reauth" autocomplete="off">
+      <p>Opening a shell inside this container needs your password again.</p>
+      <label>Password <input type="password" name="password" required autofocus autocomplete="current-password"></label>
+      {% if two_factor %}
+      <label>Code <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required></label>
+      {% endif %}
+      <button type="submit" class="primary">Open terminal</button>
+    </form>
+    <p id="tstatus" class="muted" role="status"></p>
+    <div id="screen" hidden></div>
+    <button id="again" hidden>Reconnect</button>
+    <p><small>Runs as the container's default user. Each open is logged and shown in Notifications; keystrokes are not recorded. Closes after 30 minutes without typing.</small></p>
+  </main>
+  <script src="/static/xterm.js?v={{ assets }}"></script>
+  <script src="/static/addon-fit.js?v={{ assets }}"></script>
+  <script src="/static/terminal.js?v={{ assets }}"></script>
+</body>
+</html>

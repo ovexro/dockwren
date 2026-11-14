@@ -23,6 +23,8 @@ pub struct ContainerInfo {
     pub state: String,
     /// Human readable status, e.g. "Up 3 hours".
     pub status: String,
+    /// Created by the panel (Compose project `dockwren-<instance>`): the web terminal is limited to these.
+    pub managed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -265,12 +267,18 @@ impl From<ContainerSummary> for ContainerInfo {
             .and_then(|n| n.into_iter().next())
             .map(|n| n.trim_start_matches('/').to_string())
             .unwrap_or_default();
+        let managed = c
+            .labels
+            .as_ref()
+            .and_then(|l| l.get("com.docker.compose.project"))
+            .is_some_and(|p| crate::terminal::managed(Some(p)));
         Self {
             id: id.chars().take(12).collect(),
             name,
             image: c.image.unwrap_or_default(),
             state: c.state.map(|s| s.to_string()).unwrap_or_default(),
             status: c.status.unwrap_or_default(),
+            managed,
         }
     }
 }
@@ -312,8 +320,20 @@ mod tests {
                 image: "nginx:1".into(),
                 state: "running".into(),
                 status: "Up 3 hours".into(),
+                managed: false,
             }
         );
+        let labelled = ContainerSummary {
+            labels: Some(
+                [(
+                    "com.docker.compose.project".to_string(),
+                    "dockwren-gitea".to_string(),
+                )]
+                .into(),
+            ),
+            ..Default::default()
+        };
+        assert!(ContainerInfo::from(labelled).managed);
     }
 
     #[test]
