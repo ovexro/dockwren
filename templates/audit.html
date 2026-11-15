@@ -1,0 +1,14 @@
+<div id="audit">
+  {% if rows.is_empty() %}
+  <p><small>Nothing recorded yet.</small></p>
+  {% else %}
+  <p><small>The newest 100 events (times in UTC). The file <code>audit.log</code> in the data directory keeps about the last 2000.</small></p>
+  <table>
+    <thead><tr><th>When</th><th>Event</th><th style="text-align:left">Details</th></tr></thead>
+    <tbody>
+    {% for r in rows %}<tr><td>{{ r.0 }}</td><td><code>{{ r.1 }}</code></td><td style="text-align:left">{{ r.2 }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>

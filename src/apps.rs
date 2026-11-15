@@ -605,6 +605,7 @@ pub async fn install_submit(
         Err(e) => return Ok(render(form_view(t, &values, Some(e)))),
     };
 
+    crate::audit::record("app.install", &format!("{} ({})", inst.name, id));
     let job_id = crate::auth::generate_password();
     let ports = ["WEB_PORT", "SSH_PORT"]
         .iter()
@@ -818,9 +819,13 @@ pub async fn instance_remove(
     if !dir.join("state.toml").is_file() {
         return Err(StatusCode::NOT_FOUND);
     }
+    let removed = name.clone();
     let error = runner::take_down(&runner::Instance { name, dir })
         .await
         .err();
+    if error.is_none() {
+        crate::audit::record("app.remove", &removed);
+    }
     Ok(render(InstancesPage {
         instances: instance_views(&apps).await,
         error,
@@ -842,6 +847,7 @@ pub async fn instance_update(
         return Err(StatusCode::FORBIDDEN);
     }
     let job_id = apps.spawn_update(&name)?;
+    crate::audit::record("app.update", &name);
     job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
@@ -859,6 +865,7 @@ pub async fn instance_backup(
     }
     let keep = apps.schedule.get().keep;
     let id = apps.spawn_backup(&name, keep)?;
+    crate::audit::record("app.backup", &name);
     job_fragment(&apps, &id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
@@ -929,6 +936,7 @@ pub async fn schedule_save(
             Some("Could not save the schedule."),
         ));
     }
+    crate::audit::record("settings.backup-schedule", "changed");
     Ok(schedule_html(&apps, Some("Saved."), None))
 }
 
@@ -1054,7 +1062,7 @@ fn new_job(apps: &Apps, name: &str, verb: &'static str) -> Result<String, Status
 }
 
 /// "2026-11-13 15:11 UTC" from epoch seconds (no time crate needed).
-fn utc_stamp(epoch: u64) -> String {
+pub(crate) fn utc_stamp(epoch: u64) -> String {
     let days = (epoch / 86400) as i64;
     let rem = epoch % 86400;
     // civil-from-days (Howard Hinnant)
@@ -1146,6 +1154,7 @@ pub async fn restore_submit(
         .position(|t| t.manifest.app.id == state.template)
         .ok_or(StatusCode::NOT_FOUND)?;
     let job_id = new_job(&apps, &name, "Restoring")?;
+    crate::audit::record("app.restore", &name);
     let task_apps = apps.clone();
     let task_id = job_id.clone();
     tokio::spawn(async move {
@@ -1191,6 +1200,7 @@ pub async fn cleanup_submit(
     }
     known_instance(&apps, &name)?;
     let job_id = new_job(&apps, &name, "Cleaning up")?;
+    crate::audit::record("app.cleanup", &name);
     let task_apps = apps.clone();
     let task_id = job_id.clone();
     tokio::spawn(async move {
@@ -1338,6 +1348,9 @@ pub async fn public_submit(
         .unwrap_or_default();
     let error = crate::public::write(&apps.root.join(&name), &host).err();
     let saved = error.is_none();
+    if saved {
+        crate::audit::record("app.hostname", &format!("{name} -> {host}"));
+    }
     Ok(render(
         with_zone_warning(public_page(&apps, &name, host, error, saved)).await,
     ))
@@ -1432,7 +1445,10 @@ pub async fn cloudflare_connect(
                     tunnel,
                 };
                 match crate::public::save_saved(&saved) {
-                    Ok(()) => (true, "token accepted and saved on this server.".to_string()),
+                    Ok(()) => {
+                        crate::audit::record("cloudflare.connect", "token saved");
+                        (true, "token accepted and saved on this server.".to_string())
+                    }
                     Err(e) => (false, format!("could not save: {e}")),
                 }
             }
@@ -1456,7 +1472,10 @@ pub async fn cloudflare_tunnel(
             Ok(p) if p.tunnels.iter().any(|(i, _)| i == id) => {
                 saved.tunnel = Some(id.to_string());
                 match crate::public::save_saved(&saved) {
-                    Ok(()) => (true, "tunnel selected.".to_string()),
+                    Ok(()) => {
+                        crate::audit::record("cloudflare.tunnel", "selected");
+                        (true, "tunnel selected.".to_string())
+                    }
                     Err(e) => (false, format!("could not save: {e}")),
                 }
             }
@@ -1472,10 +1491,13 @@ pub async fn cloudflare_disconnect(headers: HeaderMap) -> Result<Html<String>, S
         return Err(StatusCode::FORBIDDEN);
     }
     let msg = match crate::public::forget_saved() {
-        Ok(()) => (
-            true,
-            "token forgotten. Apps already published stay online.".to_string(),
-        ),
+        Ok(()) => {
+            crate::audit::record("cloudflare.disconnect", "token forgotten");
+            (
+                true,
+                "token forgotten. Apps already published stay online.".to_string(),
+            )
+        }
         Err(e) => (false, e),
     };
     Ok(render(cloudflare_panel(Some(msg)).await))
@@ -1494,6 +1516,7 @@ pub async fn public_publish(
     }
     known_instance(&apps, &name)?;
     let replace_dns = values.get("replace").is_some_and(|v| v == "yes");
+    crate::audit::record("app.publish", &name);
     let dir = apps.root.join(&name);
     let host = crate::public::read(&dir).unwrap_or_default();
     let mut lines: Vec<String> = Vec::new();

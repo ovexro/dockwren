@@ -384,6 +384,7 @@ pub async fn save(
     match merged(&s.channels, &f) {
         Ok(c) => {
             s.set_channels(c);
+            crate::audit::record("settings.channels", "saved");
             let c = s.channels.clone();
             render(&c, Some((true, "Saved.".into())))
         }
@@ -410,6 +411,7 @@ pub async fn remove(
         _ => {}
     }
     s.set_channels(c);
+    crate::audit::record("settings.channels", &format!("{which} removed"));
     let c = s.channels.clone();
     render(&c, Some((true, "Removed.".into())))
 }

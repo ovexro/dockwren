@@ -1,5 +1,6 @@
 mod alerts;
 mod apps;
+mod audit;
 mod auth;
 mod backup;
 mod backupwatch;
@@ -333,6 +334,7 @@ fn app(
         .route("/resources", get(resources_page))
         .route("/settings", get(settings_page))
         .route("/settings/tab/{tab}", get(settings_tab))
+        .route("/settings/audit", get(audit::show))
         .route("/cloudflare", get(cloudflare_page))
         .route("/notifications", get(notifications_page))
         .route("/notifications/list", get(notify::list))
@@ -873,6 +875,7 @@ async fn main() {
         .unwrap_or_else(|e| panic!("cannot bind {}: {e}", cfg.bind));
     println!("dockwren listening on http://{}", cfg.bind);
     let templates = apps::catalog(&cfg).unwrap_or_else(|e| panic!("bad template: {e}"));
+    audit::init(&cfg.data_dir);
     let notify = notify::shared(&cfg.data_dir);
     let apps = apps::Apps::new(templates, cfg.instances_dir())
         .with_notify(notify.clone())
@@ -907,7 +910,8 @@ async fn main() {
             Arc::new(terminal::Switch::new(cfg.terminal, Some(&cfg.data_dir))),
             os_control,
             Arc::new(selfupdate::Control::new(&cfg.data_dir)),
-        ),
+        )
+        .into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .await
     .expect("server error");

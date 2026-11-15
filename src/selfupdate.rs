@@ -404,6 +404,7 @@ async fn run(State(s): State<St>, headers: HeaderMap, Form(f): Form<RunForm>) ->
         .await;
     }
     eprintln!("selfupdate: update requested from Settings; restarting");
+    crate::audit::record("selfupdate.run", "panel update requested");
     if s.ctl.exit_after {
         tokio::spawn(async {
             tokio::time::sleep(Duration::from_secs(1)).await;

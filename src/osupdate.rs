@@ -441,6 +441,7 @@ async fn toggle(
         "osupdate: turned {} from Settings",
         if on { "on" } else { "off" }
     );
+    crate::audit::record("osupdate.toggle", if on { "on" } else { "off" });
     setting_html(&s, None).await
 }
 
@@ -471,6 +472,7 @@ async fn run(State(s): State<OsState>, headers: HeaderMap, Form(form): Form<RunF
     match s.ctl.start() {
         Ok(()) => {
             eprintln!("osupdate: update started from the panel");
+            crate::audit::record("osupdate.run", "OS package update started");
             notify::raise(
                 &s.notify,
                 NewEvent::new(

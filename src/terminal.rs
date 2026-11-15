@@ -259,6 +259,7 @@ async fn setting_set(
     }
     let word = if on { "on" } else { "off" };
     eprintln!("terminal: turned {word} from Settings");
+    crate::audit::record("terminal.toggle", word);
     notify::raise(
         &s.notify,
         NewEvent::new(

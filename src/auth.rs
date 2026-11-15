@@ -4,6 +4,7 @@
 use std::{
     collections::HashMap,
     fs, io,
+    net::SocketAddr,
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -13,8 +14,8 @@ use std::{
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use askama::Template;
 use axum::{
-    Form,
-    extract::{Request, State},
+    Extension, Form,
+    extract::{ConnectInfo, Request, State},
     http::{HeaderValue, StatusCode, header},
     middleware::Next,
     response::{Html, IntoResponse, Redirect, Response},
@@ -400,8 +401,30 @@ pub struct LoginForm {
     code: String,
 }
 
-pub async fn login_submit(State(auth): State<SharedAuth>, Form(form): Form<LoginForm>) -> Response {
+/// The peer address, plus a proxy header if one is present (a hint only: clients can set it).
+fn source(info: Option<Extension<ConnectInfo<SocketAddr>>>, headers: &header::HeaderMap) -> String {
+    let peer = info.map_or_else(|| "unknown".to_string(), |c| c.0.0.ip().to_string());
+    let fwd = ["cf-connecting-ip", "x-forwarded-for"]
+        .iter()
+        .find_map(|h| headers.get(*h).and_then(|v| v.to_str().ok()));
+    match fwd {
+        Some(f) => format!(
+            "from {peer} (proxy says {})",
+            f.chars().take(60).collect::<String>()
+        ),
+        None => format!("from {peer}"),
+    }
+}
+
+pub async fn login_submit(
+    State(auth): State<SharedAuth>,
+    info: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: header::HeaderMap,
+    Form(form): Form<LoginForm>,
+) -> Response {
+    let src = source(info, &headers);
     if auth.locked() {
+        crate::audit::record("login.locked", &src);
         return login_page(
             StatusCode::TOO_MANY_REQUESTS,
             Some("Too many attempts. Try again in a minute."),
@@ -416,9 +439,11 @@ pub async fn login_submit(State(auth): State<SharedAuth>, Form(form): Form<Login
     // One message for every failure, so it does not say which factor was wrong.
     if !ok || !auth.second_factor_ok(&code) {
         auth.record_failure();
+        crate::audit::record("login.failed", &src);
         return login_page(StatusCode::UNAUTHORIZED, Some("Wrong password or code."));
     }
     auth.record_success();
+    crate::audit::record("login", &src);
     let token = auth.create_session();
     let mut res = Redirect::to("/").into_response();
     res.headers_mut()
@@ -429,6 +454,7 @@ pub async fn login_submit(State(auth): State<SharedAuth>, Form(form): Form<Login
 pub async fn logout(State(auth): State<SharedAuth>, headers: header::HeaderMap) -> Response {
     if let Some(t) = session_token(&headers) {
         auth.end_session(t);
+        crate::audit::record("logout", "");
     }
     let mut res = Redirect::to("/login").into_response();
     res.headers_mut()
@@ -547,9 +573,14 @@ mod tests {
             let a = Arc::clone(&auth);
             let pw = pw.clone();
             async move {
-                login_submit(State(a), Form(LoginForm { password: pw, code }))
-                    .await
-                    .status()
+                login_submit(
+                    State(a),
+                    None,
+                    header::HeaderMap::new(),
+                    Form(LoginForm { password: pw, code }),
+                )
+                .await
+                .status()
             }
         };
         let rt = tokio::runtime::Builder::new_current_thread()

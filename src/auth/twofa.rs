@@ -161,6 +161,7 @@ pub async fn enable(State(auth): State<SharedAuth>, Form(f): Form<CodeForm>) -> 
         Ok(codes) => {
             *auth.pending.lock().unwrap() = None;
             *auth.last_step.lock().unwrap() = step;
+            crate::audit::record("2fa.enable", "");
             render(&auth, None, codes, None)
         }
         Err(_) => render(
@@ -184,5 +185,6 @@ pub async fn turn_off(State(auth): State<SharedAuth>, Form(f): Form<CodeForm>) -
     if let Some(dir) = &auth.dir {
         let _ = disable(dir);
     }
+    crate::audit::record("2fa.disable", "");
     render(&auth, None, Vec::new(), None)
 }
