@@ -11,6 +11,8 @@ Open items only, one line each, with the date it was last verified open. Deliver
 
 - Email: switch dockwren.dev DNS to Purelymail + install SnappyMail live at webmail host (details in memory email-setup). Verified open 2026-11-15.
 
+- Security: check pinned image versions (PHP in Nextcloud, WordPress, SnappyMail) against PHP advisories at each release; PHP2Shell fixed in 8.5.12/8.4.27/8.3.36/8.2.35 (all live PHP apps verified patched 2026-11-15). Verified open 2026-11-15.
+
 ## Decisions (do not re-propose)
 - Name stays "Dockwren" (user, 2026-11-13), despite the pending USPTO "DOCKWARE" filing.
 - Repo is public (user approved 2026-11-13); ask before any visibility change.
