@@ -1,0 +1,52 @@
+[app]
+id = "navidrome"
+name = "Navidrome"
+description = "Stream your own music collection, with Subsonic app support"
+homepage = "https://www.navidrome.org/"
+version = 1
+note = "Your music server. On first visit create the admin account; the library is scanned from the folder /music. Works with Subsonic-compatible phone apps."
+accepts_public_host = true
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "navidrome"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers. It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "MUSIC_PATH"
+label = "Music folder"
+type = "string"
+default = "/srv/music"
+pattern = "^/[A-Za-z0-9._/-]+$"
+help = "The folder on this server that holds your music. It is shown inside Navidrome as /music and is read-only, so Navidrome can never change your files. It is not backed up by Dockwren (only Navidrome's own database and settings are). Create it first if it does not exist."
+
+[[fields]]
+key = "TIME_ZONE"
+label = "Time zone"
+type = "string"
+default = "UTC"
+pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
+help = "Your region, so dates and times are right. For example Europe/Bucharest."
+
+[[services]]
+name = "navidrome"
+main = true
+health = { source = "image" }
+
+[backup]
+paths = ["data"]
+
+[update]
+image_pins = ["deluan/navidrome"]
+pre_update = ["backup"]

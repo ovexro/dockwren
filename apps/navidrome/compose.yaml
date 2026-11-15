@@ -1,0 +1,12 @@
+services:
+  navidrome:
+    image: deluan/navidrome:0.64.2
+    restart: unless-stopped
+    environment:
+      ND_SESSIONTIMEOUT: 24h
+      TZ: ${TIME_ZONE}
+    volumes:
+      - ./data:/data
+      - ${MUSIC_PATH}:/music:ro
+    ports:
+      - "127.0.0.1:${WEB_PORT}:4533"

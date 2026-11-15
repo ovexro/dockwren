@@ -299,6 +299,11 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/jellyfin/icon.svg"),
     ),
     (
+        include_str!("../apps/navidrome/manifest.toml"),
+        include_str!("../apps/navidrome/compose.yaml"),
+        include_str!("../apps/navidrome/icon.svg"),
+    ),
+    (
         include_str!("../apps/n8n/manifest.toml"),
         include_str!("../apps/n8n/compose.yaml"),
         include_str!("../apps/n8n/icon.svg"),
@@ -654,6 +659,7 @@ mod tests {
                 "memos",
                 "miniflux",
                 "n8n",
+                "navidrome",
                 "nextcloud",
                 "paperless-ngx",
                 "syncthing",
@@ -664,7 +670,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 13);
+        assert_eq!(c.len(), 14);
     }
 
     #[test]
@@ -694,6 +700,7 @@ mod tests {
                 "memos",
                 "miniflux",
                 "n8n",
+                "navidrome",
                 "nextcloud",
                 "paperless-ngx",
                 "syncthing",
