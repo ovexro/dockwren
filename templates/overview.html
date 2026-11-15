@@ -11,7 +11,11 @@
     {% for w in warnings %}<li>{{ w }}</li>{% endfor %}
   </ul>
   {% endif %}
-  {% if !host.is_empty() %}<p class="muted">{{ host }}</p>{% endif %}
+  {% if !facts.is_empty() %}
+  <ul class="facts">
+    {% for f in facts %}<li><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ f.icon }}"/></svg><span class="muted">{{ f.label }}:</span> {% if let Some(l) = f.link %}<a href="{{ l }}">{{ f.value }}</a>{% else %}<strong>{{ f.value }}</strong>{% endif %}</li>{% endfor %}
+  </ul>
+  {% endif %}
   {% if tiles.is_empty() %}
   <p class="muted">Collecting the first samples…</p>
   {% else %}
@@ -26,6 +30,6 @@
   </div>
   {% endif %}
   {% if docker_error.is_none() %}
-  <p><a href="/apps"><strong>{{ apps }}</strong> {% if apps == 1 %}app{% else %}apps{% endif %} installed</a> · <a href="/containers"><strong>{{ running }}</strong> of {{ total }} containers running</a>{% if let Some(b) = backup %} · <a href="/apps">{{ b }}</a>{% endif %}</p>
+  <p><a href="/apps"><strong>{{ apps }}</strong> {% if apps == 1 %}app{% else %}apps{% endif %} installed</a> · <a href="/containers"><strong>{{ running }}</strong> of {{ total }} containers running</a></p>
   {% endif %}
 </div>

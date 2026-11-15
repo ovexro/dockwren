@@ -855,10 +855,8 @@ pub struct OverviewTemplate {
     pub warnings: Vec<String>,
     pub docker_error: Option<String>,
     pub alerts: Vec<crate::notify::Alert>,
-    /// "hostname · OS · up 3d 4h · Dockwren vX"; empty when nothing is known.
-    pub host: String,
-    /// "Last backup 5h ago" / "No backup yet"; None when no apps are installed.
-    pub backup: Option<String>,
+    /// Labelled facts about this server (host, OS, uptime, version, last backup).
+    pub facts: Vec<Fact>,
 }
 
 /// Seconds as a short span: "5m", "3h 20m", "13d 2h".
@@ -871,8 +869,22 @@ pub fn short_span(secs: u64) -> String {
     }
 }
 
-/// The server's identity line for the Overview.
-pub fn host_line() -> String {
+/// One labelled fact on the Overview. `icon` is 24x24 stroke-icon path data.
+pub struct Fact {
+    pub icon: &'static str,
+    pub label: &'static str,
+    pub value: String,
+    pub link: Option<&'static str>,
+}
+
+const ICON_SERVER: &str = "M2 4h20v6H2z M2 14h20v6H2z M6 7h.01 M6 17h.01";
+const ICON_OS: &str = "M4 4h16v12H4z M8 20h8 M12 16v4";
+const ICON_CLOCK: &str = "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 7v5l3 2";
+const ICON_TAG: &str = "M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z M7.5 7.5h.01";
+pub const ICON_BACKUP: &str = "M21 8v13H3V8 M1 3h22v5H1z M10 12h4";
+
+/// Identity facts of this server for the Overview; unknown ones are left out.
+pub fn host_facts() -> Vec<Fact> {
     let read = |p: &str| std::fs::read_to_string(p).unwrap_or_default();
     let name = read("/proc/sys/kernel/hostname").trim().to_string();
     let os = read("/etc/os-release")
@@ -884,14 +896,19 @@ pub fn host_line() -> String {
         .split_whitespace()
         .next()
         .and_then(|v| v.parse::<f64>().ok())
-        .map(|v| format!("up {}", short_span(v as u64)))
+        .map(|v| short_span(v as u64))
         .unwrap_or_default();
-    let ver = format!("Dockwren v{}", env!("CARGO_PKG_VERSION"));
-    [name, os, up, ver]
-        .into_iter()
-        .filter(|p| !p.is_empty())
-        .collect::<Vec<_>>()
-        .join(" · ")
+    let ver = format!("v{}", env!("CARGO_PKG_VERSION"));
+    [
+        (ICON_SERVER, "Hostname", name),
+        (ICON_OS, "OS", os),
+        (ICON_CLOCK, "Uptime", up),
+        (ICON_TAG, "Dockwren", ver),
+    ]
+    .into_iter()
+    .filter(|f| !f.2.is_empty())
+    .map(|(icon, label, value)| Fact { icon, label, value, link: None })
+    .collect()
 }
 
 pub fn overview(
@@ -927,8 +944,7 @@ pub fn overview(
         warnings,
         docker_error,
         alerts: Vec::new(),
-        host: String::new(),
-        backup: None,
+        facts: Vec::new(),
     }
 }
 
