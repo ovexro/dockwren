@@ -113,7 +113,9 @@ form[action="/logout"] { margin-top: .75rem; }
 .chart polyline { stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 .chart .axis { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .chart.warn { border-color: var(--bad); }
-.facts { display: flex; flex-wrap: wrap; gap: .35rem 1.25rem; list-style: none; margin: .5rem 0; padding: 0; }
+.facts { display: flex; flex-wrap: wrap; gap: .35rem .6rem; list-style: none; margin: 1rem 0 .5rem; padding: 0; }
+.facts li + li::before { content: "·"; margin-right: .25rem; color: var(--muted); }
+@media (max-width: 40rem) { .facts { flex-direction: column; } .facts li + li::before { content: none; } }
 .facts li { display: inline-flex; align-items: center; gap: .35rem; }
 .facts svg { flex: none; color: var(--muted); }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .75rem; margin: .75rem 0 1rem; }
