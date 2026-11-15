@@ -324,6 +324,11 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/syncthing/icon.svg"),
     ),
     (
+        include_str!("../apps/wikijs/manifest.toml"),
+        include_str!("../apps/wikijs/compose.yaml"),
+        include_str!("../apps/wikijs/icon.svg"),
+    ),
+    (
         include_str!("../apps/wordpress/manifest.toml"),
         include_str!("../apps/wordpress/compose.yaml"),
         include_str!("../apps/wordpress/icon.svg"),
@@ -671,12 +676,13 @@ mod tests {
                 "syncthing",
                 "uptime-kuma",
                 "vaultwarden",
+                "wikijs",
                 "wordpress"
             ]
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 15);
+        assert_eq!(c.len(), 16);
     }
 
     #[test]
@@ -713,6 +719,7 @@ mod tests {
                 "syncthing",
                 "uptime-kuma",
                 "vaultwarden",
+                "wikijs",
                 "wordpress"
             ]
         );

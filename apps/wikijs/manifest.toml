@@ -1,0 +1,57 @@
+[app]
+id = "wikijs"
+name = "Wiki.js"
+description = "Modern wiki with Markdown and a visual editor"
+homepage = "https://js.wiki/"
+version = 1
+note = "A wiki with its own database. Sign in as admin@example.com with the generated admin password (shown once) and change the email in the profile settings. Needs about 1 GB of RAM."
+accepts_public_host = true
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "wikijs"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[secrets]]
+key = "POSTGRES_PASSWORD"
+kind = "password"
+length = 32
+
+[[secrets]]
+key = "ADMIN_PASS"
+kind = "password"
+length = 20
+reveal = true
+
+[[services]]
+name = "db"
+health = { source = "image" }
+
+[[services]]
+name = "wikijs"
+main = true
+health = { source = "panel", test = ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:3000/_live"], interval = "30s", start_period = "3m" }
+
+[backup]
+paths = ["data"]
+[[backup.dumps]]
+service = "db"
+run = ["pg_dump", "--clean", "--if-exists", "-U", "wiki", "wiki"]
+restore = ["psql", "-v", "ON_ERROR_STOP=1", "-q", "-U", "wiki", "wiki"]
+output = "db.sql"
+
+[update]
+image_pins = ["ghcr.io/requarks/wiki", "postgres"]
+pre_update = ["backup"]
+pinned_major = ["postgres"]
