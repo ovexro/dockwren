@@ -131,6 +131,17 @@ default they are not set, the panel holds no Cloudflare credentials, and you pub
 `dockwren expose`. Enabling the variables gives anyone who can log in to the panel the power to edit
 that tunnel and those DNS records, so use a token scoped to the one zone.
 
+## Bundled app notes
+
+The install form shows the full note for each app. The ones that surprise people most:
+
+- **Syncthing** has no web password until you set one (Actions > Settings > GUI). Devices connect through Syncthing relays; LAN discovery is not available in this template. Your synced folder is not backed up by Dockwren, only Syncthing's settings and device keys.
+- **Homepage** has no login. It only answers to the host names in `ALLOWED_HOSTS`, so add your public hostname there (edit `.env`, then restart) or keep it private / behind Cloudflare Access.
+- **Ghost** has no email sending configured, so the emailed sign-in code for new devices is off. Create the owner account at `/ghost` right after installing, and use a strong password.
+- **SnappyMail** is a webmail client, not a mail server: it needs an existing mailbox provider (IMAP/SMTP).
+- **Immich** backs up its database only, not the photo library folder.
+- **AdGuard Home** (and any app that needs LAN ports) only opens them if you tick the LAN ports checkbox; its admin port must stay 3000 during setup.
+
 ## Adding apps
 
 Apps are small templates (a manifest plus a Compose file). See [docs/TEMPLATES.md](docs/TEMPLATES.md).
