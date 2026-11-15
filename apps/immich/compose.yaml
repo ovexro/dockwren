@@ -1,0 +1,48 @@
+services:
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:v3.4.1
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - database
+    environment:
+      DB_HOSTNAME: database
+      DB_USERNAME: immich
+      DB_DATABASE_NAME: immich
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOSTNAME: redis
+    volumes:
+      - ${LIBRARY_PATH}:/data
+    ports:
+      - "127.0.0.1:${WEB_PORT}:2283"
+  immich-machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:v3.4.1
+    restart: unless-stopped
+    environment:
+      MACHINE_LEARNING_MODEL_REVISION: v2
+    volumes:
+      - ./model-cache:/cache
+  redis:
+    image: docker.io/valkey/valkey:9
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  database:
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
+    restart: unless-stopped
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: immich
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: immich
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - ./db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U immich -d immich"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

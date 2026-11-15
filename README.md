@@ -7,7 +7,7 @@ and optionally publish them on a Cloudflare Tunnel hostname.
 - Single static Rust binary (axum + bollard), server-rendered UI with a small amount of htmx
   (vendored, no CDN, no JS build step).
 - Talks to the local Docker socket. No database, no agents.
-- Bundled apps: AdGuard Home, Ghost, Gitea, Grafana, Homepage, Jellyfin, Memos, Miniflux, n8n, Navidrome, Nextcloud, Paperless-ngx, SnappyMail, Stirling-PDF, Syncthing, Uptime Kuma, Vaultwarden, Wiki.js, WordPress.
+- Bundled apps: AdGuard Home, Ghost, Gitea, Grafana, Homepage, Immich, Jellyfin, Memos, Miniflux, n8n, Navidrome, Nextcloud, Paperless-ngx, SnappyMail, Stirling-PDF, Syncthing, Uptime Kuma, Vaultwarden, Wiki.js, WordPress.
   Adding your own takes a manifest and a Compose file.
 - Status: early (v0.1.x). It works and is tested on Debian 13 and Ubuntu 24.04 (x86_64) and on a
   Raspberry Pi 5 (aarch64), but expect rough edges.

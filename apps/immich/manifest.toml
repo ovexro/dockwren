@@ -1,0 +1,67 @@
+[app]
+id = "immich"
+name = "Immich"
+description = "Self-hosted photo and video library with face and object search, a Google Photos alternative"
+homepage = "https://immich.app/"
+version = 1
+note = "Four containers (server, machine learning, database, cache); plan on about 4 GB of RAM and a first start of a few minutes. The FIRST account you register becomes the administrator: open the app right after installing and create it before anyone else can. Your photos live in the library folder below and are NOT part of Dockwren backups (only the database is): back that folder up separately."
+needs_public_https = false
+accepts_public_host = true
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "immich"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers. It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "LIBRARY_PATH"
+label = "Library folder"
+type = "string"
+default = "/srv/immich"
+pattern = "^/[A-Za-z0-9._/-]+$"
+help = "The folder on this server where Immich stores your uploaded photos and videos (and generated thumbnails). It can get very large: put it on a big disk. Dockwren creates it if missing. It is not backed up by Dockwren."
+
+[[secrets]]
+key = "DB_PASSWORD"
+kind = "hex"
+length = 32
+
+[[services]]
+name = "database"
+health = { source = "image" }
+
+[[services]]
+name = "redis"
+health = { source = "image" }
+
+[[services]]
+name = "immich-machine-learning"
+health = { source = "image" }
+
+[[services]]
+name = "immich-server"
+main = true
+health = { source = "image" }
+
+[backup]
+paths = []
+[[backup.dumps]]
+service = "database"
+run = ["pg_dump", "--clean", "--if-exists", "-U", "immich", "immich"]
+restore = ["psql", "-v", "ON_ERROR_STOP=1", "-q", "-U", "immich", "immich"]
+output = "db.sql"
+
+[update]
+image_pins = ["ghcr.io/immich-app/immich-server", "ghcr.io/immich-app/immich-machine-learning"]
+pre_update = ["backup"]
+pinned_major = ["ghcr.io/immich-app/postgres"]
