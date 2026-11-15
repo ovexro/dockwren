@@ -1,0 +1,44 @@
+[app]
+id = "snappymail"
+name = "SnappyMail"
+description = "A light, fast webmail client for your own mailbox (IMAP/SMTP)"
+homepage = "https://snappymail.eu/"
+version = 1
+note = "A webmail client, not a mail server: it connects to a mailbox you already have at a provider (IMAP to read, SMTP to send). Sign in with your full address and the provider's mailbox password; if the provider is not detected, add its IMAP/SMTP servers in the admin panel. The admin panel is at /?admin; its generated password is in the file data/_data_/_default_/admin_password.txt inside this app's folder: read it, log in, then change it right away. Publish it over HTTPS, because you type your mail password into it."
+accepts_public_host = true
+needs_public_https = true
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "snappymail"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers. It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "TIME_ZONE"
+label = "Time zone"
+type = "string"
+default = "UTC"
+pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
+help = "Your region, so dates and times are right. For example Europe/Bucharest."
+
+[[services]]
+name = "snappymail"
+main = true
+health = { source = "panel", test = ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8888/"], interval = "15s", start_period = "30s" }
+
+[backup]
+paths = ["data"]
+
+[update]
+image_pins = ["ghcr.io/the-djmaze/snappymail"]
+pre_update = ["backup"]

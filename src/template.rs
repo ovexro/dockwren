@@ -319,6 +319,11 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/nextcloud/icon.svg"),
     ),
     (
+        include_str!("../apps/snappymail/manifest.toml"),
+        include_str!("../apps/snappymail/compose.yaml"),
+        include_str!("../apps/snappymail/icon.svg"),
+    ),
+    (
         include_str!("../apps/stirling-pdf/manifest.toml"),
         include_str!("../apps/stirling-pdf/compose.yaml"),
         include_str!("../apps/stirling-pdf/icon.svg"),
@@ -678,6 +683,7 @@ mod tests {
                 "navidrome",
                 "nextcloud",
                 "paperless-ngx",
+                "snappymail",
                 "stirling-pdf",
                 "syncthing",
                 "uptime-kuma",
@@ -688,7 +694,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 17);
+        assert_eq!(c.len(), 18);
     }
 
     #[test]
@@ -722,6 +728,7 @@ mod tests {
                 "navidrome",
                 "nextcloud",
                 "paperless-ngx",
+                "snappymail",
                 "stirling-pdf",
                 "syncthing",
                 "uptime-kuma",

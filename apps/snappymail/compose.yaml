@@ -1,0 +1,10 @@
+services:
+  snappymail:
+    image: ghcr.io/the-djmaze/snappymail:v2.38.2
+    restart: unless-stopped
+    environment:
+      TZ: ${TIME_ZONE}
+    volumes:
+      - ./data:/var/lib/snappymail
+    ports:
+      - "127.0.0.1:${WEB_PORT}:8888"
