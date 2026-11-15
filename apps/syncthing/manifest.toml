@@ -1,0 +1,52 @@
+[app]
+id = "syncthing"
+name = "Syncthing"
+description = "Continuous file synchronisation between your own devices, no cloud"
+homepage = "https://syncthing.net/"
+version = 1
+note = "Keeps folders in sync between your devices. IMPORTANT: on first visit set a GUI password (Actions > Settings > GUI), the web interface has none by default. Devices connect through Syncthing relays; direct LAN discovery is not available in this template."
+needs_public_https = false
+accepts_public_host = true
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "syncthing"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers. It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "SYNC_PATH"
+label = "Sync folder"
+type = "string"
+default = "/srv/sync"
+pattern = "^/[A-Za-z0-9._/-]+$"
+help = "The folder on this server that Syncthing keeps in sync with your other devices. It is shown inside Syncthing as /sync and must be writable by user 1000. Create it first if it does not exist. It is not backed up by Dockwren (only Syncthing's own settings and device keys are)."
+
+[[fields]]
+key = "TIME_ZONE"
+label = "Time zone"
+type = "string"
+default = "UTC"
+pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
+help = "Your region, so dates and times are right. For example Europe/Bucharest."
+
+[[services]]
+name = "syncthing"
+main = true
+health = { source = "image" }
+
+[backup]
+paths = ["config"]
+
+[update]
+image_pins = ["syncthing/syncthing"]
+pre_update = ["backup"]

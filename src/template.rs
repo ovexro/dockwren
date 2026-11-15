@@ -304,6 +304,11 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/nextcloud/icon.svg"),
     ),
     (
+        include_str!("../apps/syncthing/manifest.toml"),
+        include_str!("../apps/syncthing/compose.yaml"),
+        include_str!("../apps/syncthing/icon.svg"),
+    ),
+    (
         include_str!("../apps/wordpress/manifest.toml"),
         include_str!("../apps/wordpress/compose.yaml"),
         include_str!("../apps/wordpress/icon.svg"),
@@ -645,6 +650,7 @@ mod tests {
                 "n8n",
                 "nextcloud",
                 "paperless-ngx",
+                "syncthing",
                 "uptime-kuma",
                 "vaultwarden",
                 "wordpress"
@@ -652,7 +658,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 11);
+        assert_eq!(c.len(), 12);
     }
 
     #[test]
@@ -683,6 +689,7 @@ mod tests {
                 "n8n",
                 "nextcloud",
                 "paperless-ngx",
+                "syncthing",
                 "uptime-kuma",
                 "vaultwarden",
                 "wordpress"

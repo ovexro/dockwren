@@ -1,0 +1,14 @@
+services:
+  syncthing:
+    image: syncthing/syncthing:2.1
+    restart: unless-stopped
+    hostname: ${INSTANCE_NAME}
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: ${TIME_ZONE}
+    volumes:
+      - ./config:/var/syncthing
+      - ${SYNC_PATH}:/sync
+    ports:
+      - "127.0.0.1:${WEB_PORT}:8384"
