@@ -13,5 +13,6 @@
   <p><strong>Shown once — copy it now, it is not stored:</strong></p>
   <ul>{% for s in secrets %}<li>{{ s.0 }}: <code>{{ s.1 }}</code></li>{% endfor %}</ul>
   {% endif %}
+  {% if verb == "Installing" && !note.is_empty() %}<p><strong>Next step:</strong> {{ note }}</p>{% endif %}
   {% endif %}
 </div>

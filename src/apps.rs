@@ -423,6 +423,8 @@ struct Job {
     /// Secrets to show once; emptied when delivered to the browser.
     secrets: Vec<(String, String)>,
     ports: Vec<(String, String)>,
+    /// Template note, shown after a successful install.
+    note: String,
 }
 
 // ---- views -------------------------------------------------------------
@@ -488,6 +490,7 @@ struct JobPage {
     error: Option<String>,
     secrets: Vec<(String, String)>,
     ports: Vec<(String, String)>,
+    note: String,
 }
 
 struct InstanceView {
@@ -804,6 +807,7 @@ pub async fn install_submit(
                 state: JobState::Running,
                 secrets: Vec::new(),
                 ports,
+                note: t.manifest.app.note.clone().unwrap_or_default(),
             },
         ));
     }
@@ -864,6 +868,7 @@ fn job_fragment(apps: &Apps, id: &str) -> Option<Html<String>> {
             },
             secrets,
             ports: j.ports.clone(),
+            note: j.note.clone(),
         })
     })
 }
@@ -1235,6 +1240,7 @@ fn new_job(apps: &Apps, name: &str, verb: &'static str) -> Result<String, Status
             state: JobState::Running,
             secrets: Vec::new(),
             ports: Vec::new(),
+            note: String::new(),
         },
     ));
     Ok(job_id)
