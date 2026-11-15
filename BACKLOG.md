@@ -9,6 +9,8 @@ Open items only, one line each, with the date it was last verified open. Deliver
 - IDEA (2026-11-14, in order): (1) more catalog templates: done Nextcloud, Jellyfin, Grafana, n8n, Syncthing, Homepage, Navidrome, Stirling-PDF, Wiki.js, Ghost, SnappyMail; left Immich, Roundcube (optional); (2) "update available" badge + optional nightly auto-update using the existing rollback; (3) resource alerts (CPU/RAM/disk thresholds, container down/restart-loop) through the existing channels; (4) panel self-update (`dockwren self-update` / Settings button, SHA256-checked); (5) audit log (logins, install/update/remove); (6) "add stack" from pasted Compose YAML; (7) multi-server over SSH (last).
 - IDEA (2026-11-14): templates that need non-loopback ports or host networking (AdGuard Home/Pi-hole DNS on 53, Home Assistant) are refused by the compose linter; needs a security decision (e.g. an opt-in `lan_ports` manifest key shown clearly in the install form). Not started.
 
+- Email: switch dockwren.dev DNS to Purelymail + install SnappyMail live at webmail host (details in memory email-setup). Verified open 2026-11-15.
+
 ## Decisions (do not re-propose)
 - Name stays "Dockwren" (user, 2026-11-13), despite the pending USPTO "DOCKWARE" filing.
 - Repo is public (user approved 2026-11-13); ask before any visibility change.
