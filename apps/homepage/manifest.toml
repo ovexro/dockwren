@@ -1,0 +1,52 @@
+[app]
+id = "homepage"
+name = "Homepage"
+description = "A fast start page with links and status widgets for your services"
+homepage = "https://gethomepage.dev/"
+version = 1
+note = "Your own start page. Edit the YAML files in the config folder (services.yaml, bookmarks.yaml, settings.yaml) to add links and widgets. There is no login: publish it only behind Cloudflare Access or keep it private."
+accepts_public_host = true
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "homepage"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers. It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "ALLOWED_HOSTS"
+label = "Allowed host names"
+type = "string"
+default = "localhost:${WEB_PORT},127.0.0.1:${WEB_PORT}"
+pattern = "^[A-Za-z0-9.:,*-]+$"
+help = "Homepage only answers to the host names listed here, comma separated, each with its port if it has one. If you publish it on a public hostname, add that name too (for example localhost:3000,home.example.com). Change it later by editing the .env file and restarting."
+
+[[fields]]
+key = "TIME_ZONE"
+label = "Time zone"
+type = "string"
+default = "UTC"
+pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
+help = "Your region, so dates and times are right. For example Europe/Bucharest."
+
+[[services]]
+name = "homepage"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "nc -z 127.0.0.1 3000"], interval = "15s", start_period = "20s" }
+
+[backup]
+paths = ["config"]
+
+[update]
+image_pins = ["ghcr.io/gethomepage/homepage"]
+pre_update = ["backup"]

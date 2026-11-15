@@ -289,6 +289,11 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/grafana/icon.svg"),
     ),
     (
+        include_str!("../apps/homepage/manifest.toml"),
+        include_str!("../apps/homepage/compose.yaml"),
+        include_str!("../apps/homepage/icon.svg"),
+    ),
+    (
         include_str!("../apps/jellyfin/manifest.toml"),
         include_str!("../apps/jellyfin/compose.yaml"),
         include_str!("../apps/jellyfin/icon.svg"),
@@ -644,6 +649,7 @@ mod tests {
             [
                 "gitea",
                 "grafana",
+                "homepage",
                 "jellyfin",
                 "memos",
                 "miniflux",
@@ -658,7 +664,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 12);
+        assert_eq!(c.len(), 13);
     }
 
     #[test]
@@ -683,6 +689,7 @@ mod tests {
             [
                 "gitea",
                 "grafana",
+                "homepage",
                 "jellyfin",
                 "memos",
                 "miniflux",

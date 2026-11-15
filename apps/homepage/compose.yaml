@@ -1,0 +1,13 @@
+services:
+  homepage:
+    image: ghcr.io/gethomepage/homepage:v2.8.0
+    restart: unless-stopped
+    environment:
+      HOMEPAGE_ALLOWED_HOSTS: ${ALLOWED_HOSTS}
+      PUID: "1000"
+      PGID: "1000"
+      TZ: ${TIME_ZONE}
+    volumes:
+      - ./config:/app/config
+    ports:
+      - "127.0.0.1:${WEB_PORT}:3000"
