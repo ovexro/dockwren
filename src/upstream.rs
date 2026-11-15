@@ -533,4 +533,29 @@ mod live {
             }
         }
     }
+
+    /// Whole pipeline against the real registry with a fake old instance.
+    #[tokio::test]
+    #[ignore]
+    async fn pipeline_end_to_end() {
+        use crate::notify::Store;
+        let root = std::env::temp_dir().join(format!("dw-up-{}", std::process::id()));
+        let d = root.join("old");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("state.toml"), "template = \"gitea\"\nversion = 1\n").unwrap();
+        std::fs::write(
+            d.join("compose.yaml"),
+            "services:\n  g:\n    image: gitea/gitea:1.20.0\n",
+        )
+        .unwrap();
+        let s: Shared = Arc::new(Mutex::new(Store::memory()));
+        let apps = Apps::new(crate::template::catalog(None).unwrap(), root.clone());
+        run_once(&apps, &s).await;
+        let found = apps.upstream_cache().lock().unwrap().clone();
+        println!("{found:?}");
+        println!("{:?}", s.lock().unwrap().open_events().len());
+        assert_eq!(found["old"].image, "gitea/gitea");
+        assert_eq!(s.lock().unwrap().open_events().len(), 1);
+        std::fs::remove_dir_all(&root).ok();
+    }
 }
