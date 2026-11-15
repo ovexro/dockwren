@@ -254,6 +254,11 @@ pub fn load_all(root: &Path) -> Result<Vec<Template>, String> {
 /// Templates shipped inside the binary.
 const BUNDLED: &[(&str, &str, &str)] = &[
     (
+        include_str!("../apps/custom/manifest.toml"),
+        include_str!("../apps/custom/compose.yaml"),
+        include_str!("../apps/custom/icon.svg"),
+    ),
+    (
         include_str!("../apps/ghost/manifest.toml"),
         include_str!("../apps/ghost/compose.yaml"),
         include_str!("../apps/ghost/icon.svg"),
@@ -672,6 +677,7 @@ mod tests {
         assert_eq!(
             ids,
             [
+                "custom",
                 "ghost",
                 "gitea",
                 "grafana",
@@ -694,7 +700,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 18);
+        assert_eq!(c.len(), 19);
     }
 
     #[test]
@@ -717,6 +723,7 @@ mod tests {
         assert_eq!(
             ids,
             [
+                "custom",
                 "ghost",
                 "gitea",
                 "grafana",

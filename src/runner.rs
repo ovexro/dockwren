@@ -80,6 +80,16 @@ pub fn prepare(
     t: &Template,
     env: &BTreeMap<String, String>,
 ) -> Result<Instance, String> {
+    prepare_with(root, t, &t.compose, env)
+}
+
+/// [`prepare`] with a compose file other than the template's (a pasted stack).
+pub fn prepare_with(
+    root: &Path,
+    t: &Template,
+    compose_text: &str,
+    env: &BTreeMap<String, String>,
+) -> Result<Instance, String> {
     let name = env
         .get("INSTANCE_NAME")
         .ok_or("INSTANCE_NAME missing")?
@@ -97,7 +107,7 @@ pub fn prepare(
             _ => format!("{}: {e}", dir.display()),
         })?;
     let err = |what: &str, e: std::io::Error| format!("{}: {what}: {e}", dir.display());
-    write_private(&dir.join("compose.yaml"), &t.compose).map_err(|e| err("compose.yaml", e))?;
+    write_private(&dir.join("compose.yaml"), compose_text).map_err(|e| err("compose.yaml", e))?;
     if let Some(o) = override_yaml(t) {
         write_private(&dir.join("compose.override.yaml"), &o).map_err(|e| err("override", e))?;
     }

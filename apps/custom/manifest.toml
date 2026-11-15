@@ -1,0 +1,20 @@
+[app]
+id = "custom"
+name = "Custom stack"
+description = "A Compose file pasted by the user (placeholder template; not shown in the catalog)"
+version = 1
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "my-stack"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+
+[[services]]
+name = "stack"
+main = true
+health = { source = "image" }
+
+[backup]
+paths = ["data"]

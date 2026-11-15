@@ -391,6 +391,18 @@ struct AppView {
     https_note: bool,
 }
 
+/// Hidden template that pasted Compose stacks are filed under.
+const CUSTOM_ID: &str = "custom";
+
+#[derive(Template)]
+#[template(path = "stack_form.html")]
+struct StackForm {
+    name: String,
+    compose: String,
+    env: String,
+    error: Option<String>,
+}
+
 #[derive(Template)]
 #[template(path = "catalog.html")]
 struct AppsPage {
@@ -536,6 +548,7 @@ pub async fn list(State(apps): State<Apps>) -> Html<String> {
         apps: apps
             .templates
             .iter()
+            .filter(|t| t.manifest.app.id != CUSTOM_ID)
             .map(|t| AppView {
                 id: t.manifest.app.id.clone(),
                 name: t.manifest.app.name.clone(),
@@ -576,6 +589,111 @@ pub async fn new_form(
 ) -> Result<Html<String>, StatusCode> {
     let t = apps.template(&id).ok_or(StatusCode::NOT_FOUND)?;
     Ok(render(form_view(t, &HashMap::new(), None)))
+}
+
+pub async fn stack_form() -> Html<String> {
+    render(StackForm {
+        name: String::new(),
+        compose: String::new(),
+        env: String::new(),
+        error: None,
+    })
+}
+
+/// `POST /stacks/install`: run a pasted Compose file as an app, after it passes [`crate::stack`].
+pub async fn stack_submit(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Form(values): Form<HashMap<String, String>>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let get = |k: &str| values.get(k).cloned().unwrap_or_default();
+    let (name, compose, env_text) = (get("name").trim().to_string(), get("compose"), get("env"));
+    let again = |error: String| {
+        Ok(render(StackForm {
+            name: name.clone(),
+            compose: compose.clone(),
+            env: env_text.clone(),
+            error: Some(error),
+        }))
+    };
+    let t = apps
+        .template(CUSTOM_ID)
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !runner::valid_name(&name) {
+        return again(
+            "Name: lower-case letters, digits and hyphens, starting with a letter".into(),
+        );
+    }
+    let mut env = match crate::stack::parse_env(&env_text) {
+        Ok(e) => e,
+        Err(e) => return again(e),
+    };
+    if env.contains_key("INSTANCE_NAME") {
+        return again("environment: INSTANCE_NAME is set by Dockwren".into());
+    }
+    env.insert("INSTANCE_NAME".into(), name.clone());
+    let data_dir = apps
+        .root
+        .parent()
+        .map(|d| d.to_path_buf())
+        .unwrap_or_default();
+    let model = match crate::stack::check(&data_dir, &compose, &env).await {
+        Ok(m) => m,
+        Err(e) => return again(e),
+    };
+    // Publishing a port also lets Dockwren list it and put a public hostname in front of it.
+    let port = crate::stack::first_published_port(&model);
+    if let Some(p) = port {
+        env.entry("WEB_PORT".into())
+            .or_insert_with(|| p.to_string());
+    }
+    let prepared = {
+        let _guard = apps.lock.lock().await;
+        let claimed = runner::claimed_ports(&apps.root);
+        match port {
+            Some(p) if claimed.contains(&p) || !install::port_is_free(p) => Err(format!(
+                "port {p} is already in use on this server; pick another"
+            )),
+            _ => runner::prepare_with(&apps.root, t, &compose, &env),
+        }
+    };
+    let inst = match prepared {
+        Ok(i) => i,
+        Err(e) => return again(e),
+    };
+    // The folder the backups cover and the only place bind mounts may point to.
+    if let Err(e) = std::fs::create_dir_all(inst.dir.join("data")) {
+        return again(format!("{}: {e}", inst.dir.display()));
+    }
+    crate::audit::record("stack.install", &inst.name);
+    let job_id = new_job(&apps, &inst.name, "Installing")?;
+    apps.with_job(&job_id, |j| {
+        j.log.push(format!("stack {} prepared", inst.name));
+        if let Some(p) = port {
+            j.ports.push(("WEB_PORT".into(), format!("127.0.0.1:{p}")));
+        }
+    });
+    let task_apps = apps.clone();
+    let task_id = job_id.clone();
+    tokio::spawn(async move {
+        let result = runner::bring_up(&inst, &mut |s| {
+            task_apps.with_job(&task_id, |j| j.log.push(s.to_string()));
+        })
+        .await;
+        task_apps.note_job(
+            "Installing",
+            &inst.name,
+            result.as_ref().err().map(|e| e.as_str()),
+        );
+        task_apps.with_job(&task_id, |j| match result {
+            Ok(()) => j.state = JobState::Done,
+            Err(e) => j.state = JobState::Failed(e),
+        });
+    });
+    job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 pub async fn install_submit(

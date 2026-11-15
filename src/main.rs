@@ -18,6 +18,7 @@ mod release;
 mod runner;
 mod schedule;
 mod selfupdate;
+mod stack;
 mod template;
 mod terminal;
 mod totp;
@@ -353,6 +354,8 @@ fn app(
         .route("/catalog", get(apps::list))
         .route("/apps/{id}/icon.svg", get(apps::icon))
         .route("/apps/check-host", get(apps::check_host))
+        .route("/stacks/new", get(apps::stack_form))
+        .route("/stacks/install", post(apps::stack_submit))
         .route("/apps/{id}/new", get(apps::new_form))
         .route("/apps/{id}/install", post(apps::install_submit))
         .route("/jobs/{id}", get(apps::job))
@@ -1765,6 +1768,8 @@ mod tests {
             ("GET", "/apps/gitea/new"),
             ("GET", "/apps/check-host?PUBLIC_HOST=x.example.com"),
             ("POST", "/apps/gitea/install"),
+            ("GET", "/stacks/new"),
+            ("POST", "/stacks/install"),
             ("GET", "/jobs/x"),
             ("GET", "/instances/list"),
             ("POST", "/instances/gt/remove"),

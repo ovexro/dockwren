@@ -5,3 +5,4 @@
     <button class="primary" hx-get="/apps/{{ a.id }}/new" hx-target="#install" hx-swap="innerHTML">Install</button></li>
 {% endfor %}
 </ul>
+<p><button hx-get="/stacks/new" hx-target="#install" hx-swap="innerHTML">Add a stack from a Compose file</button></p>
