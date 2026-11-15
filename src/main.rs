@@ -1,3 +1,4 @@
+mod alerts;
 mod apps;
 mod auth;
 mod backup;
@@ -878,6 +879,7 @@ async fn main() {
         disk_paths,
         cfg.data_dir.clone(),
     );
+    alerts::spawn(notify.clone(), metrics.clone(), docker.clone());
     axum::serve(
         listener,
         app(

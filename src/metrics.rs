@@ -61,6 +61,19 @@ pub struct Metrics {
     pub containers: Vec<ContainerUsage>,
 }
 
+impl DiskSeries {
+    #[cfg(test)]
+    pub fn for_test(label: &str, total: u64, used: u64, pct: f64) -> Self {
+        Self {
+            label: label.into(),
+            fs: label.into(),
+            total,
+            used,
+            pct: VecDeque::from([(0, pct)]),
+        }
+    }
+}
+
 pub type Shared = Arc<Mutex<Metrics>>;
 
 pub fn now_unix() -> u64 {

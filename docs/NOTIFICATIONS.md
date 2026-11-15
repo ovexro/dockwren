@@ -81,3 +81,17 @@ run, one line, containing the word `FAIL` when it failed (`2026-11-14 03:30:20 b
 `src/backupwatch.rs` reads it every 15 minutes and raises `backup.failed` when the line says
 `FAIL` or the file has not been touched for 36 hours. The next good run resolves it. Without the
 variable, or while the file does not exist, nothing happens.
+
+## Resource alerts
+
+`src/alerts.rs` checks every minute, from the metrics the sampler already keeps and the Docker
+container list. Thresholds are fixed (no settings); each kind has its on/off switch in Settings.
+
+- `host.disk_full`: one event per tracked disk, warning at 85 %, critical at 95 %, closes below 80 %.
+- `host.memory_high`: memory averaged 90 % or more over 5 minutes, closes below 85 %.
+- `host.cpu_high`: CPU averaged 90 % or more over 15 minutes, closes below 80 %.
+- `container.problem`: a container that is restarting, dead, reports `(unhealthy)`, or (panel-managed
+  ones only) exited with an error other than 0, 137 or 143. It must be seen on two polls in a row, so
+  an update that recreates containers does not raise it. Key `container.problem:<name>`.
+
+The lower "clear" levels stop a value that hovers around a line from opening and closing the event.

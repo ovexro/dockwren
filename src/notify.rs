@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 const LOG_FILE: &str = "notifications.log";
 const PREFS_FILE: &str = "notify-settings.json";
 /// Every kind a producer raises: (kind, label, what it does). Settings lists exactly these.
-pub const KINDS: [(&str, &str, &str); 7] = [
+pub const KINDS: [(&str, &str, &str); 11] = [
     (
         "terminal.opened",
         "Web terminal opened",
@@ -56,6 +56,26 @@ pub const KINDS: [(&str, &str, &str); 7] = [
         "backup.failed",
         "Scheduled backup failed or overdue",
         "Reads the status file of your host backup job (set DOCKWREN_BACKUP_STATUS). Raised when the last run failed or no run was recorded for 36 hours.",
+    ),
+    (
+        "host.disk_full",
+        "Disk almost full",
+        "A tracked disk is at 85% or more (critical from 95%). Clears when it drops below 80%.",
+    ),
+    (
+        "host.memory_high",
+        "Memory use high",
+        "Memory use averaged 90% or more over the last 5 minutes. Clears below 85%.",
+    ),
+    (
+        "host.cpu_high",
+        "CPU use high",
+        "CPU use averaged 90% or more over the last 15 minutes. Clears below 80%.",
+    ),
+    (
+        "container.problem",
+        "Container crashed, restarting or unhealthy",
+        "A container keeps restarting, failed its health check, or an app container exited with an error. Seen on two checks in a row (one minute apart) before it is raised.",
     ),
 ];
 /// Resolved or dismissed events kept after compaction.
