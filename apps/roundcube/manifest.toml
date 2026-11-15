@@ -1,0 +1,73 @@
+[app]
+id = "roundcube"
+name = "Roundcube"
+description = "A classic webmail client for your own mailbox (IMAP/SMTP)"
+homepage = "https://roundcube.net/"
+version = 1
+note = "A webmail client, not a mail server: it connects to a mailbox you already have at a provider (IMAP to read, SMTP to send). Fill in your provider's server names below (the defaults are for Purelymail), then sign in with your full address and the mailbox password. Publish it over HTTPS, because you type your mail password into it."
+accepts_public_host = true
+needs_public_https = true
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "roundcube"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers. It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "IMAP_SERVER"
+label = "IMAP server"
+type = "string"
+default = "ssl://imap.purelymail.com"
+pattern = "^(ssl|tls)://[A-Za-z0-9.-]{3,80}$"
+help = "Where your mail is read from, written as ssl://name (or tls://name). Your provider lists it in its setup help."
+
+[[fields]]
+key = "IMAP_PORT"
+label = "IMAP port"
+type = "string"
+default = "993"
+pattern = "^[0-9]{2,5}$"
+help = "Usually 993 for ssl:// and 143 for tls://."
+
+[[fields]]
+key = "SMTP_SERVER"
+label = "SMTP server"
+type = "string"
+default = "ssl://smtp.purelymail.com"
+pattern = "^(ssl|tls)://[A-Za-z0-9.-]{3,80}$"
+help = "Where your mail is sent through, written as ssl://name (or tls://name). Your provider lists it in its setup help."
+
+[[fields]]
+key = "SMTP_PORT"
+label = "SMTP port"
+type = "string"
+default = "465"
+pattern = "^[0-9]{2,5}$"
+help = "Usually 465 for ssl:// and 587 for tls://."
+
+[[secrets]]
+key = "DES_KEY"
+kind = "hex"
+length = 24
+
+[[services]]
+name = "roundcube"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1/ || wget -q -O /dev/null http://127.0.0.1/"], interval = "15s", start_period = "30s" }
+
+[backup]
+paths = ["db"]
+
+[update]
+image_pins = ["roundcube/roundcubemail"]
+pre_update = ["backup"]
