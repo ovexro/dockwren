@@ -54,10 +54,11 @@ Release binaries and `SHA256SUMS` are on the
 - Cloudflare Tunnel publishing with DNS conflict handling and optional Cloudflare Access (see below).
 - `dockwren set-password` to rotate the admin password.
 - Web terminal (optional, off by default): a shell inside the containers of apps Dockwren installed, from the Containers page. Turn it on in Settings (or force it with `DOCKWREN_TERMINAL=1`); it asks for your password (and 2FA code) each time, is logged and shown in Notifications. Not a host shell.
+- Panel self-update: Settings → General shows when a newer release exists. Run `sudo dockwren self-update` once (it updates right away and enables the button; installs made with the current `install.sh` already have it). After that the **Update Dockwren now** button asks for your password (and 2FA code), restarts the panel, and a root-run systemd hook downloads the release from GitHub itself, checks the binary against the published `SHA256SUMS`, and swaps it in, keeping the old one as `dockwren.prev` (roll back with `sudo mv /usr/local/bin/dockwren.prev /usr/local/bin/dockwren && sudo systemctl restart dockwren`). The panel never hands a binary to root. Apps keep running.
 - OS updates (optional, off by default): the panel always tells you when the server has pending package updates or needs a reboot. To install them from Settings too, run `sudo dockwren setup-osupdate --data-dir <your data dir>` once, then turn it on in Settings. Each start asks for your password (and 2FA code); it runs `apt-get update` and `apt-get full-upgrade` as root through a small systemd helper, shows the log live, and never reboots. Debian and Ubuntu only. See SECURITY.md.
 - Two-factor sign-in (optional): turn it on in Settings with any authenticator app (Google Authenticator works). Locked out? `dockwren disable-2fa` turns it off.
 
-CLI: `dockwren [serve | set-password | disable-2fa | setup-osupdate | install | backup [pull] | update | restore | cleanup | expose | unexpose | remove]`.
+CLI: `dockwren [serve | set-password | disable-2fa | setup-osupdate | self-update | install | backup [pull] | update | restore | cleanup | expose | unexpose | remove]`.
 
 ## Requirements
 

@@ -16,6 +16,7 @@ mod public;
 mod release;
 mod runner;
 mod schedule;
+mod selfupdate;
 mod template;
 mod terminal;
 mod totp;
@@ -305,6 +306,7 @@ async fn settings_tab(Path(tab): Path<String>) -> Response {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn app(
     auth: SharedAuth,
     docker: DockerClient,
@@ -313,6 +315,7 @@ fn app(
     notify: notify::Shared,
     terminal: Arc<terminal::Switch>,
     os: Arc<osupdate::Control>,
+    su: Arc<selfupdate::Control>,
 ) -> Router {
     let terminal_routes = terminal::router(
         auth.clone(),
@@ -321,6 +324,7 @@ fn app(
         terminal.clone(),
     );
     let os_routes = osupdate::router(auth.clone(), notify.clone(), os);
+    let su_routes = selfupdate::router(auth.clone(), su);
     let protected = Router::new()
         .route("/", get(index))
         .route("/metrics", get(metrics::page))
@@ -412,7 +416,10 @@ fn app(
             notify,
             terminal,
         });
-    router.merge(terminal_routes).merge(os_routes)
+    router
+        .merge(terminal_routes)
+        .merge(os_routes)
+        .merge(su_routes)
 }
 
 /// `dockwren install <app> [KEY=VALUE...]`: resolve, prepare, bring up.
@@ -539,7 +546,7 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     Ok(())
 }
 
-const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | --version]";
+const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
 
 /// CLI commands work on the panel's data directory; explain the usual permission mistake
 /// instead of failing later with a bare "Permission denied".
@@ -574,7 +581,8 @@ async fn main() {
         | Some("serve")
         | Some("set-password")
         | Some("disable-2fa")
-        | Some("setup-osupdate") => {}
+        | Some("setup-osupdate")
+        | Some("self-update") => {}
         Some(
             "install" | "backup" | "update" | "restore" | "cleanup" | "expose" | "unexpose"
             | "remove",
@@ -583,6 +591,14 @@ async fn main() {
     }
     match cmd.as_deref() {
         None | Some("serve") => {}
+        Some("self-update") => {
+            let on_start = std::env::args().nth(2).as_deref() == Some("--on-start");
+            if let Err(e) = selfupdate::cli(&cfg.data_dir, on_start).await {
+                eprintln!("self-update failed: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
         Some("setup-osupdate") => {
             let args: Vec<String> = std::env::args().skip(2).collect();
             let dir = match args.as_slice() {
@@ -890,6 +906,7 @@ async fn main() {
             notify,
             Arc::new(terminal::Switch::new(cfg.terminal, Some(&cfg.data_dir))),
             os_control,
+            Arc::new(selfupdate::Control::new(&cfg.data_dir)),
         ),
     )
     .await
@@ -923,6 +940,7 @@ mod tests {
             Arc::new(std::sync::Mutex::new(notify::Store::memory())),
             Arc::new(terminal::Switch::new(false, None)),
             Arc::new(osupdate::Control::new(None)),
+            Arc::new(selfupdate::Control::new(&std::env::temp_dir())),
         )
     }
 
@@ -941,6 +959,7 @@ mod tests {
             Arc::new(std::sync::Mutex::new(notify::Store::memory())),
             Arc::new(terminal::Switch::new(true, None)),
             Arc::new(osupdate::Control::new(None)),
+            Arc::new(selfupdate::Control::new(&std::env::temp_dir())),
         )
     }
 
@@ -1006,6 +1025,7 @@ mod tests {
             Arc::new(std::sync::Mutex::new(notify::Store::memory())),
             Arc::new(terminal::Switch::new(false, None)),
             Arc::new(osupdate::Control::with_paths(&dir, &log, &unit)),
+            Arc::new(selfupdate::Control::new(&std::env::temp_dir())),
         );
         let post = |cookie: Option<&str>, origin: &str, path: &str, body: &str| {
             let mut r = Request::post(path)
@@ -1124,6 +1144,7 @@ mod tests {
             Arc::new(std::sync::Mutex::new(notify::Store::memory())),
             sw.clone(),
             Arc::new(osupdate::Control::new(None)),
+            Arc::new(selfupdate::Control::new(&std::env::temp_dir())),
         );
         let post = |cookie: Option<&str>, origin: &str, body: &str| {
             let mut r = Request::post("/settings/terminal")
@@ -1674,6 +1695,63 @@ mod tests {
         assert!(pw2.is_none());
         std::fs::remove_dir_all(&dir).unwrap();
     }
+    #[tokio::test]
+    async fn self_update_needs_session_origin_setup_and_password() {
+        let dir = std::env::temp_dir().join(format!("dockwren-su-{}", auth::generate_password()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dropin = dir.join("dropin");
+        let hash = auth::hash_password(PASSWORD);
+        let app = app(
+            Arc::new(auth::Auth::new(&hash, false).unwrap()),
+            DockerClient::connect().unwrap(),
+            apps::Apps::new(template::catalog(None).unwrap(), dir.join("none")),
+            metrics::Shared::default(),
+            Arc::new(std::sync::Mutex::new(notify::Store::memory())),
+            Arc::new(terminal::Switch::new(false, None)),
+            Arc::new(osupdate::Control::new(None)),
+            Arc::new(selfupdate::Control::for_test(&dir, &dropin)),
+        );
+        let post = |cookie: Option<&str>, origin: &str, body: &str| {
+            let mut r = Request::post("/settings/selfupdate/run")
+                .header(header::HOST, "panel.test")
+                .header(header::ORIGIN, origin)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+            if let Some(c) = cookie {
+                r = r.header(header::COOKIE, c);
+            }
+            app.clone()
+                .oneshot(r.body(Body::from(body.to_string())).unwrap())
+        };
+        let good = format!("password={PASSWORD}");
+        let res = post(None, "http://panel.test", &good).await.unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+        let res = post(Some(&cookie), "http://evil.test", &good)
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        // Not set up (no drop-in): refused, nothing written.
+        let res = post(Some(&cookie), "http://panel.test", &good)
+            .await
+            .unwrap();
+        assert!(body_of(res).await.contains("self-update"));
+        assert!(!dir.join("selfupdate.requested").exists());
+        // Set up, wrong password: refused.
+        std::fs::write(&dropin, "").unwrap();
+        let res = post(Some(&cookie), "http://panel.test", "password=wrong")
+            .await
+            .unwrap();
+        assert!(body_of(res).await.contains("Wrong password"));
+        assert!(!dir.join("selfupdate.requested").exists());
+        // Right password: the request file appears.
+        let res = post(Some(&cookie), "http://panel.test", &good)
+            .await
+            .unwrap();
+        assert!(body_of(res).await.contains("Updating"));
+        assert!(dir.join("selfupdate.requested").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[tokio::test]
     async fn app_routes_need_a_session() {
         for (method, uri) in [

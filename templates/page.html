@@ -62,6 +62,7 @@
     {% else %}
     <h2>About</h2>
     <p>Dockwren version {{ version }}</p>
+    <div id="selfupdate" hx-get="/settings/selfupdate" hx-trigger="load" hx-swap="outerHTML"></div>
     <p><small>Apps are updated from the Apps page; an "Update available" button appears there when a newer version exists.</small></p>
     <h2>Session</h2>
     <form method="post" action="/logout"><button type="submit">Sign out</button></form>

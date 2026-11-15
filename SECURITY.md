@@ -18,6 +18,18 @@ Only the latest release receives fixes while the project is pre-1.0.
 See "Security notes" in the README: keep the default loopback bind, put TLS and an identity layer
 in front, and never expose the panel on a public port without HTTPS.
 
+## Updating the panel from Settings
+
+Off until you run `sudo dockwren self-update` once (or install with the current `install.sh`), which
+adds a systemd drop-in. The button needs a session, a same-origin request and your password (plus the
+2FA code). The panel itself only writes the file `selfupdate.requested` in its data directory and
+exits; systemd restarts it and a root-run `ExecStartPre` hook (`dockwren self-update --on-start`)
+fetches the newest release **itself** from GitHub over HTTPS and installs it only if the binary matches
+the release's `SHA256SUMS`. The panel never supplies a binary or a version to root, so a compromised
+panel can at most trigger an update to the newest genuine release. Limitation: the checksum file comes
+from the same GitHub release as the binary, so this protects against corruption and tampering in
+transit, not against a compromised release account. The previous binary is kept as `dockwren.prev`.
+
 ## Installing OS updates from the panel
 
 Off by default and needs two separate steps by you: running `sudo dockwren setup-osupdate` on the

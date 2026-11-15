@@ -23,7 +23,7 @@ fn parse(v: &str) -> Option<(u32, u32, u32)> {
     it.next().is_none().then_some(t)
 }
 
-fn is_newer(latest: &str, current: &str) -> bool {
+pub fn is_newer(latest: &str, current: &str) -> bool {
     matches!((parse(latest), parse(current)), (Some(l), Some(c)) if l > c)
 }
 
@@ -35,7 +35,7 @@ fn tag_of(json: &[u8]) -> Option<String> {
     Some(t.to_string())
 }
 
-async fn latest_tag() -> Result<String, String> {
+pub async fn latest_tag() -> Result<String, String> {
     let out = tokio::process::Command::new("curl")
         .args([
             "-sS",

@@ -1,0 +1,26 @@
+<div id="selfupdate">
+  {% if restarting %}
+  <p><strong>Updating…</strong> The panel is restarting and installing the new release. This page reconnects by itself; reload in about half a minute.</p>
+  <script>setTimeout(function(){location.reload()},30000)</script>
+  {% else %}
+  {% if let Some(e) = error %}<p role="alert">{{ e }}</p>{% endif %}
+  {% if let Some(n) = note %}<p role="alert">Last update attempt: {{ n }}</p>{% endif %}
+  {% if newer %}
+    <p>Dockwren {% if let Some(l) = latest %}{{ l }}{% endif %} is available (you run {{ current }}).</p>
+    {% if installed %}
+    <form hx-post="/settings/selfupdate/run" hx-target="#selfupdate" hx-swap="outerHTML" autocomplete="off">
+      <label>Password, to confirm <input type="password" name="password" required autocomplete="current-password"></label>
+      {% if two_factor %}<label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>{% endif %}
+      <button type="submit" class="primary">Update Dockwren now</button>
+    </form>
+    <p><small>Downloads the release from GitHub, checks it against the published SHA256 sums, restarts the panel (a few seconds) and keeps the old binary as <code>dockwren.prev</code>. Your apps keep running.</small></p>
+    {% else %}
+    <p>To update from here, run once on the server: <code>sudo dockwren self-update</code>. It updates now and enables this button for later releases.</p>
+    {% endif %}
+  {% else if latest.is_some() %}
+    <p>Dockwren {{ current }} is the latest release.</p>
+  {% else if checked %}
+    <p><small>Could not reach GitHub to look for a newer release.</small></p>
+  {% endif %}
+  {% endif %}
+</div>

@@ -106,6 +106,14 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 UNIT
+# Lets Settings > General update the panel: the button restarts the service and this root-run
+# hook then downloads the newest release itself and checks its SHA256 (see src/selfupdate.rs).
+mkdir -p /etc/systemd/system/dockwren.service.d
+cat > /etc/systemd/system/dockwren.service.d/self-update.conf <<'DROPIN'
+[Service]
+TimeoutStartSec=300
+ExecStartPre=-+/usr/local/bin/dockwren self-update --on-start
+DROPIN
 systemctl daemon-reload
 systemctl enable dockwren.service >/dev/null
 systemctl restart dockwren.service
