@@ -148,7 +148,7 @@ form[action="/logout"] { margin-top: .75rem; }
 
 /* Shell: sidebar on desktop, bottom bar on phones */
 .shell { display: grid; grid-template-columns: 13rem minmax(0, 1fr); min-height: 100vh; }
-.shell main { width: 100%; margin: 0; max-width: 72rem; }
+.shell main { width: 100%; margin: 0; max-width: none; padding-inline: clamp(1.25rem, 2.5vw, 3rem); }
 .side { position: sticky; top: 0; height: 100vh; padding: 1.5rem 1rem; background: var(--surface); border-right: 1px solid var(--border); }
 .side ul { margin: 1.5rem 0 0; padding: 0; list-style: none; }
 .side li { display: block; padding: 0; margin: 0 0 .15rem; border: 0; background: none; }
