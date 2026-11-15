@@ -259,3 +259,6 @@ form:has(select[name=kind] option[value=sftp]:checked) fieldset.s3 { display: no
 /* Buttons that each sit in their own form: one row, with gaps */
 .actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
 .actions form { margin: 0; }
+/* A checkbox with a long, wrapping label: box on the first line, text beside it. */
+#backup-schedule label:has(> input[type=checkbox]) { display: flex; align-items: flex-start; gap: .5rem; margin: .9rem 0; font-weight: 400; }
+#backup-schedule input[type=checkbox] { flex: none; width: auto; margin: .2rem 0 0; }
