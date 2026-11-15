@@ -136,10 +136,19 @@ fn install_binary(target: &Path, bin: &[u8]) -> Result<(), String> {
 }
 
 /// Writes the drop-in that lets the Settings button work.
-fn install_dropin() -> Result<(), String> {
+async fn install_dropin() -> Result<(), String> {
     let dir = Path::new(DROPIN_DIR);
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join(DROPIN_FILE), DROPIN).map_err(|e| e.to_string())
+    std::fs::write(dir.join(DROPIN_FILE), DROPIN).map_err(|e| e.to_string())?;
+    // Without a reload systemd would not run the hook until the next reboot.
+    let st = tokio::process::Command::new("systemctl")
+        .arg("daemon-reload")
+        .status()
+        .await
+        .map_err(|e| e.to_string())?;
+    st.success()
+        .then_some(())
+        .ok_or("systemctl daemon-reload failed".into())
 }
 
 /// What the root side did.
@@ -236,7 +245,7 @@ pub async fn cli(data_dir: &Path, on_start: bool) -> Result<(), String> {
             println!("Service restarted.");
         }
     }
-    install_dropin()?;
+    install_dropin().await?;
     println!("The Update button in Settings > General is enabled.");
     Ok(())
 }
