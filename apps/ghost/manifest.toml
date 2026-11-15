@@ -1,0 +1,62 @@
+[app]
+id = "ghost"
+name = "Ghost"
+description = "Publishing platform for blogs and newsletters"
+homepage = "https://ghost.org/"
+version = 1
+note = "A blog with its own database. Open /ghost on your address to create the owner account; do it right after installing, before you publish the site, because the first visitor becomes the owner. Email sending is not set up, so the emailed sign-in code for new devices is switched off; use a strong password. Needs about 1 GB of RAM."
+public_url_field = "PUBLIC_URL"
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "ghost"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "PUBLIC_URL"
+label = "Public URL"
+type = "url"
+default = "http://127.0.0.1:${WEB_PORT}/"
+
+[[secrets]]
+key = "DB_PASSWORD"
+kind = "password"
+length = 32
+
+[[secrets]]
+key = "DB_ROOT_PASSWORD"
+kind = "password"
+length = 32
+
+[[services]]
+name = "db"
+health = { source = "image" }
+
+[[services]]
+name = "ghost"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "wget -q -O /dev/null --header 'X-Forwarded-Proto: https' http://127.0.0.1:2368/ghost/api/admin/site/"], interval = "15s", start_period = "90s" }
+
+[backup]
+paths = ["content"]
+[[backup.dumps]]
+service = "db"
+run = ["sh", "-c", "mysqldump --single-transaction --add-drop-table -u root -p\"$MYSQL_ROOT_PASSWORD\" ghost"]
+restore = ["sh", "-c", "mysql -u root -p\"$MYSQL_ROOT_PASSWORD\" ghost"]
+output = "db.sql"
+
+[update]
+image_pins = ["ghost", "mysql"]
+pre_update = ["backup"]
+pinned_major = ["mysql"]
