@@ -1,0 +1,44 @@
+[app]
+id = "stirling-pdf"
+name = "Stirling-PDF"
+description = "Merge, split, compress, convert and OCR PDFs on your own server"
+homepage = "https://www.stirlingpdf.com/"
+version = 1
+note = "A toolbox for PDF files; your documents never leave your server. IMPORTANT: the first login is admin / stirling and you must change the password right away, before you publish the app on the internet. Needs about 1.5 GB of RAM."
+accepts_public_host = true
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "stirling-pdf"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers. It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "TIME_ZONE"
+label = "Time zone"
+type = "string"
+default = "UTC"
+pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
+help = "Your region, so dates and times are right. For example Europe/Bucharest."
+
+[[services]]
+name = "stirling-pdf"
+main = true
+health = { source = "image" }
+
+[backup]
+paths = ["config"]
+
+[update]
+image_pins = ["stirlingtools/stirling-pdf"]
+pre_update = ["backup"]
