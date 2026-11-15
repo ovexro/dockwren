@@ -1,0 +1,60 @@
+[app]
+id = "pi-hole"
+name = "Pi-hole"
+description = "Network-wide ad and tracker blocking: a DNS server for your whole home network"
+homepage = "https://pi-hole.net/"
+version = 1
+note = "Becomes the DNS server of your network: point your router's DNS (or single devices) at this server's address. It opens port 53 to your network. Admin page: /admin, log in with the password shown after install. The built-in DHCP server is not available in this template (it needs extra Docker permissions); keep DHCP on your router. If port 53 is already in use (systemd-resolved), the install tells you; free it first."
+needs_public_https = false
+accepts_public_host = false
+
+[[lan_ports]]
+port = 53
+protocol = "tcp"
+label = "DNS"
+
+[[lan_ports]]
+port = 53
+protocol = "udp"
+label = "DNS"
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "pi-hole"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers. Lower-case letters, digits and hyphens, starting with a letter."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door the admin page uses on this server; it can only be reached from the server itself (or through Tailscale/SSH). Leave it on auto."
+
+[[fields]]
+key = "TZ"
+label = "Time zone"
+type = "string"
+default = "UTC"
+pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
+help = "Your region, so dates and times are right. For example Europe/Bucharest."
+
+[[secrets]]
+key = "ADMIN_PASSWORD"
+kind = "password"
+length = 20
+reveal = true
+
+[[services]]
+name = "pi-hole"
+main = true
+health = { source = "image" }
+
+[backup]
+paths = ["etc-pihole"]
+
+[update]
+image_pins = ["pihole/pihole"]
+pre_update = ["backup"]

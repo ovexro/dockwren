@@ -313,6 +313,11 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/paperless-ngx/icon.svg"),
     ),
     (
+        include_str!("../apps/pi-hole/manifest.toml"),
+        include_str!("../apps/pi-hole/compose.yaml"),
+        include_str!("../apps/pi-hole/icon.svg"),
+    ),
+    (
         include_str!("../apps/grafana/manifest.toml"),
         include_str!("../apps/grafana/compose.yaml"),
         include_str!("../apps/grafana/icon.svg"),
@@ -743,6 +748,7 @@ mod tests {
                 "navidrome",
                 "nextcloud",
                 "paperless-ngx",
+                "pi-hole",
                 "snappymail",
                 "stirling-pdf",
                 "syncthing",
@@ -754,7 +760,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 21);
+        assert_eq!(c.len(), 22);
     }
 
     #[test]
@@ -791,6 +797,7 @@ mod tests {
                 "navidrome",
                 "nextcloud",
                 "paperless-ngx",
+                "pi-hole",
                 "snappymail",
                 "stirling-pdf",
                 "syncthing",

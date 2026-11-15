@@ -7,7 +7,7 @@ and optionally publish them on a Cloudflare Tunnel hostname.
 - Single static Rust binary (axum + bollard), server-rendered UI with a small amount of htmx
   (vendored, no CDN, no JS build step).
 - Talks to the local Docker socket. No database, no agents.
-- Bundled apps: AdGuard Home, Ghost, Gitea, Grafana, Homepage, Immich, Jellyfin, Memos, Miniflux, n8n, Navidrome, Nextcloud, Paperless-ngx, SnappyMail, Stirling-PDF, Syncthing, Uptime Kuma, Vaultwarden, Wiki.js, WordPress.
+- Bundled apps: AdGuard Home, Ghost, Gitea, Grafana, Homepage, Immich, Jellyfin, Memos, Miniflux, n8n, Navidrome, Nextcloud, Paperless-ngx, Pi-hole, SnappyMail, Stirling-PDF, Syncthing, Uptime Kuma, Vaultwarden, Wiki.js, WordPress.
   Adding your own takes a manifest and a Compose file.
 - Status: early (v0.1.x). It works and is tested on Debian 13 and Ubuntu 24.04 (x86_64) and on a
   Raspberry Pi 5 (aarch64), but expect rough edges.
@@ -141,6 +141,7 @@ The install form shows the full note for each app. The ones that surprise people
 - **SnappyMail** is a webmail client, not a mail server: it needs an existing mailbox provider (IMAP/SMTP).
 - **Immich** backs up its database only, not the photo library folder.
 - **AdGuard Home** (and any app that needs LAN ports) only opens them if you tick the LAN ports checkbox; its admin port must stay 3000 during setup.
+- **Pi-hole** works like AdGuard Home (LAN ports checkbox, port 53) but without its built-in DHCP server, which needs extra Docker permissions Dockwren does not grant; keep DHCP on your router. The admin password is shown once after install.
 
 ## Adding apps
 
