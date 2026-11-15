@@ -29,6 +29,20 @@ pub struct Manifest {
     pub backup: Backup,
     #[serde(default)]
     pub update: Update,
+    /// Host ports the app publishes on every network interface (not just loopback).
+    /// Opt-in: the install form lists them and needs an explicit confirmation.
+    #[serde(default)]
+    pub lan_ports: Vec<LanPort>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LanPort {
+    pub port: u16,
+    /// `tcp` or `udp`.
+    pub protocol: String,
+    /// What the port is for, shown in the install form (for example "DNS").
+    pub label: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -253,6 +267,11 @@ pub fn load_all(root: &Path) -> Result<Vec<Template>, String> {
 
 /// Templates shipped inside the binary.
 const BUNDLED: &[(&str, &str, &str)] = &[
+    (
+        include_str!("../apps/adguard-home/manifest.toml"),
+        include_str!("../apps/adguard-home/compose.yaml"),
+        include_str!("../apps/adguard-home/icon.svg"),
+    ),
     (
         include_str!("../apps/custom/manifest.toml"),
         include_str!("../apps/custom/compose.yaml"),
@@ -554,7 +573,32 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
         }
     }
 
-    lint_compose(compose, &known, &names)
+    let mut seen = HashSet::new();
+    for l in &m.lan_ports {
+        if l.port == 0 || !matches!(l.protocol.as_str(), "tcp" | "udp") || l.label.trim().is_empty()
+        {
+            return Err(format!(
+                "lan_ports {}/{}: needs a port, protocol tcp or udp, and a label",
+                l.port, l.protocol
+            ));
+        }
+        if !seen.insert((l.port, l.protocol.as_str())) {
+            return Err(format!("lan_ports {}/{} listed twice", l.port, l.protocol));
+        }
+    }
+    lint_compose(compose, &known, &names, &seen)
+}
+
+/// `53:53/udp` style item whose host port and protocol the manifest declares in `[[lan_ports]]`.
+/// No host IP, no ranges, no variables: the exposed port is exactly what the form showed.
+fn declared_lan_port(item: &str, lan: &HashSet<(u16, &str)>) -> bool {
+    let (ports, proto) = item.split_once('/').unwrap_or((item, "tcp"));
+    let mut parts = ports.split(':');
+    let (Some(host), Some(target), None) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    let digits = |x: &str| !x.is_empty() && x.chars().all(|c| c.is_ascii_digit());
+    digits(host) && digits(target) && host.parse::<u16>().is_ok_and(|h| lan.contains(&(h, proto)))
 }
 
 /// Line-based checks on the compose file. Not a YAML parser: the full structure
@@ -564,6 +608,7 @@ fn lint_compose(
     compose: &str,
     known: &HashSet<&str>,
     services: &HashSet<&str>,
+    lan: &HashSet<(u16, &str)>,
 ) -> Result<(), String> {
     for r in var_refs(compose) {
         let name = r.split([':', '-', '?', '+']).next().unwrap_or(r);
@@ -621,8 +666,10 @@ fn lint_compose(
         }
         if let Some(item) = line.strip_prefix("- ") {
             let item = item.trim().trim_matches('"').trim_matches('\'');
-            if in_ports && !item.starts_with("127.0.0.1:") {
-                return Err(at("published ports must bind 127.0.0.1"));
+            if in_ports && !item.starts_with("127.0.0.1:") && !declared_lan_port(item, lan) {
+                return Err(at(
+                    "published ports must bind 127.0.0.1 (or be declared in [[lan_ports]] as HOST:CONTAINER[/udp])",
+                ));
             }
             if in_volumes {
                 let src = item.split(':').next().unwrap_or("");
@@ -677,6 +724,7 @@ mod tests {
         assert_eq!(
             ids,
             [
+                "adguard-home",
                 "custom",
                 "ghost",
                 "gitea",
@@ -700,7 +748,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 19);
+        assert_eq!(c.len(), 20);
     }
 
     #[test]
@@ -723,6 +771,7 @@ mod tests {
         assert_eq!(
             ids,
             [
+                "adguard-home",
                 "custom",
                 "ghost",
                 "gitea",
@@ -793,6 +842,39 @@ mod tests {
         for c in cases {
             assert!(validate(&m, &c).is_err(), "should reject:\n{c}");
         }
+    }
+
+    #[test]
+    fn lan_ports_only_when_declared_and_exact() {
+        let lan = "[[lan_ports]]\nport = 53\nprotocol = \"udp\"\nlabel = \"DNS\"\n";
+        let with = |item: &str| OK.replace("127.0.0.1:8080:80", item);
+        let m = manifest(lan);
+        assert_eq!(validate(&m, &with("53:53/udp")), Ok(()));
+        // Undeclared protocol, port, host IP, range, variable, extra parts: all refused.
+        for bad in [
+            "53:53",
+            "53:53/tcp",
+            "54:53/udp",
+            "0.0.0.0:53:53/udp",
+            "5300-5310:53/udp",
+            "${P}:53/udp",
+            "53:53:53/udp",
+            "53/udp",
+        ] {
+            assert!(validate(&m, &with(bad)).is_err(), "should reject {bad}");
+        }
+        // Without the manifest declaration the same port is refused.
+        assert!(validate(&manifest(""), &with("53:53/udp")).is_err());
+        // Bad declarations.
+        for bad in [
+            "[[lan_ports]]\nport = 53\nprotocol = \"icmp\"\nlabel = \"x\"\n",
+            "[[lan_ports]]\nport = 53\nprotocol = \"udp\"\nlabel = \" \"\n",
+            "[[lan_ports]]\nport = 0\nprotocol = \"udp\"\nlabel = \"x\"\n",
+        ] {
+            assert!(validate(&manifest(bad), OK).is_err(), "{bad}");
+        }
+        let dup = format!("{lan}{lan}");
+        assert!(validate(&manifest(&dup), OK).unwrap_err().contains("twice"));
     }
 
     #[test]

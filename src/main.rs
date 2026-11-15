@@ -522,6 +522,7 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     let root = cfg.instances_dir();
     let claimed = runner::claimed_ports(&root);
     let resolved = install::resolve(t, &input, &claimed, &install::port_is_free)?;
+    install::check_lan_ports(t)?;
     let inst = runner::prepare(&root, t, &resolved.env)?;
     println!("instance {} prepared in {}", inst.name, inst.dir.display());
     runner::bring_up(&inst, &mut |step| println!("  {step}"))

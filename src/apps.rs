@@ -428,6 +428,8 @@ struct FormPage {
     name: String,
     note: String,
     https_note: bool,
+    /// "53/udp (DNS)" lines; non-empty means the form asks for confirmation.
+    lan_ports: Vec<String>,
     fields: Vec<FieldView>,
     error: Option<String>,
 }
@@ -532,6 +534,12 @@ fn form_view(t: &AppTemplate, values: &HashMap<String, String>, error: Option<St
         name: t.manifest.app.name.clone(),
         note: t.manifest.app.note.clone().unwrap_or_default(),
         https_note: t.manifest.app.needs_public_https,
+        lan_ports: t
+            .manifest
+            .lan_ports
+            .iter()
+            .map(|l| format!("{}/{} ({})", l.port, l.protocol, l.label))
+            .collect(),
         fields,
         error,
     }
@@ -716,6 +724,7 @@ pub async fn install_submit(
         let _guard = apps.lock.lock().await;
         let claimed = runner::claimed_ports(&apps.root);
         install::resolve(t, &values, &claimed, &install::port_is_free)
+            .and_then(|r| install::check_lan_ports(t).map(|()| r))
             .and_then(|r| runner::prepare(&apps.root, t, &r.env).map(|inst| (r, inst)))
     };
     let (resolved, inst) = match prepared {

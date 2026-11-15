@@ -103,6 +103,15 @@ services:
 without `capture`, plus `to_version` (2 or higher). A failing migration rolls the update back
 (the old compose files return; data is not rolled back, the snapshot path is printed).
 
+**`[[lan_ports]]`** (optional, rare) opens host ports on every network interface, for apps that must
+be reached by other machines (a DNS server on 53). Fields: `port`, `protocol` (`tcp` or `udp`), `label`
+(what it is for). The compose file may then publish exactly `"PORT:TARGET"` or `"PORT:TARGET/udp"` for a
+declared pair; any other non-loopback port, any host IP, range or variable is still refused. The install
+form lists the ports and will not install until the user ticks a confirmation box (CLI: `LAN_OK=on`). The
+install also refuses when something already listens on the port. Pasted stacks cannot use this; it is for
+bundled and reviewed templates only. Docker bypasses the host firewall for published ports, so say so in `note`
+if it matters.
+
 **`[backup]`**
 - `paths`: directories under the instance dir, archived as root. May be empty if you only use dumps.
 - `[[backup.dumps]]`: `service`, `run` (writes the dump to stdout), `restore` (reads it on stdin), and
@@ -119,7 +128,7 @@ fields then secrets. An unknown variable is a load error.
 ## What Dockwren refuses to load
 
 The compose file is linted line by line, then checked with `docker compose config`:
-- any published port that does not bind `127.0.0.1` (expose apps publicly with `dockwren expose`);
+- any published port that does not bind `127.0.0.1`, unless declared in `[[lan_ports]]` (expose apps publicly with `dockwren expose`);
 - `privileged`, `network_mode`, `pid: host`, `cap_add`, or a Docker socket mount;
 - images without a pinned tag, or with `:latest`;
 - unknown `${VARIABLES}`, duplicate keys or services, secrets shorter than 16 characters;

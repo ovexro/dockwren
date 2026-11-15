@@ -1,6 +1,9 @@
 <h3>Install {{ name }}</h3>
 {% if !note.is_empty() %}<p><small>{{ note }}</small></p>{% endif %}
 {% if https_note %}<p><em>{{ name }} only works in a browser over HTTPS (or localhost). Set up the public URL separately.</em></p>{% endif %}
+{% if !lan_ports.is_empty() %}<div role="alert"><strong>Opens ports to your network.</strong> {{ name }} listens on every network interface of this server, not just this machine:
+<ul>{% for l in lan_ports %}<li>{{ l }}</li>{% endfor %}</ul>
+<small>Anyone who can reach this server (your LAN, or the internet if the server has a public address or the router forwards these ports) can connect. Docker bypasses the server firewall (ufw) for published ports; restrict them at your router if needed.</small></div>{% endif %}
 {% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
 <form hx-post="/apps/{{ id }}/install" hx-target="#install" hx-swap="innerHTML">
 {% for f in fields %}
@@ -12,6 +15,8 @@
   {% endif %}
   </label>{% if !f.help.is_empty() %}<br><small>{{ f.help }}</small>{% endif %}{% if f.key == "PUBLIC_HOST" %}<br><span class="hostcheck"></span>{% endif %}</p>
 {% endfor %}
+{% if !lan_ports.is_empty() %}  <p class="confirm"><label><input type="checkbox" name="LAN_OK" value="on" required> I understand and want these ports open to my network</label></p>
+{% endif %}
   <button type="submit">Install</button>
   <button type="button" onclick="document.getElementById('install').innerHTML=''">Cancel</button>
 </form>

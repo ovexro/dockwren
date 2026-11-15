@@ -138,6 +138,12 @@ pub fn resolve(
             );
         }
     }
+    if !t.manifest.lan_ports.is_empty() && input.get("LAN_OK").map(String::as_str) != Some("on") {
+        return Err(format!(
+            "{}: tick the box to confirm you want these ports open to your whole network",
+            t.manifest.app.name
+        ));
+    }
     let derived_url = public_host.as_ref().map(|h| format!("https://{h}"));
     let mut env = BTreeMap::new();
     let mut taken = claimed.clone();
@@ -228,6 +234,64 @@ impl std::fmt::Debug for Resolved {
 /// Host-level port check: can we bind it on loopback right now?
 pub fn port_is_free(port: u16) -> bool {
     std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+/// Is something already listening on this port (any address)? Read from /proc/net because a
+/// bind attempt cannot tell "in use" from "not allowed" for ports below 1024 without root.
+pub fn lan_port_free(port: u16, protocol: &str) -> bool {
+    let files: &[&str] = if protocol == "udp" {
+        &["/proc/net/udp", "/proc/net/udp6"]
+    } else {
+        &["/proc/net/tcp", "/proc/net/tcp6"]
+    };
+    let mut readable = false;
+    for f in files {
+        let Ok(text) = std::fs::read_to_string(f) else {
+            continue;
+        };
+        readable = true;
+        if listening_on(&text, port, protocol == "udp") {
+            return false;
+        }
+    }
+    if readable {
+        return true;
+    }
+    // No /proc/net: fall back to a bind attempt.
+    let err = if protocol == "udp" {
+        std::net::UdpSocket::bind(("0.0.0.0", port)).err()
+    } else {
+        std::net::TcpListener::bind(("0.0.0.0", port)).err()
+    };
+    err.is_none_or(|e| e.kind() != std::io::ErrorKind::AddrInUse)
+}
+
+/// Does a /proc/net/{tcp,udp}[6] table hold a listening socket on `port`?
+/// TCP: state 0A (LISTEN). UDP: state 07 (unconnected, i.e. bound).
+fn listening_on(table: &str, port: u16, udp: bool) -> bool {
+    let want = if udp { "07" } else { "0A" };
+    table.lines().skip(1).any(|l| {
+        let mut c = l.split_whitespace();
+        let local = c.nth(1).unwrap_or("");
+        let state = c.nth(1).unwrap_or("");
+        state == want
+            && local
+                .rsplit_once(':')
+                .is_some_and(|(_, p)| u16::from_str_radix(p, 16) == Ok(port))
+    })
+}
+
+/// Refuse the install when a declared LAN port is already taken on this server.
+pub fn check_lan_ports(t: &Template) -> Result<(), String> {
+    for l in &t.manifest.lan_ports {
+        if !lan_port_free(l.port, &l.protocol) {
+            return Err(format!(
+                "port {}/{} ({}) is already in use on this server",
+                l.port, l.protocol, l.label
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// `.env` content for Compose: `KEY='value'` lines (single quotes = no interpolation).
@@ -462,5 +526,37 @@ mod tests {
         assert!(!port_is_free(port));
         drop(l);
         assert!(port_is_free(port));
+    }
+
+    #[test]
+    fn lan_ports_need_the_confirmation_box() {
+        let t = tmpl("adguard-home");
+        let none = HashSet::new();
+        let free = |_: u16| true;
+        let e = resolve(&t, &input(&[]), &none, &free).unwrap_err();
+        assert!(e.contains("open to your whole network"), "{e}");
+        assert!(resolve(&t, &input(&[("LAN_OK", "yes")]), &none, &free).is_err());
+        assert!(resolve(&t, &input(&[("LAN_OK", "on")]), &none, &free).is_ok());
+        // Templates without LAN ports never ask.
+        assert!(resolve(&tmpl("uptime-kuma"), &input(&[]), &none, &free).is_ok());
+    }
+
+    #[test]
+    fn proc_net_tables_are_parsed() {
+        let tcp = "  sl  local_address rem_address   st tx_queue\n   0: 00000000:0035 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0\n   1: 0100007F:1F90 0100007F:C350 01 00000000:00000000 00:00000000 00000000     0\n";
+        assert!(listening_on(tcp, 53, false));
+        assert!(!listening_on(tcp, 8080, false)); // established, not listening
+        assert!(!listening_on(tcp, 54, false));
+        let udp = "  sl  local_address rem_address   st\n   0: 00000000:0035 00000000:0000 07 0:0 00:0 0 0\n";
+        assert!(listening_on(udp, 53, true));
+    }
+
+    #[test]
+    fn lan_port_in_use_is_detected() {
+        let l = std::net::UdpSocket::bind(("0.0.0.0", 0)).unwrap();
+        let p = l.local_addr().unwrap().port();
+        assert!(!lan_port_free(p, "udp"));
+        drop(l);
+        assert!(lan_port_free(p, "udp"));
     }
 }
