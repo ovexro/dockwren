@@ -276,6 +276,17 @@ async fn overview(State(state): State<AppState>) -> Html<String> {
         rows.as_ref().map(|v| v.as_slice()).map_err(|e| e.clone()),
     );
     page.apps = apps::instance_count(&state.apps);
+    page.host = metrics::host_line();
+    if page.apps > 0 {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        page.backup = Some(match apps::latest_backup(&state.apps) {
+            Some(t) => format!("Last backup {} ago", metrics::short_span(now.saturating_sub(t))),
+            None => "No backup yet".to_string(),
+        });
+    }
     page.alerts = notify::alerts(&state.notify.lock().unwrap());
     Html(page.render().expect("overview template renders"))
 }

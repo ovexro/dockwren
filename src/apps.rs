@@ -967,6 +967,17 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
     out
 }
 
+/// Epoch of the newest snapshot of any installed app; None when there is none.
+pub fn latest_backup(apps: &Apps) -> Option<u64> {
+    let rd = std::fs::read_dir(&apps.root).ok()?;
+    rd.flatten()
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|n| runner::valid_name(n))
+        .filter_map(|n| crate::backup::list(&apps.backups_root(), &n).pop())
+        .filter_map(|p| p.file_name()?.to_str()?.parse::<u64>().ok())
+        .max()
+}
+
 /// Number of installed apps (instance folders with a state file); cheap, no Docker calls.
 pub fn instance_count(apps: &Apps) -> usize {
     std::fs::read_dir(&apps.root)

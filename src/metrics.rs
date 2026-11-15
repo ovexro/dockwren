@@ -855,6 +855,43 @@ pub struct OverviewTemplate {
     pub warnings: Vec<String>,
     pub docker_error: Option<String>,
     pub alerts: Vec<crate::notify::Alert>,
+    /// "hostname · OS · up 3d 4h · Dockwren vX"; empty when nothing is known.
+    pub host: String,
+    /// "Last backup 5h ago" / "No backup yet"; None when no apps are installed.
+    pub backup: Option<String>,
+}
+
+/// Seconds as a short span: "5m", "3h 20m", "13d 2h".
+pub fn short_span(secs: u64) -> String {
+    let (d, h, m) = (secs / 86400, secs % 86400 / 3600, secs % 3600 / 60);
+    match (d, h) {
+        (0, 0) => format!("{m}m"),
+        (0, _) => format!("{h}h {m}m"),
+        _ => format!("{d}d {h}h"),
+    }
+}
+
+/// The server's identity line for the Overview.
+pub fn host_line() -> String {
+    let read = |p: &str| std::fs::read_to_string(p).unwrap_or_default();
+    let name = read("/proc/sys/kernel/hostname").trim().to_string();
+    let os = read("/etc/os-release")
+        .lines()
+        .find_map(|l| l.strip_prefix("PRETTY_NAME="))
+        .map(|v| v.trim_matches('"').to_string())
+        .unwrap_or_default();
+    let up = read("/proc/uptime")
+        .split_whitespace()
+        .next()
+        .and_then(|v| v.parse::<f64>().ok())
+        .map(|v| format!("up {}", short_span(v as u64)))
+        .unwrap_or_default();
+    let ver = format!("Dockwren v{}", env!("CARGO_PKG_VERSION"));
+    [name, os, up, ver]
+        .into_iter()
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 pub fn overview(
@@ -890,6 +927,8 @@ pub fn overview(
         warnings,
         docker_error,
         alerts: Vec::new(),
+        host: String::new(),
+        backup: None,
     }
 }
 
@@ -1017,6 +1056,14 @@ mod page_tests {
                 .unwrap()
                 .contains("boom")
         );
+    }
+
+    #[test]
+    fn short_spans() {
+        assert_eq!(short_span(59), "0m");
+        assert_eq!(short_span(300), "5m");
+        assert_eq!(short_span(3 * 3600 + 20 * 60), "3h 20m");
+        assert_eq!(short_span(13 * 86400 + 2 * 3600 + 59), "13d 2h");
     }
 
     fn sample(t: u64, cpu: f64) -> Sample {
