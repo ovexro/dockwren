@@ -49,6 +49,9 @@ fn container_problem(c: &ContainerInfo) -> Option<String> {
         "restarting" => Some("it keeps restarting".into()),
         "dead" => Some("it is dead".into()),
         "running" if c.status.contains("(unhealthy)") => Some("its health check is failing".into()),
+        "exited" if c.managed && c.oom_killed => {
+            Some("it was killed for running out of memory".into())
+        }
         "exited" if c.managed => {
             // `Exited (1) 3 minutes ago`. 0 is a clean stop; 137 and 143 are what a manual
             // stop or kill leaves behind, which is not worth a notification.
@@ -270,6 +273,7 @@ mod tests {
             state: state.into(),
             status: status.into(),
             managed,
+            oom_killed: false,
         }
     }
 
@@ -300,6 +304,9 @@ mod tests {
         );
         assert!(p("exited", "Exited (0) 3 minutes ago", true).is_none());
         assert!(p("exited", "Exited (137) 3 minutes ago", true).is_none());
+        let mut oom = container("c", "exited", "Exited (137) 3 minutes ago", true);
+        oom.oom_killed = true;
+        assert!(container_problem(&oom).unwrap().contains("memory"));
         // Containers the panel does not manage are only judged while they run.
         assert!(p("exited", "Exited (1) 3 minutes ago", false).is_none());
     }

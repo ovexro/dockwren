@@ -75,7 +75,7 @@ pub const KINDS: [(&str, &str, &str); 11] = [
     (
         "container.problem",
         "Container crashed, restarting or unhealthy",
-        "A container keeps restarting, failed its health check, or an app container exited with an error. Seen on two checks in a row (one minute apart) before it is raised.",
+        "A container keeps restarting, failed its health check, was killed for running out of memory, or an app container exited with an error. Seen on two checks in a row (one minute apart) before it is raised.",
     ),
 ];
 /// Resolved or dismissed events kept after compaction.

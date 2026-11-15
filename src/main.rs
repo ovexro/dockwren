@@ -1407,6 +1407,7 @@ mod tests {
                 state: "running".into(),
                 status: "Up 3 hours".into(),
                 managed: true,
+                oom_killed: false,
             }]),
             true,
         );

@@ -25,6 +25,9 @@ pub struct ContainerInfo {
     pub status: String,
     /// Created by the panel (Compose project `dockwren-<instance>`): the web terminal is limited to these.
     pub managed: bool,
+    /// The kernel killed it for running out of memory (only looked up for managed containers
+    /// that exited with 137; `false` otherwise).
+    pub oom_killed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,6 +134,14 @@ impl DockerClient {
         info.config?.labels?.remove("com.docker.compose.project")
     }
 
+    /// Whether Docker recorded the last exit as an out-of-memory kill.
+    async fn was_oom_killed(&self, id: &str) -> bool {
+        match self.inner.inspect_container(id, None).await {
+            Ok(i) => i.state.and_then(|st| st.oom_killed).unwrap_or(false),
+            Err(_) => false,
+        }
+    }
+
     /// Lists all containers, running or not, sorted by name.
     pub async fn containers(&self) -> Result<Vec<ContainerInfo>, bollard::errors::Error> {
         let options = ListContainersOptionsBuilder::default().all(true).build();
@@ -141,6 +152,11 @@ impl DockerClient {
             .into_iter()
             .map(ContainerInfo::from)
             .collect();
+        for c in &mut list {
+            if c.managed && c.state == "exited" && c.status.starts_with("Exited (137)") {
+                c.oom_killed = self.was_oom_killed(&c.id).await;
+            }
+        }
         list.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(list)
     }
@@ -279,6 +295,7 @@ impl From<ContainerSummary> for ContainerInfo {
             state: c.state.map(|s| s.to_string()).unwrap_or_default(),
             status: c.status.unwrap_or_default(),
             managed,
+            oom_killed: false,
         }
     }
 }
@@ -321,6 +338,7 @@ mod tests {
                 state: "running".into(),
                 status: "Up 3 hours".into(),
                 managed: false,
+                oom_killed: false,
             }
         );
         let labelled = ContainerSummary {
