@@ -23,6 +23,7 @@ mod template;
 mod terminal;
 mod totp;
 mod update;
+mod upstream;
 
 use std::sync::Arc;
 
@@ -888,6 +889,7 @@ async fn main() {
     apps.spawn_update_checker();
     apps.spawn_backup_scheduler();
     release::spawn_checker(notify.clone());
+    upstream::spawn_checker(apps.clone(), notify.clone());
     hostupdates::spawn_checker(notify.clone());
     backupwatch::spawn_checker(notify.clone());
     let os_control = Arc::new(osupdate::Control::new(Some(&cfg.data_dir)));

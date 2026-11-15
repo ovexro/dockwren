@@ -317,12 +317,12 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/pi-hole/compose.yaml"),
         include_str!("../apps/pi-hole/icon.svg"),
     ),
-     (
+    (
         include_str!("../apps/roundcube/manifest.toml"),
         include_str!("../apps/roundcube/compose.yaml"),
         include_str!("../apps/roundcube/icon.svg"),
     ),
-   (
+    (
         include_str!("../apps/grafana/manifest.toml"),
         include_str!("../apps/grafana/compose.yaml"),
         include_str!("../apps/grafana/icon.svg"),

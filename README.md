@@ -45,6 +45,7 @@ Release binaries and `SHA256SUMS` are on the
 - Start, stop (with confirmation) and restart a container; log viewer (last 200 lines, refreshed every 5 s).
 - App catalog with icons and install forms (generated passwords, per-field hints).
 - Add your own stack: paste a Compose file and Dockwren runs it as a managed app, after checking it against a strict allow-list (see [docs/STACKS.md](docs/STACKS.md)).
+- Upstream version heads-up: once a day the panel asks Docker Hub or GitHub's registry (anonymous, only the image name is sent) whether each installed app's main image has a newer tag with the same shape (same `-apache`/`-alpine` suffix and number of parts). The Apps page shows "Upstream has 28.4.0" (a new major is listed separately) and one notification is raised. It never changes anything: apps move to new versions through the tested template updates that ship with Dockwren releases. Turn it off in Settings → Notifications.
 - Updates with automatic rollback when the new version is not healthy, and optional migration
   steps per template.
 - Backups (files plus database dumps) and restore, from the UI or the CLI; a safety snapshot is

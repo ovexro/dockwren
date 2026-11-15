@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 const LOG_FILE: &str = "notifications.log";
 const PREFS_FILE: &str = "notify-settings.json";
 /// Every kind a producer raises: (kind, label, what it does). Settings lists exactly these.
-pub const KINDS: [(&str, &str, &str); 11] = [
+pub const KINDS: [(&str, &str, &str); 12] = [
     (
         "terminal.opened",
         "Web terminal opened",
@@ -31,6 +31,11 @@ pub const KINDS: [(&str, &str, &str); 11] = [
         "app.update_available",
         "App updates available",
         "A newer version of an installed app's template is bundled with this panel.",
+    ),
+    (
+        "app.upstream_newer",
+        "Newer upstream version of an app",
+        "Once a day, asks Docker Hub or GitHub's registry whether an installed app's main image has a newer tag (one anonymous request per image, only the image name is sent). Heads-up only: nothing is changed; apps update through Dockwren releases.",
     ),
     (
         "job.failed",

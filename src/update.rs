@@ -35,7 +35,7 @@ pub enum Outcome {
 }
 
 /// `image: name:tag` lines of a compose file as name -> tag (untagged = "latest").
-fn images(compose: &str) -> BTreeMap<String, String> {
+pub fn images(compose: &str) -> BTreeMap<String, String> {
     compose
         .lines()
         .filter_map(|l| l.trim().strip_prefix("image:"))

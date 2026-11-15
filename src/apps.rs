@@ -29,6 +29,7 @@ pub struct Apps {
     notify: Option<crate::notify::Shared>,
     schedule: Arc<crate::schedule::Schedule>,
     offsite: Arc<crate::offsite::Offsite>,
+    upstream: crate::upstream::Cache,
 }
 
 impl Apps {
@@ -41,6 +42,7 @@ impl Apps {
             notify: None,
             schedule: Arc::new(crate::schedule::Schedule::memory()),
             offsite: Arc::new(crate::offsite::Offsite::memory()),
+            upstream: Arc::default(),
         }
     }
 
@@ -90,6 +92,47 @@ impl Apps {
                 crate::notify::resolve(n, &key);
             }
         }
+    }
+
+    pub fn upstream_cache(&self) -> crate::upstream::Cache {
+        self.upstream.clone()
+    }
+
+    /// (instance, image, installed tag) of each instance's main image: the first entry of the
+    /// template's `image_pins`, as written in the instance's own compose file.
+    pub fn upstream_targets(&self) -> Vec<(String, String, String)> {
+        let Ok(rd) = std::fs::read_dir(&self.root) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for e in rd.flatten() {
+            let Ok(name) = e.file_name().into_string() else {
+                continue;
+            };
+            if !runner::valid_name(&name) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(e.path().join("state.toml")) else {
+                continue;
+            };
+            let Ok(st) = toml::from_str::<InstanceState>(&text) else {
+                continue;
+            };
+            let Some(main) = self
+                .template(&st.template)
+                .and_then(|t| t.manifest.update.image_pins.first().cloned())
+            else {
+                continue;
+            };
+            let Ok(compose) = std::fs::read_to_string(e.path().join("compose.yaml")) else {
+                continue;
+            };
+            if let Some(tag) = crate::update::images(&compose).remove(&main) {
+                out.push((name, main, tag));
+            }
+        }
+        out.sort();
+        out
     }
 
     /// Instances whose bundled template is newer: (name, installed version, bundled version).
@@ -454,6 +497,8 @@ struct InstanceView {
     status: String,
     /// "1 → 2" when the bundled template is newer than the instance.
     update: Option<String>,
+    /// "Upstream has 28.4.0" when a registry has a newer tag (information only).
+    upstream: Option<String>,
     snapshots: usize,
     last_backup: Option<String>,
     hostname: Option<String>,
@@ -896,12 +941,19 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             .last()
             .and_then(|p| p.file_name()?.to_str()?.parse::<u64>().ok())
             .map(|e| utc_stamp(e).trim_end_matches(" UTC").to_string());
+        let name_for_upstream = name.clone();
         out.push(InstanceView {
             name,
             app: state.template,
             ports: instance_ports(&dir),
             status,
             update,
+            upstream: apps
+                .upstream
+                .lock()
+                .unwrap()
+                .get(&name_for_upstream)
+                .map(|f| f.summary()),
             snapshots,
             last_backup,
             hostname: crate::public::read(&dir),
