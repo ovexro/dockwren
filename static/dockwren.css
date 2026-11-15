@@ -250,3 +250,7 @@ fieldset.target { border: 1px solid var(--border); border-radius: 8px; margin: .
 form:has(select[name=kind] option[value=off]:checked) fieldset.target,
 form:has(select[name=kind] option[value=s3]:checked) fieldset.sftp,
 form:has(select[name=kind] option[value=sftp]:checked) fieldset.s3 { display: none; }
+
+/* Buttons that each sit in their own form: one row, with gaps */
+.actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
+.actions form { margin: 0; }

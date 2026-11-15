@@ -22,6 +22,7 @@
       </select></label></p>
     <button type="submit">Save</button>
   </form>
+  <div class="actions">
   {% if configured %}
   <form hx-post="/settings/channels/test" hx-target="#channels" hx-swap="outerHTML">
     <button type="submit">Send a test notification</button>
@@ -37,4 +38,5 @@
     <button type="submit">Remove webhook</button>
   </form>
   {% endif %}
+  </div>
 </div>
