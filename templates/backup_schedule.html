@@ -12,6 +12,7 @@
     </label>
     <label>Hour (UTC, 0 to 23) <input name="hour" type="number" min="0" max="23" value="{{ hour }}" required></label>
     <label>Snapshots to keep per app <input name="keep" type="number" min="1" max="60" value="{{ keep }}" required></label>
+    <label><input name="auto_update" type="checkbox" value="1"{% if auto_update %} checked{% endif %}> Also update apps after the backup (only when a newer version is bundled and the app is healthy; each update takes its own snapshot and rolls back if it fails)</label>
     <button type="submit" class="primary">Save</button>
   </form>
 </div>

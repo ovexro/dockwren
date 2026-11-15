@@ -168,6 +168,44 @@ impl Apps {
         });
     }
 
+    /// Start an update job for `name` (snapshot first, rollback on failure). CONFLICT when a job for it runs.
+    fn spawn_update(&self, name: &str) -> Result<String, StatusCode> {
+        if !runner::valid_name(name) || !self.root.join(name).join("state.toml").is_file() {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        let job_id = new_job(self, name, "Updating")?;
+        let task_apps = self.clone();
+        let task_id = job_id.clone();
+        let name = name.to_string();
+        tokio::spawn(async move {
+            let backups = task_apps.backups_root();
+            let result = crate::update::update_instance(
+                &task_apps.root,
+                &backups,
+                &task_apps.templates,
+                &name,
+                &mut |s| {
+                    task_apps.with_job(&task_id, |j| j.log.push(s.to_string()));
+                },
+            )
+            .await;
+            task_apps.note_job("Updating", &name, result.as_ref().err().map(|e| e.as_str()));
+            task_apps.sync_update_notifications();
+            task_apps.with_job(&task_id, |j| match result {
+                Ok(crate::update::Outcome::UpToDate) => {
+                    j.log.push("already up to date".into());
+                    j.state = JobState::Done;
+                }
+                Ok(crate::update::Outcome::Updated { from, to }) => {
+                    j.log.push(format!("updated from version {from} to {to}"));
+                    j.state = JobState::Done;
+                }
+                Err(e) => j.state = JobState::Failed(e),
+            });
+        });
+        Ok(job_id)
+    }
+
     /// Start a backup job for `name`, keeping `keep` snapshots. CONFLICT when a job for it runs.
     fn spawn_backup(&self, name: &str, keep: usize) -> Result<String, StatusCode> {
         let dir = self.root.join(name);
@@ -257,8 +295,28 @@ impl Apps {
                         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     }
                 }
+                if apps.schedule.get().auto_update {
+                    apps.run_auto_updates().await;
+                }
             }
         });
+    }
+
+    /// After the scheduled backups: update every healthy app whose bundled template is newer,
+    /// one after the other. A failed update rolls itself back and raises the usual failure event.
+    async fn run_auto_updates(&self) {
+        for (name, _, _) in self.pending_updates() {
+            // Never touch an app the user stopped, or one that was already broken.
+            if !self.is_healthy(&name).await {
+                continue;
+            }
+            let Ok(id) = self.spawn_update(&name) else {
+                continue;
+            };
+            while self.job_running(&id) {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+        }
     }
 
     async fn is_healthy(&self, name: &str) -> bool {
@@ -783,38 +841,7 @@ pub async fn instance_update(
     if !crate::same_origin(&headers) {
         return Err(StatusCode::FORBIDDEN);
     }
-    if !runner::valid_name(&name) || !apps.root.join(&name).join("state.toml").is_file() {
-        return Err(StatusCode::NOT_FOUND);
-    }
-    let job_id = new_job(&apps, &name, "Updating")?;
-    let task_apps = apps.clone();
-    let task_id = job_id.clone();
-    tokio::spawn(async move {
-        let backups = task_apps.backups_root();
-        let result = crate::update::update_instance(
-            &task_apps.root,
-            &backups,
-            &task_apps.templates,
-            &name,
-            &mut |s| {
-                task_apps.with_job(&task_id, |j| j.log.push(s.to_string()));
-            },
-        )
-        .await;
-        task_apps.note_job("Updating", &name, result.as_ref().err().map(|e| e.as_str()));
-        task_apps.sync_update_notifications();
-        task_apps.with_job(&task_id, |j| match result {
-            Ok(crate::update::Outcome::UpToDate) => {
-                j.log.push("already up to date".into());
-                j.state = JobState::Done;
-            }
-            Ok(crate::update::Outcome::Updated { from, to }) => {
-                j.log.push(format!("updated from version {from} to {to}"));
-                j.state = JobState::Done;
-            }
-            Err(e) => j.state = JobState::Failed(e),
-        });
-    });
+    let job_id = apps.spawn_update(&name)?;
     job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
@@ -841,6 +868,7 @@ struct SchedulePage {
     mode: &'static str,
     hour: u8,
     keep: usize,
+    auto_update: bool,
     last: Option<String>,
     note: Option<&'static str>,
     error: Option<&'static str>,
@@ -857,6 +885,7 @@ fn schedule_html(
         mode: s.mode.as_str(),
         hour: s.hour,
         keep: s.keep,
+        auto_update: s.auto_update,
         last: (s.mode != crate::schedule::Mode::Off && last > 0).then(|| utc_stamp(last)),
         note,
         error,
@@ -872,6 +901,8 @@ pub struct ScheduleForm {
     mode: String,
     hour: String,
     keep: String,
+    /// A checkbox: present only when ticked.
+    auto_update: Option<String>,
 }
 
 pub async fn schedule_save(
@@ -882,7 +913,12 @@ pub async fn schedule_save(
     if !crate::same_origin(&headers) {
         return Err(StatusCode::FORBIDDEN);
     }
-    let s = match crate::schedule::Settings::from_form(&f.mode, &f.hour, &f.keep) {
+    let s = match crate::schedule::Settings::from_form(
+        &f.mode,
+        &f.hour,
+        &f.keep,
+        f.auto_update.is_some(),
+    ) {
         Ok(s) => s,
         Err(e) => return Ok(schedule_html(&apps, None, Some(e))),
     };

@@ -1604,6 +1604,12 @@ mod tests {
             "{ok}"
         );
         assert!(ok.contains("<option value=\"daily\" selected>"), "{ok}");
+        assert!(
+            !ok.contains("checked"),
+            "auto-update is off by default: {ok}"
+        );
+        let on = post("mode=daily&hour=4&keep=5&auto_update=1").await;
+        assert!(on.contains("type=\"checkbox\" value=\"1\" checked"), "{on}");
     }
 
     #[tokio::test]
