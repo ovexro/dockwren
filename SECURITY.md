@@ -78,3 +78,12 @@ makes that one click, so it is guarded:
   process that ignores this can outlive the session.
 - xterm.js is third-party JavaScript served from the panel's own origin; versions and checksums are in
   `static/README.md`.
+
+## Config export files
+
+`dockwren export FILE` writes every app's configuration, including the passwords in each app's `.env`,
+into one file. It is encrypted with a passphrase you choose (at least 12 characters; ChaCha20-Poly1305,
+key derived with Argon2id) and created with mode 0600. It is CLI only on purpose: there is no download
+button in the web UI. Treat the file like a password manager export, and do not leave the passphrase
+in shell history (use `DOCKWREN_PASSPHRASE` from a protected environment, or type it on stdin). The file
+does not contain app data, the admin password or the off-host backup credentials.
