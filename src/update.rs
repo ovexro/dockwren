@@ -212,7 +212,7 @@ pub async fn update(
     .await;
     match up {
         Ok(()) => {
-            let state = format!("template = {:?}\nversion = {to}\n", t.manifest.app.id);
+            let state = runner::state_text(t, to);
             replace_file(&inst.dir.join("state.toml"), &state, 0o640)?;
             Ok(Outcome::Updated { from, to })
         }

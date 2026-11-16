@@ -5,7 +5,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 
 ## Open
 - PLAN (user approved all five, 2026-11-16; build in this order, one release each when ready):
-  STATUS: (1) released v0.1.32, (2) restore test + off-host fetch button released v0.1.33. (3) disk usage per app released v0.1.34. (4) update window + skip version released v0.1.35. (5) third-party template sources released v0.1.36 (design below, delivered; not done: installs do not record their source, no live reload without restart). Plan complete.
+  STATUS: (1) released v0.1.32, (2) restore test + off-host fetch button released v0.1.33. (3) disk usage per app released v0.1.34. (4) update window + skip version released v0.1.35. (5) third-party template sources released v0.1.36 (design below, delivered; installs now record their source; not done: no live reload without restart). Plan complete.
   (1) One-command recovery: `dockwren recover` = import + `backup pull` + `restore` for every app; also push the encrypted config export to the off-host target after each backup (never stale, survives disk loss); handle offsite.toml/credentials without hand-copying (prompt or re-enter); fold in the readable-bundle hint and the "restore from off-host" UI button / list remote snapshots.
   (5) Extra template sources. DESIGN (proposed 2026-11-16, awaiting user OK):
       - Source: `dockwren template add <git-url> <full-commit-sha>` (also a Settings form); https only, no branch/tag tracking. Fetch once (shallow, no submodules, no hooks, size and file-count caps), keep a copy under <data>/templates/<id>/, record url+sha in a sources file.

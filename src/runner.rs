@@ -112,13 +112,21 @@ pub fn prepare_with(
         write_private(&dir.join("compose.override.yaml"), &o).map_err(|e| err("override", e))?;
     }
     crate::install::write_env(&dir, env).map_err(|e| err(".env", e))?;
-    let state = format!(
-        "template = {}\nversion = {}\n",
-        json_str(&t.manifest.app.id),
-        t.manifest.app.version
-    );
+    let state = state_text(t, t.manifest.app.version);
     write_private(&dir.join("state.toml"), &state).map_err(|e| err("state.toml", e))?;
     Ok(Instance { name, dir })
+}
+
+/// Contents of an instance's state.toml; third-party templates also record `url@sha`.
+pub fn state_text(t: &Template, version: u32) -> String {
+    let mut s = format!(
+        "template = {}\nversion = {version}\n",
+        json_str(&t.manifest.app.id)
+    );
+    if let Some(src) = &t.source {
+        s.push_str(&format!("source = {}\n", json_str(src)));
+    }
+    s
 }
 
 /// Ports already claimed by installed instances (`*_PORT='n'` lines in their `.env`).
@@ -461,6 +469,12 @@ mod tests {
                 .unwrap()
                 .contains("gitea")
         );
+        let mut tp = tmpl("gitea");
+        tp.source = Some("https://example.com/r@abc".into());
+        let st = state_text(&tp, 3);
+        assert!(st.contains("source = \"https://example.com/r@abc\""));
+        assert!(toml::from_str::<toml::Table>(&st).is_ok());
+        assert!(!state_text(&t, 3).contains("source"));
         assert!(
             prepare(&root, &t, &r.env)
                 .unwrap_err()
