@@ -15,7 +15,6 @@ Open items only, one line each, with the date it was last verified open. Deliver
       - Not doing: auto-updating sources, running anything from the repo at fetch time, private repos/credentials (v1).
       - Open question: post_start commands run inside containers; allow for third-party, or refuse in v1 (recommended: refuse).
 - IDEA (2026-11-14): more catalog templates (open-ended; done so far: Nextcloud, Jellyfin, Grafana, n8n, Syncthing, Homepage, Navidrome, Stirling-PDF, Wiki.js, Ghost, SnappyMail, Immich, Roundcube, AdGuard Home, Pi-hole). Items 2-6 of the old list (update badge/auto-update, image heads-up, resource alerts, self-update, audit log, add stack) are delivered.
-- IDEA (2026-11-15): more `lan_ports` templates: Home Assistant (host networking, still refused). AdGuard Home and Pi-hole done (Pi-hole has no DHCP: needs cap_add).
 
 - Security: check pinned image versions (PHP in Nextcloud, WordPress, SnappyMail) against PHP advisories at each release; PHP2Shell fixed in 8.5.12/8.4.27/8.3.36/8.2.35 (all PHP apps incl. Roundcube verified patched 2026-11-16 at v0.1.37, no newer security release found; 8.5.13/8.4.28 RCs seen, recheck after 2026-11-19). Verified open 2026-11-16.
 
@@ -26,6 +25,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 - Cloudflare Access on `expose` is opt-in (`--access`): Bitwarden/git-HTTPS clients cannot pass an Access login.
 - Notifications: ntfy/webhook channels are delivered and confirmed on a phone (2026-11-14); no further channels planned.
 
+- Home Assistant template: DROPPED by the user (2026-11-16): needs host networking, which Dockwren refuses by design. Stays dropped.
 - Multi-user / roles: not wanted (user, 2026-11-14). Single admin stays.
 
 ## Standing
