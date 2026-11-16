@@ -19,7 +19,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
   (2) released v0.1.39 (src/webcheck.rs; probe every 5 min, 3 fails raise app.unreachable, status in Apps): external check of public URLs.
   (3) released v0.1.40 (src/clone.rs; Duplicate button on the Restore page, no CLI command): clone app from a snapshot under a new name and port.
   (4) released v0.1.41 (src/vulnscan.rs; Trivy 0.76.2 pinned, daily, counts on Apps, notify on fixable criticals; CLI `dockwren scan`): image vulnerability scan.
-  (5) Generated passwords: show again (re-auth) and rotate with app restart.
+  (5) released v0.1.42 (Passwords button: show again after re-auth; rotate only for secrets marked `rotate = true`, Pi-hole): generated passwords.
 - IDEA (2026-11-14): more catalog templates (open-ended; done so far: Nextcloud, Jellyfin, Grafana, n8n, Syncthing, Homepage, Navidrome, Stirling-PDF, Wiki.js, Ghost, SnappyMail, Immich, Roundcube, AdGuard Home, Pi-hole). Items 2-6 of the old list (update badge/auto-update, image heads-up, resource alerts, self-update, audit log, add stack) are delivered.
 
 - Security: check pinned image versions (PHP in Nextcloud, WordPress, SnappyMail) against PHP advisories at each release; PHP2Shell fixed in 8.5.12/8.4.27/8.3.36/8.2.35 (all PHP apps incl. Roundcube verified patched 2026-11-16 at v0.1.37, no newer security release found; 8.5.13/8.4.28 RCs seen, recheck after 2026-11-19). Verified open 2026-11-16.

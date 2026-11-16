@@ -123,6 +123,10 @@ pub struct Secret {
     pub length: usize,
     #[serde(default)]
     pub reveal: bool,
+    /// The app reads this value from its environment on every start, so a new value plus a
+    /// restart really changes the password (unlike admin passwords applied only at first run).
+    #[serde(default)]
+    pub rotate: bool,
 }
 
 fn default_len() -> usize {
@@ -497,6 +501,9 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
     for s in &m.secrets {
         if !valid_key(&s.key) {
             return Err(format!("secret key {:?} must be UPPER_SNAKE_CASE", s.key));
+        }
+        if s.rotate && !matches!(s.kind, SecretKind::Password) {
+            return Err(format!("secret {}: rotate needs kind password", s.key));
         }
         if s.length < 16 {
             return Err(format!("secret {}: length must be at least 16", s.key));
@@ -969,6 +976,12 @@ mod tests {
             ));
             assert!(validate(&m, OK).is_err(), "{re}");
         }
+    }
+
+    #[test]
+    fn rotate_needs_a_password_secret() {
+        let m = manifest("[[secrets]]\nkey=\"S\"\nkind=\"hex\"\nlength=32\nrotate=true\n");
+        assert!(validate(&m, OK).unwrap_err().contains("rotate"));
     }
 
     #[test]

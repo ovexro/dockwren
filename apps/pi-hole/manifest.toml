@@ -47,6 +47,7 @@ key = "ADMIN_PASSWORD"
 kind = "password"
 length = 20
 reveal = true
+rotate = true
 
 [[services]]
 name = "pi-hole"

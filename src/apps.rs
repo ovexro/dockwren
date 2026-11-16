@@ -27,6 +27,7 @@ pub struct Apps {
     /// Serialises "pick ports + create instance dir" so parallel installs cannot clash.
     lock: Arc<tokio::sync::Mutex<()>>,
     notify: Option<crate::notify::Shared>,
+    auth: Option<crate::auth::SharedAuth>,
     schedule: Arc<crate::schedule::Schedule>,
     offsite: Arc<crate::offsite::Offsite>,
     upstream: crate::upstream::Cache,
@@ -40,6 +41,7 @@ impl Apps {
             jobs: Arc::default(),
             lock: Arc::default(),
             notify: None,
+            auth: None,
             schedule: Arc::new(crate::schedule::Schedule::memory()),
             offsite: Arc::new(crate::offsite::Offsite::memory()),
             upstream: Arc::default(),
@@ -53,6 +55,12 @@ impl Apps {
 
     pub fn with_schedule(mut self, s: Arc<crate::schedule::Schedule>) -> Self {
         self.schedule = s;
+        self
+    }
+
+    /// Needed for actions that ask for the password again (show/rotate app passwords).
+    pub fn with_auth(mut self, auth: crate::auth::SharedAuth) -> Self {
+        self.auth = Some(auth);
         self
     }
 
@@ -721,6 +729,8 @@ struct InstanceView {
     editable: bool,
     /// The template is known, so the main service can be limited.
     limitable: bool,
+    /// The template has generated passwords that can be shown again.
+    has_passwords: bool,
     /// Docker logs of this app have no size cap yet.
     uncapped: bool,
 }
@@ -1184,6 +1194,9 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             .template(&state.template)
             .is_some_and(|t| t.manifest.fields.iter().any(|f| f.editable));
         let limitable = apps.template(&state.template).is_some();
+        let has_passwords = apps
+            .template(&state.template)
+            .is_some_and(|t| t.manifest.secrets.iter().any(is_viewable));
         out.push(InstanceView {
             name,
             app: state.template,
@@ -1205,6 +1218,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             vulns: crate::vulnscan::summary(&name_for_upstream).and_then(|v| v.line()),
             editable,
             limitable,
+            has_passwords,
             uncapped: !crate::logcap::enabled(&dir),
         });
     }
@@ -1979,6 +1993,175 @@ pub async fn settings_submit(
         apps2.with_job(&id, |j| match result {
             Ok(()) => {
                 j.log.push("settings applied".into());
+                j.state = JobState::Done;
+            }
+            Err(e) => j.state = JobState::Failed(e),
+        });
+    });
+    job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// A generated password the user may ask to see again (stored in `.env` as plain text).
+fn is_viewable(s: &crate::template::Secret) -> bool {
+    s.reveal && matches!(s.kind, crate::template::SecretKind::Password)
+}
+
+#[derive(Template)]
+#[template(path = "passwords.html")]
+struct PasswordsPage {
+    instance: String,
+    /// (key, can be rotated)
+    secrets: Vec<(String, bool)>,
+    two_factor: bool,
+    error: Option<String>,
+    shown: Vec<(String, String)>,
+}
+
+fn passwords_view(
+    apps: &Apps,
+    name: &str,
+    error: Option<String>,
+    shown: Vec<(String, String)>,
+) -> Result<PasswordsPage, StatusCode> {
+    let dir = apps.root.join(name);
+    let state: InstanceState = std::fs::read_to_string(dir.join("state.toml"))
+        .ok()
+        .and_then(|s| toml::from_str(&s).ok())
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let t = apps
+        .template(&state.template)
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let secrets: Vec<(String, bool)> = t
+        .manifest
+        .secrets
+        .iter()
+        .filter(|s| is_viewable(s))
+        .map(|s| (s.key.clone(), s.rotate))
+        .collect();
+    if secrets.is_empty() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    Ok(PasswordsPage {
+        instance: name.to_string(),
+        secrets,
+        two_factor: apps.auth.as_ref().is_some_and(|a| a.two_factor_enabled()),
+        error,
+        shown,
+    })
+}
+
+/// `GET /instances/{name}/passwords`: re-auth form for the generated passwords of an app.
+pub async fn passwords_form(
+    State(apps): State<Apps>,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    known_instance(&apps, &name)?;
+    Ok(render(passwords_view(&apps, &name, None, Vec::new())?))
+}
+
+#[derive(Deserialize)]
+pub struct PasswordsForm {
+    password: String,
+    #[serde(default)]
+    code: String,
+    /// "show" or "rotate"
+    action: String,
+    #[serde(default)]
+    key: String,
+}
+
+/// `POST /instances/{name}/passwords`: after re-auth, show the stored passwords, or rotate one
+/// (new value in `.env` + recreate; the old `.env` is put back when the app does not come up).
+pub async fn passwords_submit(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Form(form): Form<PasswordsForm>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let auth = apps.auth.clone().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let page = |e: &str| passwords_view(&apps, &name, Some(e.to_string()), Vec::new());
+    if !auth.reauth(form.password.clone(), &form.code).await {
+        return Ok(render(page("Wrong password or code.")?));
+    }
+    let dir = apps.root.join(&name);
+    let state: InstanceState = std::fs::read_to_string(dir.join("state.toml"))
+        .ok()
+        .and_then(|s| toml::from_str(&s).ok())
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let t = apps
+        .template(&state.template)
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let old = runner::read_env(&dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if form.action == "show" {
+        let shown: Vec<(String, String)> = t
+            .manifest
+            .secrets
+            .iter()
+            .filter(|s| is_viewable(s))
+            .filter_map(|s| old.get(&s.key).map(|v| (s.key.clone(), v.clone())))
+            .collect();
+        crate::audit::record("app.passwords_shown", &name);
+        return Ok(render(passwords_view(&apps, &name, None, shown)?));
+    }
+    let Some(secret) = t
+        .manifest
+        .secrets
+        .iter()
+        .find(|s| s.key == form.key && is_viewable(s) && s.rotate)
+    else {
+        return Ok(render(page("This password cannot be rotated here.")?));
+    };
+    let key = secret.key.clone();
+    let plain = crate::install::generate_secret(secret);
+    let mut new = old.clone();
+    new.insert(key.clone(), plain.clone());
+    let job_id = new_job(&apps, &name, "Rotating the password of")?;
+    crate::audit::record("app.password_rotated", &format!("{name}: {key}"));
+    let apps2 = apps.clone();
+    let id = job_id.clone();
+    tokio::spawn(async move {
+        let inst = runner::Instance {
+            name: name.clone(),
+            dir,
+        };
+        let log = |s: &str| {
+            apps2.with_job(&id, |j| j.log.push(s.to_string()));
+        };
+        let result = async {
+            log(&format!("new value for {key}"));
+            crate::install::replace_env(&inst.dir, &new).map_err(|e| format!(".env: {e}"))?;
+            let up = async {
+                log("recreating containers");
+                runner::compose(&inst, &["up", "-d"]).await?;
+                log("waiting for healthy");
+                runner::wait_healthy(&inst, std::time::Duration::from_secs(240)).await
+            }
+            .await;
+            if let Err(e) = up {
+                log("failed: putting the old password back");
+                crate::install::replace_env(&inst.dir, &old).map_err(|e| format!(".env: {e}"))?;
+                let back = runner::compose(&inst, &["up", "-d"]).await;
+                return Err(match back {
+                    Ok(_) => format!("{e} (old password restored)"),
+                    Err(b) => format!("{e} (restoring the old password also failed: {b})"),
+                });
+            }
+            Ok::<(), String>(())
+        }
+        .await;
+        apps2.note_job(
+            "Rotating the password of",
+            &name,
+            result.as_ref().err().map(|e| e.as_str()),
+        );
+        apps2.with_job(&id, |j| match result {
+            Ok(()) => {
+                j.log.push("password rotated".into());
+                j.secrets.push((key.clone(), plain));
                 j.state = JobState::Done;
             }
             Err(e) => j.state = JobState::Failed(e),

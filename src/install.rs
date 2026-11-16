@@ -191,21 +191,7 @@ pub fn resolve(
 
     let mut revealed = Vec::new();
     for s in &t.manifest.secrets {
-        let plain = match s.kind {
-            SecretKind::Hex => {
-                let mut bytes = vec![0u8; s.length.div_ceil(2)];
-                rand::fill(&mut bytes[..]);
-                let mut h: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-                h.truncate(s.length);
-                h
-            }
-            _ => (0..s.length)
-                .map(|_| {
-                    const C: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
-                    C[rand::random_range(0..C.len())] as char
-                })
-                .collect(),
-        };
+        let plain = generate_secret(s);
         let stored = match s.kind {
             SecretKind::Argon2 => crate::auth::hash_password(&plain),
             _ => plain.clone(),
@@ -220,6 +206,25 @@ pub fn resolve(
         revealed,
         public_host,
     })
+}
+
+/// A fresh random value for a manifest secret (hex or look-alike-free letters and digits).
+pub fn generate_secret(s: &crate::template::Secret) -> String {
+    match s.kind {
+        SecretKind::Hex => {
+            let mut bytes = vec![0u8; s.length.div_ceil(2)];
+            rand::fill(&mut bytes[..]);
+            let mut h: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+            h.truncate(s.length);
+            h
+        }
+        _ => (0..s.length)
+            .map(|_| {
+                const C: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+                C[rand::random_range(0..C.len())] as char
+            })
+            .collect(),
+    }
 }
 
 /// Apply Settings-page `input` to an existing instance's `current` env. Only fields marked

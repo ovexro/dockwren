@@ -457,6 +457,10 @@ fn app(
             get(apps::settings_form).post(apps::settings_submit),
         )
         .route(
+            "/instances/{name}/passwords",
+            get(apps::passwords_form).post(apps::passwords_submit),
+        )
+        .route(
             "/instances/{name}/limits",
             get(apps::limits_form).post(apps::limits_submit),
         )
@@ -1314,6 +1318,7 @@ async fn main() {
     let notify = notify::shared(&cfg.data_dir);
     let apps = apps::Apps::new(templates, cfg.instances_dir())
         .with_notify(notify.clone())
+        .with_auth(auth.clone())
         .with_schedule(Arc::new(schedule::Schedule::open(&cfg.data_dir)))
         .with_offsite(Arc::new(offsite::Offsite::open(&cfg.data_dir)));
     apps.spawn_update_checker();
