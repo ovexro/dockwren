@@ -51,6 +51,9 @@ pub struct Settings {
     /// After a scheduled backup, move apps with a newer bundled template to it.
     #[serde(default)]
     pub auto_update: bool,
+    /// About weekly, restore each app's newest snapshot into a throwaway copy and delete it.
+    #[serde(default)]
+    pub restore_test: bool,
 }
 
 impl Default for Settings {
@@ -60,6 +63,7 @@ impl Default for Settings {
             hour: 3,
             keep: DEFAULT_KEEP,
             auto_update: false,
+            restore_test: false,
         }
     }
 }
@@ -71,6 +75,7 @@ impl Settings {
         hour: &str,
         keep: &str,
         auto_update: bool,
+        restore_test: bool,
     ) -> Result<Self, &'static str> {
         let mode = Mode::parse(mode).ok_or("Pick off, daily or weekly.")?;
         let hour: u8 = hour
@@ -90,6 +95,7 @@ impl Settings {
             hour,
             keep,
             auto_update,
+            restore_test,
         })
     }
 }
@@ -248,6 +254,7 @@ mod tests {
             hour: 3,
             keep: 7,
             auto_update: false,
+            restore_test: false,
         };
         let slot = SAT_19 - 16 * 3600;
         assert!(due(SAT_19, &s, 0));
@@ -258,17 +265,17 @@ mod tests {
 
     #[test]
     fn form_is_validated() {
-        assert!(Settings::from_form("daily", "3", "7", false).is_ok());
+        assert!(Settings::from_form("daily", "3", "7", false, false).is_ok());
         assert!(
-            Settings::from_form("daily", "3", "7", true)
+            Settings::from_form("daily", "3", "7", true, false)
                 .unwrap()
                 .auto_update
         );
-        assert!(Settings::from_form("hourly", "3", "7", false).is_err());
-        assert!(Settings::from_form("daily", "24", "7", false).is_err());
-        assert!(Settings::from_form("daily", "3", "0", false).is_err());
-        assert!(Settings::from_form("daily", "3", "61", false).is_err());
-        assert!(Settings::from_form("daily", "x", "7", false).is_err());
+        assert!(Settings::from_form("hourly", "3", "7", false, false).is_err());
+        assert!(Settings::from_form("daily", "24", "7", false, false).is_err());
+        assert!(Settings::from_form("daily", "3", "0", false, false).is_err());
+        assert!(Settings::from_form("daily", "3", "61", false, false).is_err());
+        assert!(Settings::from_form("daily", "x", "7", false, false).is_err());
     }
 
     #[test]
@@ -282,6 +289,7 @@ mod tests {
             hour: 5,
             keep: 3,
             auto_update: true,
+            restore_test: false,
         };
         sc.set(s).unwrap();
         assert_eq!(Schedule::open(&d).get(), s);

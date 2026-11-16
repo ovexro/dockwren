@@ -10,7 +10,7 @@
     <label><input type="radio" name="snapshot" value="{{ s.name }}"{% if loop.first %} checked{% endif %}> {{ s.when }}{% if loop.first %} (newest){% endif %}{% if let Some(v) = s.verified %} <small>· verified {{ v }}</small>{% endif %}</label>
     {% endfor %}
     <button class="danger" type="submit">Restore selected snapshot</button>
-    <button type="button" hx-post="/instances/{{ instance }}/verify" hx-target="#install" hx-swap="innerHTML" title="Reads the snapshot end to end and checks it holds everything needed. Nothing is changed and the app keeps running.">Verify selected snapshot</button> <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
+    <button type="button" hx-post="/instances/{{ instance }}/verify" hx-target="#install" hx-swap="innerHTML" title="Reads the snapshot end to end and checks it holds everything needed. Nothing is changed and the app keeps running.">Verify selected snapshot</button> <button type="button" hx-post="/instances/{{ instance }}/restore-test" hx-target="#install" hx-swap="innerHTML" hx-confirm="Restore the newest snapshot into a temporary copy and delete it again? This uses extra memory and disk for a few minutes; the running app is not touched.">Test restore (newest snapshot)</button> <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
   </form>
   {% endif %}
   {% if leftovers > 0 %}

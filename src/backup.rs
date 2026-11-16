@@ -255,7 +255,7 @@ fn docker_cmd(inst: &Instance) -> Command {
 }
 
 /// File inside a snapshot that marks it as a safety snapshot taken by `restore`.
-const SAFETY_MARK: &str = ".safety";
+pub const SAFETY_MARK: &str = ".safety";
 
 /// Pick the snapshot to restore: the named one, or the newest regular one
 /// (safety snapshots are only chosen by name, or when nothing else exists).

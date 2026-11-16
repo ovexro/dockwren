@@ -41,7 +41,7 @@ pub fn subst(s: &str, env: &BTreeMap<String, String>) -> Result<String, String> 
 
 /// First free port in the auto range, skipping `claimed` (other instances and
 /// ports already picked in this install).
-fn allocate(claimed: &HashSet<u16>, free: &dyn Fn(u16) -> bool) -> Result<u16, String> {
+pub fn allocate(claimed: &HashSet<u16>, free: &dyn Fn(u16) -> bool) -> Result<u16, String> {
     AUTO_PORTS
         .clone()
         .find(|p| !claimed.contains(p) && free(*p))

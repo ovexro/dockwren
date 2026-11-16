@@ -348,6 +348,60 @@ impl Apps {
         Ok(job_id)
     }
 
+    /// Start a job that restores the newest snapshot into a throwaway copy and deletes it again.
+    fn spawn_restore_test(&self, name: &str) -> Result<String, StatusCode> {
+        let dir = self.root.join(name);
+        let text =
+            std::fs::read_to_string(dir.join("state.toml")).map_err(|_| StatusCode::NOT_FOUND)?;
+        let st: InstanceState =
+            toml::from_str(&text).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        self.template(&st.template)
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        let tpl_id = st.template;
+        let job_id = new_job(self, name, "Restore test of")?;
+        let apps = self.clone();
+        let id = job_id.clone();
+        let name = name.to_string();
+        tokio::spawn(async move {
+            let inst = runner::Instance {
+                name: name.clone(),
+                dir,
+            };
+            let t = apps.template(&tpl_id).expect("checked above");
+            let data = apps
+                .backups_root()
+                .parent()
+                .map(std::path::Path::to_path_buf);
+            let result = match data {
+                Some(data) => {
+                    crate::restoretest::run(&data, &inst, t, &mut |s| {
+                        apps.with_job(&id, |j| j.log.push(s.to_string()));
+                    })
+                    .await
+                }
+                None => Err("no data directory".to_string()),
+            };
+            apps.note_job(
+                "Restore test of",
+                &name,
+                result.as_ref().err().map(|e| e.as_str()),
+            );
+            apps.with_job(&id, |j| match result {
+                Ok(Some(_)) => {
+                    j.log
+                        .push("restore test passed: the snapshot came back healthy".into());
+                    j.state = JobState::Done;
+                }
+                Ok(None) => {
+                    j.log.push("restore test skipped".into());
+                    j.state = JobState::Done;
+                }
+                Err(e) => j.state = JobState::Failed(e),
+            });
+        });
+        Ok(job_id)
+    }
+
     fn job_done(&self, id: &str) -> bool {
         self.with_job(id, |j| j.state == JobState::Done)
             .unwrap_or(false)
@@ -392,11 +446,39 @@ impl Apps {
                         }
                     }
                 }
+                if apps.schedule.get().restore_test {
+                    apps.run_restore_tests().await;
+                }
                 if apps.schedule.get().auto_update {
                     apps.run_auto_updates().await;
                 }
             }
         });
+    }
+
+    /// After the scheduled backups: restore-test each healthy app whose last pass is older than
+    /// a week, one after the other. A failure raises a notification through the job.
+    async fn run_restore_tests(&self) {
+        let Some(data) = self
+            .backups_root()
+            .parent()
+            .map(std::path::Path::to_path_buf)
+        else {
+            return;
+        };
+        for name in self.instance_names() {
+            if !crate::restoretest::due(&data, &name, crate::schedule::now())
+                || !self.is_healthy(&name).await
+            {
+                continue;
+            }
+            let Ok(id) = self.spawn_restore_test(&name) else {
+                continue;
+            };
+            while self.job_running(&id) {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+        }
     }
 
     /// After the scheduled backups: update every healthy app whose bundled template is newer,
@@ -1177,6 +1259,20 @@ pub async fn verify_submit(
     job_fragment(&apps, &id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+/// `POST /instances/{name}/restore-test`: restore the newest snapshot into a throwaway copy.
+pub async fn restore_test_submit(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) || !runner::valid_name(&name) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let id = apps.spawn_restore_test(&name)?;
+    crate::audit::record("app.restore-test", &name);
+    job_fragment(&apps, &id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 #[derive(Template)]
 #[template(path = "backup_schedule.html")]
 struct SchedulePage {
@@ -1184,6 +1280,7 @@ struct SchedulePage {
     hour: u8,
     keep: usize,
     auto_update: bool,
+    restore_test: bool,
     last: Option<String>,
     note: Option<&'static str>,
     error: Option<&'static str>,
@@ -1201,6 +1298,7 @@ fn schedule_html(
         hour: s.hour,
         keep: s.keep,
         auto_update: s.auto_update,
+        restore_test: s.restore_test,
         last: (s.mode != crate::schedule::Mode::Off && last > 0).then(|| utc_stamp(last)),
         note,
         error,
@@ -1218,6 +1316,7 @@ pub struct ScheduleForm {
     keep: String,
     /// A checkbox: present only when ticked.
     auto_update: Option<String>,
+    restore_test: Option<String>,
 }
 
 pub async fn schedule_save(
@@ -1233,6 +1332,7 @@ pub async fn schedule_save(
         &f.hour,
         &f.keep,
         f.auto_update.is_some(),
+        f.restore_test.is_some(),
     ) {
         Ok(s) => s,
         Err(e) => return Ok(schedule_html(&apps, None, Some(e))),

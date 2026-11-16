@@ -17,6 +17,7 @@ mod offsite;
 mod osupdate;
 mod public;
 mod release;
+mod restoretest;
 mod runner;
 mod schedule;
 mod selfupdate;
@@ -433,6 +434,10 @@ fn app(
             get(apps::limits_form).post(apps::limits_submit),
         )
         .route("/instances/{name}/verify", post(apps::verify_submit))
+        .route(
+            "/instances/{name}/restore-test",
+            post(apps::restore_test_submit),
+        )
         .route("/instances/{name}/cleanup", post(apps::cleanup_submit))
         .route("/static/htmx.min.js", get(htmx_js))
         .route("/logout", post(auth::logout))
@@ -769,7 +774,7 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     Ok(())
 }
 
-const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | export FILE | import FILE | recover | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
+const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | export FILE | import FILE | recover | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | restore-test <instance> | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
 
 /// CLI commands work on the panel's data directory; explain the usual permission mistake
 /// instead of failing later with a bare "Permission denied".
@@ -808,7 +813,7 @@ async fn main() {
         | Some("self-update") => {}
         Some(
             "install" | "export" | "import" | "recover" | "backup" | "update" | "restore"
-            | "verify" | "cleanup" | "expose" | "unexpose" | "remove",
+            | "verify" | "restore-test" | "cleanup" | "expose" | "unexpose" | "remove",
         ) => check_data_dir(&cfg.data_dir),
         Some(_) => {}
     }
@@ -1065,6 +1070,47 @@ async fn main() {
                 Ok(snap) => println!("{} verified: it can be restored", snap.display()),
                 Err(e) => {
                     eprintln!("verify failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
+        Some("restore-test") => {
+            let name = std::env::args().nth(2).unwrap_or_default();
+            if !runner::valid_name(&name) || std::env::args().count() != 3 {
+                eprintln!("usage: dockwren restore-test <instance>");
+                std::process::exit(2);
+            }
+            let result = async {
+                let templates = apps::catalog(&cfg)?;
+                let dir = cfg.instances_dir().join(&name);
+                let state = std::fs::read_to_string(dir.join("state.toml"))
+                    .map_err(|_| format!("no instance named {name}"))?;
+                let tpl = toml::from_str::<toml::Table>(&state)
+                    .ok()
+                    .and_then(|t| t.get("template")?.as_str().map(String::from))
+                    .ok_or("state.toml: no template")?;
+                let t = templates
+                    .iter()
+                    .find(|t| t.manifest.app.id == tpl)
+                    .ok_or_else(|| format!("template {tpl} is not available"))?;
+                restoretest::run(
+                    &cfg.data_dir,
+                    &runner::Instance {
+                        name: name.clone(),
+                        dir,
+                    },
+                    t,
+                    &mut |s| println!("  {s}"),
+                )
+                .await
+            }
+            .await;
+            match result {
+                Ok(Some(s)) => println!("restore test passed (snapshot {s}): it came back healthy"),
+                Ok(None) => println!("restore test skipped"),
+                Err(e) => {
+                    eprintln!("restore test failed: {e}");
                     std::process::exit(1);
                 }
             }
@@ -2064,6 +2110,7 @@ mod tests {
             ("GET", "/instances/gt/restore"),
             ("POST", "/instances/gt/restore"),
             ("POST", "/instances/gt/verify"),
+            ("POST", "/instances/gt/restore-test"),
             ("POST", "/instances/gt/cleanup"),
         ] {
             let res = test_app()
