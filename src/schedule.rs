@@ -51,9 +51,34 @@ pub struct Settings {
     /// After a scheduled backup, move apps with a newer bundled template to it.
     #[serde(default)]
     pub auto_update: bool,
+    /// Auto-updates only start when the UTC hour is in `update_from..update_to` (wraps past
+    /// midnight; equal values mean any time).
+    #[serde(default = "default_update_from")]
+    pub update_from: u8,
+    #[serde(default = "default_update_to")]
+    pub update_to: u8,
     /// About weekly, restore each app's newest snapshot into a throwaway copy and delete it.
     #[serde(default)]
     pub restore_test: bool,
+}
+
+fn default_update_from() -> u8 {
+    3
+}
+
+fn default_update_to() -> u8 {
+    6
+}
+
+/// Is `hour` (UTC) inside the window `from..to`? Wraps past midnight; `from == to` is always.
+pub fn in_window(hour: u8, from: u8, to: u8) -> bool {
+    if from == to {
+        true
+    } else if from < to {
+        (from..to).contains(&hour)
+    } else {
+        hour >= from || hour < to
+    }
 }
 
 impl Default for Settings {
@@ -63,6 +88,8 @@ impl Default for Settings {
             hour: 3,
             keep: DEFAULT_KEEP,
             auto_update: false,
+            update_from: default_update_from(),
+            update_to: default_update_to(),
             restore_test: false,
         }
     }
@@ -75,8 +102,17 @@ impl Settings {
         hour: &str,
         keep: &str,
         auto_update: bool,
+        window: (&str, &str),
         restore_test: bool,
     ) -> Result<Self, &'static str> {
+        let hour_of = |t: &str| {
+            t.trim()
+                .parse::<u8>()
+                .ok()
+                .filter(|h| *h < 24)
+                .ok_or("The update window hours must be 0 to 23.")
+        };
+        let (update_from, update_to) = (hour_of(window.0)?, hour_of(window.1)?);
         let mode = Mode::parse(mode).ok_or("Pick off, daily or weekly.")?;
         let hour: u8 = hour
             .trim()
@@ -95,6 +131,8 @@ impl Settings {
             hour,
             keep,
             auto_update,
+            update_from,
+            update_to,
             restore_test,
         })
     }
@@ -254,6 +292,8 @@ mod tests {
             hour: 3,
             keep: 7,
             auto_update: false,
+            update_from: 3,
+            update_to: 6,
             restore_test: false,
         };
         let slot = SAT_19 - 16 * 3600;
@@ -265,17 +305,25 @@ mod tests {
 
     #[test]
     fn form_is_validated() {
-        assert!(Settings::from_form("daily", "3", "7", false, false).is_ok());
+        assert!(Settings::from_form("daily", "3", "7", false, ("3", "6"), false).is_ok());
         assert!(
-            Settings::from_form("daily", "3", "7", true, false)
+            Settings::from_form("daily", "3", "7", true, ("3", "6"), false)
                 .unwrap()
                 .auto_update
         );
-        assert!(Settings::from_form("hourly", "3", "7", false, false).is_err());
-        assert!(Settings::from_form("daily", "24", "7", false, false).is_err());
-        assert!(Settings::from_form("daily", "3", "0", false, false).is_err());
-        assert!(Settings::from_form("daily", "3", "61", false, false).is_err());
-        assert!(Settings::from_form("daily", "x", "7", false, false).is_err());
+        assert!(Settings::from_form("hourly", "3", "7", false, ("3", "6"), false).is_err());
+        assert!(Settings::from_form("daily", "24", "7", false, ("3", "6"), false).is_err());
+        assert!(Settings::from_form("daily", "3", "0", false, ("3", "6"), false).is_err());
+        assert!(Settings::from_form("daily", "3", "61", false, ("3", "6"), false).is_err());
+        assert!(Settings::from_form("daily", "x", "7", false, ("3", "6"), false).is_err());
+    }
+
+    #[test]
+    fn window_wraps_past_midnight() {
+        assert!(in_window(3, 3, 6) && in_window(5, 3, 6) && !in_window(6, 3, 6));
+        assert!(in_window(23, 22, 2) && in_window(1, 22, 2) && !in_window(2, 22, 2));
+        assert!(in_window(0, 4, 4) && in_window(13, 4, 4));
+        assert!(Settings::from_form("daily", "3", "7", true, ("3", "25"), false).is_err());
     }
 
     #[test]
@@ -289,6 +337,8 @@ mod tests {
             hour: 5,
             keep: 3,
             auto_update: true,
+            update_from: 22,
+            update_to: 2,
             restore_test: false,
         };
         sc.set(s).unwrap();

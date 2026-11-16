@@ -13,5 +13,10 @@
   {% if p.blocked.is_none() %}
   <button class="primary" hx-post="/instances/{{ instance }}/update" hx-target="#install" hx-swap="innerHTML">Update now</button>
   {% endif %}
+  {% if skipped %}
+  <button hx-post="/instances/{{ instance }}/unskip-update" hx-target="#update-preview" hx-swap="innerHTML">Stop skipping this version</button>
+  {% else %}
+  <button hx-post="/instances/{{ instance }}/skip-update" hx-target="#update-preview" hx-swap="innerHTML" title="No notification and no auto-update for this version; a newer release is offered again">Skip this version</button>
+  {% endif %}
   <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
 </div>

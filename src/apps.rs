@@ -156,6 +156,7 @@ impl Apps {
             };
             if let Some(t) = self.template(&st.template)
                 && t.manifest.app.version > st.version
+                && skipped_version(&e.path()) != Some(t.manifest.app.version)
             {
                 out.push((name, st.version, t.manifest.app.version));
             }
@@ -449,8 +450,23 @@ impl Apps {
                 if apps.schedule.get().restore_test {
                     apps.run_restore_tests().await;
                 }
-                if apps.schedule.get().auto_update {
-                    apps.run_auto_updates().await;
+            }
+        });
+    }
+
+    /// Every minute: inside the chosen UTC window, update each healthy app that has a newer
+    /// bundled version (and was not skipped). Each (app, version) is tried once per process,
+    /// so a failed update that rolled back is not retried every minute.
+    pub fn spawn_update_scheduler(&self) {
+        let apps = self.clone();
+        tokio::spawn(async move {
+            let mut tried: std::collections::HashSet<(String, u32)> = Default::default();
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                let s = apps.schedule.get();
+                let hour = ((crate::schedule::now() / 3600) % 24) as u8;
+                if s.auto_update && crate::schedule::in_window(hour, s.update_from, s.update_to) {
+                    apps.run_auto_updates(&mut tried).await;
                 }
             }
         });
@@ -481,14 +497,18 @@ impl Apps {
         }
     }
 
-    /// After the scheduled backups: update every healthy app whose bundled template is newer,
-    /// one after the other. A failed update rolls itself back and raises the usual failure event.
-    async fn run_auto_updates(&self) {
-        for (name, _, _) in self.pending_updates() {
+    /// Update every healthy app whose bundled template is newer, one after the other. A failed
+    /// update rolls itself back and raises the usual failure event.
+    async fn run_auto_updates(&self, tried: &mut std::collections::HashSet<(String, u32)>) {
+        for (name, _, to) in self.pending_updates() {
+            if tried.contains(&(name.clone(), to)) {
+                continue;
+            }
             // Never touch an app the user stopped, or one that was already broken.
             if !self.is_healthy(&name).await {
                 continue;
             }
+            tried.insert((name.clone(), to));
             let Ok(id) = self.spawn_update(&name) else {
                 continue;
             };
@@ -636,6 +656,8 @@ struct InstanceView {
     status: String,
     /// "1 → 2" when the bundled template is newer than the instance.
     update: Option<String>,
+    /// The user chose to skip that version.
+    update_skipped: bool,
     /// "Upstream has 28.4.0" when a registry has a newer tag (information only).
     upstream: Option<String>,
     snapshots: usize,
@@ -1026,6 +1048,15 @@ struct InstanceState {
     version: u32,
 }
 
+/// The template version the user chose to skip for this instance, if any.
+fn skipped_version(dir: &std::path::Path) -> Option<u32> {
+    std::fs::read_to_string(dir.join("skip-update"))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
 fn instance_ports(dir: &std::path::Path) -> String {
     let env = std::fs::read_to_string(dir.join(".env")).unwrap_or_default();
     let mut ports = BTreeMap::new();
@@ -1076,10 +1107,12 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             },
             Err(_) => "unknown".to_string(),
         };
-        let update = apps
+        let newer = apps
             .template(&state.template)
-            .filter(|t| t.manifest.app.version > state.version)
-            .map(|t| format!("{} → {}", state.version, t.manifest.app.version));
+            .map(|t| t.manifest.app.version)
+            .filter(|v| *v > state.version);
+        let update = newer.map(|v| format!("{} → {}", state.version, v));
+        let update_skipped = newer.is_some() && skipped_version(&dir) == newer;
         let snaps = crate::backup::list(&apps.backups_root(), &name);
         let snapshots = snaps.len();
         let last_backup = snaps
@@ -1097,6 +1130,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             ports: instance_ports(&dir),
             status,
             update,
+            update_skipped,
             upstream: apps
                 .upstream
                 .lock()
@@ -1182,6 +1216,7 @@ pub fn catalog(cfg: &crate::config::Config) -> Result<Vec<AppTemplate>, String> 
 #[template(path = "update_preview.html")]
 struct UpdatePreviewPage {
     instance: String,
+    skipped: bool,
     p: crate::update::Preview,
 }
 
@@ -1205,9 +1240,73 @@ pub async fn update_preview(
     let old = std::fs::read_to_string(dir.join("compose.yaml"))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(render(UpdatePreviewPage {
+        skipped: skipped_version(&dir) == Some(t.manifest.app.version),
         instance: name,
         p: crate::update::preview(&old, t, state.version),
     }))
+}
+
+/// `POST /instances/{name}/skip-update` and `/unskip-update`: ignore (or stop ignoring) the
+/// bundled version that is newer than this instance. A still newer release is offered again.
+pub async fn instance_skip(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    skip_update(&apps, &headers, &name, false)
+}
+
+pub async fn instance_unskip(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    skip_update(&apps, &headers, &name, true)
+}
+
+fn skip_update(
+    apps: &Apps,
+    headers: &HeaderMap,
+    name: &str,
+    undo: bool,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(apps, name)?;
+    let dir = apps.root.join(name);
+    let state: InstanceState = std::fs::read_to_string(dir.join("state.toml"))
+        .ok()
+        .and_then(|s| toml::from_str(&s).ok())
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let to = apps
+        .template(&state.template)
+        .map(|t| t.manifest.app.version)
+        .filter(|v| *v > state.version)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let file = dir.join("skip-update");
+    if undo {
+        let _ = std::fs::remove_file(&file);
+    } else {
+        std::fs::write(&file, to.to_string()).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+    crate::audit::record(
+        if undo {
+            "app.unskip-update"
+        } else {
+            "app.skip-update"
+        },
+        name,
+    );
+    apps.sync_update_notifications();
+    Ok(Html(format!(
+        "<p role=\"status\">{}</p>",
+        if undo {
+            "Version no longer skipped. Reload the page to see the update button."
+        } else {
+            "This version is skipped: no notification, no auto-update. Reload to see it."
+        }
+    )))
 }
 
 /// Start an update job for an instance whose bundled template is newer.
@@ -1402,6 +1501,8 @@ struct SchedulePage {
     hour: u8,
     keep: usize,
     auto_update: bool,
+    update_from: u8,
+    update_to: u8,
     restore_test: bool,
     last: Option<String>,
     note: Option<&'static str>,
@@ -1420,6 +1521,8 @@ fn schedule_html(
         hour: s.hour,
         keep: s.keep,
         auto_update: s.auto_update,
+        update_from: s.update_from,
+        update_to: s.update_to,
         restore_test: s.restore_test,
         last: (s.mode != crate::schedule::Mode::Off && last > 0).then(|| utc_stamp(last)),
         note,
@@ -1438,6 +1541,8 @@ pub struct ScheduleForm {
     keep: String,
     /// A checkbox: present only when ticked.
     auto_update: Option<String>,
+    update_from: Option<String>,
+    update_to: Option<String>,
     restore_test: Option<String>,
 }
 
@@ -1454,6 +1559,12 @@ pub async fn schedule_save(
         &f.hour,
         &f.keep,
         f.auto_update.is_some(),
+        (
+            &f.update_from
+                .unwrap_or_else(|| apps.schedule.get().update_from.to_string()),
+            &f.update_to
+                .unwrap_or_else(|| apps.schedule.get().update_to.to_string()),
+        ),
         f.restore_test.is_some(),
     ) {
         Ok(s) => s,
@@ -2480,6 +2591,26 @@ mod tests {
         instance(&root, "old", "gitea", bundled); // updated
         apps.sync_update_notifications();
         assert!(n.lock().unwrap().open_events().is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_skipped_version_is_not_pending_until_a_newer_one_exists() {
+        let (apps, n, root) = notifying_apps("skip");
+        let bundled = apps.template("gitea").unwrap().manifest.app.version;
+        instance(&root, "old", "gitea", bundled - 1);
+        assert_eq!(apps.pending_updates().len(), 1);
+        std::fs::write(root.join("old").join("skip-update"), bundled.to_string()).unwrap();
+        assert!(apps.pending_updates().is_empty());
+        apps.sync_update_notifications();
+        assert!(n.lock().unwrap().open_events().is_empty());
+        // A skip for an older version does not hide the current one.
+        std::fs::write(
+            root.join("old").join("skip-update"),
+            (bundled - 1).to_string(),
+        )
+        .unwrap();
+        assert_eq!(apps.pending_updates().len(), 1);
         let _ = std::fs::remove_dir_all(&root);
     }
 

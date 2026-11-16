@@ -5,9 +5,8 @@ Open items only, one line each, with the date it was last verified open. Deliver
 
 ## Open
 - PLAN (user approved all five, 2026-11-16; build in this order, one release each when ready):
-  STATUS: (1) released v0.1.32, (2) restore test + off-host fetch button released v0.1.33. (3) disk usage per app released v0.1.34. Next: (4) update windows + skip version.
+  STATUS: (1) released v0.1.32, (2) restore test + off-host fetch button released v0.1.33. (3) disk usage per app released v0.1.34. (4) update window + skip version released v0.1.35. Next: (5) extra template sources.
   (1) One-command recovery: `dockwren recover` = import + `backup pull` + `restore` for every app; also push the encrypted config export to the off-host target after each backup (never stale, survives disk loss); handle offsite.toml/credentials without hand-copying (prompt or re-enter); fold in the readable-bundle hint and the "restore from off-host" UI button / list remote snapshots.
-  (4) Update windows + "skip this version": auto-update only inside a chosen time window; skip a bad upstream release without disabling updates.
   (5) Extra template sources: git URL pinned to a commit, same strict manifest checks (host ports, privileged refused); think through trust model first.
 - OS updates: not tested on aarch64 Ubuntu (x86_64 Ubuntu 22.04/24.04/26.04, Debian 13 x86_64 and Debian 13 aarch64 on the Pi pass, 2026-11-14). Verified open 2026-11-14.
 - OS updates: real-packages run seen on a fresh Ubuntu 24.04 VPS (38 pkgs, exit 0, reboot notice) but not yet on the live server (nothing to install there). Verified open 2026-11-14.

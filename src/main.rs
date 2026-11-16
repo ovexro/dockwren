@@ -393,6 +393,11 @@ fn app(
             get(apps::update_preview).post(apps::instance_update),
         )
         .route("/instances/{name}/backup", post(apps::instance_backup))
+        .route("/instances/{name}/skip-update", post(apps::instance_skip))
+        .route(
+            "/instances/{name}/unskip-update",
+            post(apps::instance_unskip),
+        )
         .route(
             "/settings/backups",
             get(apps::schedule_show).post(apps::schedule_save),
@@ -1201,6 +1206,7 @@ async fn main() {
         .with_offsite(Arc::new(offsite::Offsite::open(&cfg.data_dir)));
     apps.spawn_update_checker();
     apps.spawn_backup_scheduler();
+    apps.spawn_update_scheduler();
     release::spawn_checker(notify.clone());
     upstream::spawn_checker(apps.clone(), notify.clone());
     hostupdates::spawn_checker(notify.clone());
