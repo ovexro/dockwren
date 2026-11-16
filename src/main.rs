@@ -31,6 +31,7 @@ mod thirdparty;
 mod totp;
 mod update;
 mod upstream;
+mod vulnscan;
 mod webcheck;
 
 use std::sync::Arc;
@@ -803,7 +804,7 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     Ok(())
 }
 
-const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | export FILE | import FILE | recover | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | restore-test <instance> | template add <https-url> <commit> [--yes] | template list | template remove <id> | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
+const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | export FILE | import FILE | recover | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | restore-test <instance> | scan <instance> | template add <https-url> <commit> [--yes] | template list | template remove <id> | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
 
 /// CLI commands work on the panel's data directory; explain the usual permission mistake
 /// instead of failing later with a bare "Permission denied".
@@ -842,7 +843,8 @@ async fn main() {
         | Some("self-update") => {}
         Some(
             "install" | "export" | "import" | "recover" | "backup" | "update" | "restore"
-            | "verify" | "restore-test" | "template" | "cleanup" | "expose" | "unexpose" | "remove",
+            | "verify" | "restore-test" | "scan" | "template" | "cleanup" | "expose" | "unexpose"
+            | "remove",
         ) => check_data_dir(&cfg.data_dir),
         Some(_) => {}
     }
@@ -1104,6 +1106,29 @@ async fn main() {
             }
             return;
         }
+        Some("scan") => {
+            let name = std::env::args().nth(2).unwrap_or_default();
+            if !runner::valid_name(&name) || std::env::args().count() != 3 {
+                eprintln!("usage: dockwren scan <instance>");
+                std::process::exit(2);
+            }
+            let inst = runner::Instance {
+                dir: cfg.instances_dir().join(&name),
+                name: name.clone(),
+            };
+            if !inst.dir.join("state.toml").is_file() {
+                eprintln!("no instance named {name}");
+                std::process::exit(1);
+            }
+            match vulnscan::scan_app(&cfg.data_dir, &inst, &mut |s| println!("  {s}")).await {
+                Some(f) => println!("{name}: {}", vulnscan::describe(&f)),
+                None => {
+                    eprintln!("{name}: no image could be scanned");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
         Some("restore-test") => {
             let name = std::env::args().nth(2).unwrap_or_default();
             if !runner::valid_name(&name) || std::env::args().count() != 3 {
@@ -1298,6 +1323,7 @@ async fn main() {
     upstream::spawn_checker(apps.clone(), notify.clone());
     hostupdates::spawn_checker(notify.clone());
     webcheck::spawn_checker(apps.clone(), notify.clone());
+    vulnscan::spawn_checker(apps.clone(), notify.clone(), cfg.data_dir.clone());
     backupwatch::spawn_checker(notify.clone());
     let os_control = Arc::new(osupdate::Control::new(Some(&cfg.data_dir)));
     osupdate::spawn_watcher(os_control.clone(), notify.clone());

@@ -18,7 +18,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
   (1) released v0.1.38 (src/logcap.rs; Cap logs button + auto on install/update): Docker log size cap: default max-size/max-file in every app's compose (override file) + a button for already installed apps.
   (2) released v0.1.39 (src/webcheck.rs; probe every 5 min, 3 fails raise app.unreachable, status in Apps): external check of public URLs.
   (3) released v0.1.40 (src/clone.rs; Duplicate button on the Restore page, no CLI command): clone app from a snapshot under a new name and port.
-  (4) Image vulnerability scan (Trivy or Grype in a container): per-app counts critical/high, notify on new critical CVEs.
+  (4) released v0.1.41 (src/vulnscan.rs; Trivy 0.76.2 pinned, daily, counts on Apps, notify on fixable criticals; CLI `dockwren scan`): image vulnerability scan.
   (5) Generated passwords: show again (re-auth) and rotate with app restart.
 - IDEA (2026-11-14): more catalog templates (open-ended; done so far: Nextcloud, Jellyfin, Grafana, n8n, Syncthing, Homepage, Navidrome, Stirling-PDF, Wiki.js, Ghost, SnappyMail, Immich, Roundcube, AdGuard Home, Pi-hole). Items 2-6 of the old list (update badge/auto-update, image heads-up, resource alerts, self-update, audit log, add stack) are delivered.
 

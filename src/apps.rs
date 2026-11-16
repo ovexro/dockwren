@@ -577,7 +577,7 @@ impl Apps {
         }
     }
 
-    fn instance_names(&self) -> Vec<String> {
+    pub fn instance_names(&self) -> Vec<String> {
         let mut v: Vec<String> = std::fs::read_dir(&self.root)
             .map(|rd| {
                 rd.flatten()
@@ -715,6 +715,8 @@ struct InstanceView {
     hostname: Option<String>,
     /// Last external check of the public URL: Some(true) reachable, Some(false) down.
     public_up: Option<bool>,
+    /// Last image scan: "2 critical, 5 high" (None when clean or not scanned yet).
+    vulns: Option<String>,
     /// The template has settings that can be changed after install.
     editable: bool,
     /// The template is known, so the main service can be limited.
@@ -1200,6 +1202,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             hostname: crate::public::read(&dir),
             public_up: crate::webcheck::status(&name_for_upstream)
                 .map(|s| s == crate::webcheck::Status::Up),
+            vulns: crate::vulnscan::summary(&name_for_upstream).and_then(|v| v.line()),
             editable,
             limitable,
             uncapped: !crate::logcap::enabled(&dir),

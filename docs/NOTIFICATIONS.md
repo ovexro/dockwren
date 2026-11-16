@@ -105,4 +105,13 @@ container list. Thresholds are fixed (no settings); each kind has its on/off swi
   never published stays quiet. The Apps page shows "reachable" or "unreachable" next to the address.
   Key `app.unreachable:<app name>`.
 
+## Image vulnerabilities
+
+- `app.vulnerable`: once a day (first run about 10 minutes after the panel starts) every app's images
+  are scanned with Trivy (`src/vulnscan.rs`, pinned image, run in a throwaway container without Docker
+  socket access, skipped when less than 1 GiB of memory is free). One warning per app when it has a
+  CRITICAL finding that already has a fixed version, and a fresh one when a new such finding appears;
+  it closes when none is left. Findings without a fix are only counted on the Apps page. A scan that
+  fails (offline, private image) keeps the previous result. Key `app.vulnerable:<app name>`.
+
 The lower "clear" levels stop a value that hovers around a line from opening and closing the event.
