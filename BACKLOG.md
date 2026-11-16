@@ -14,6 +14,12 @@ Open items only, one line each, with the date it was last verified open. Deliver
       - Marking: catalog shows a "third-party" label with url + short sha; installs record the source.
       - Not doing: auto-updating sources, running anything from the repo at fetch time, private repos/credentials (v1).
       - Open question: post_start commands run inside containers; allow for third-party, or refuse in v1 (recommended: refuse).
+- PLAN 2 (user approved all five, 2026-11-16; build in this order, one release each, verify the item is still open before starting):
+  (1) Docker log size cap: default max-size/max-file in every app's compose (override file) + a button for already installed apps.
+  (2) External check of public URLs: probe each exposed hostname periodically, notify when unreachable (tunnel/DNS down), show status in Apps.
+  (3) Clone app: restore the newest snapshot under a new name and port ("Duplicate"), reusing the restore-test mechanism.
+  (4) Image vulnerability scan (Trivy or Grype in a container): per-app counts critical/high, notify on new critical CVEs.
+  (5) Generated passwords: show again (re-auth) and rotate with app restart.
 - IDEA (2026-11-14): more catalog templates (open-ended; done so far: Nextcloud, Jellyfin, Grafana, n8n, Syncthing, Homepage, Navidrome, Stirling-PDF, Wiki.js, Ghost, SnappyMail, Immich, Roundcube, AdGuard Home, Pi-hole). Items 2-6 of the old list (update badge/auto-update, image heads-up, resource alerts, self-update, audit log, add stack) are delivered.
 
 - Security: check pinned image versions (PHP in Nextcloud, WordPress, SnappyMail) against PHP advisories at each release; PHP2Shell fixed in 8.5.12/8.4.27/8.3.36/8.2.35 (all PHP apps incl. Roundcube verified patched 2026-11-16 at v0.1.37, no newer security release found; 8.5.13/8.4.28 RCs seen, recheck after 2026-11-19). Verified open 2026-11-16.
