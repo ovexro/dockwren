@@ -780,14 +780,17 @@ pub async fn list(State(apps): State<Apps>) -> Html<String> {
     })
 }
 
+const FALLBACK_ICON: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img"><rect width="64" height="64" rx="14" fill="#8A8F98"/><path d="M32 14 49 23v18L32 50 15 41V23z" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/></svg>"##;
+
 /// `GET /apps/{id}/icon.svg`: the template's icon, locked down so it can only ever be drawn.
 pub async fn icon(
     State(apps): State<Apps>,
     Path(id): Path<String>,
 ) -> Result<Response, StatusCode> {
+    // Templates without an icon (third-party ones may omit it) get a plain placeholder.
     let svg = apps
         .template(&id)
-        .and_then(|t| t.icon.clone())
+        .map(|t| t.icon.clone().unwrap_or_else(|| FALLBACK_ICON.to_string()))
         .ok_or(StatusCode::NOT_FOUND)?;
     Ok((
         [
