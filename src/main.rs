@@ -7,6 +7,7 @@ mod backupwatch;
 mod config;
 mod configbundle;
 mod deliver;
+mod diskusage;
 mod docker;
 mod hostupdates;
 mod install;
@@ -356,6 +357,12 @@ fn app(
         .route("/settings", get(settings_page))
         .route("/settings/tab/{tab}", get(settings_tab))
         .route("/settings/audit", get(audit::show))
+        .route("/settings/disk", get(apps::disk_show))
+        .route("/settings/disk/prune-images", post(apps::prune_images))
+        .route(
+            "/instances/{name}/trim-snapshots",
+            post(apps::trim_snapshots),
+        )
         .route("/cloudflare", get(cloudflare_page))
         .route("/notifications", get(notifications_page))
         .route("/notifications/list", get(notify::list))
@@ -2111,6 +2118,9 @@ mod tests {
             ("GET", "/instances/gt/restore"),
             ("POST", "/instances/gt/restore"),
             ("POST", "/instances/gt/verify"),
+            ("POST", "/instances/gt/trim-snapshots"),
+            ("GET", "/settings/disk"),
+            ("POST", "/settings/disk/prune-images"),
             ("POST", "/instances/gt/pull"),
             ("POST", "/instances/gt/restore-test"),
             ("POST", "/instances/gt/cleanup"),

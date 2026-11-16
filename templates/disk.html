@@ -1,0 +1,31 @@
+<div id="disk">
+  {% if let Some(n) = note %}<p role="status">{{ n }}</p>{% endif %}
+  {% if let Some(e) = error %}<p role="alert">{{ e }}</p>{% endif %}
+  {% if rows.is_empty() %}
+  <p><small>No apps installed.</small></p>
+  {% else %}
+  <p><small>Data = the app's folder; snapshots = local backups; images = what Docker stores for the app (an upper bound: apps can share layers). A "+" means some files belong to another user and could not be counted.</small></p>
+  <table>
+    <thead><tr><th style="text-align:left">App</th><th>Data</th><th>Old restore copies</th><th>Snapshots</th><th>Images</th><th>Total</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rows %}<tr>
+      <td style="text-align:left">{{ r.name }}</td>
+      <td>{{ r.data }}{% if r.partial %}+{% endif %}</td>
+      <td>{{ r.leftovers }}</td>
+      <td>{{ r.snapshots }} ({{ r.snapshot_bytes }})</td>
+      <td>{{ r.images }}</td>
+      <td>{{ r.total }}</td>
+      <td>{% if r.can_trim %}<button hx-post="/instances/{{ r.name }}/trim-snapshots" hx-target="#disk" hx-swap="outerHTML"
+          hx-confirm="Delete the oldest local snapshots of {{ r.name }} and keep the newest {{ keep }}? Off-host copies are not touched.">Keep newest {{ keep }} (frees {{ r.trimmable }})</button>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if let Some((size, reclaimable)) = images %}
+  <p>All Docker images on this server: {{ size }}, of which {{ reclaimable }} are not used by any container (old versions left after updates, for example).</p>
+  <button hx-post="/settings/disk/prune-images" hx-target="#disk" hx-swap="outerHTML"
+          hx-confirm="Remove every Docker image that no container uses? Stopped apps will download their image again when started. Running apps are not affected.">Remove unused images</button>
+  {% endif %}
+  <p><small>Old restore copies are deleted from the app's Restore page ("Delete old copies").</small></p>
+</div>

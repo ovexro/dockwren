@@ -1273,6 +1273,128 @@ pub async fn restore_test_submit(
     job_fragment(&apps, &id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+struct DiskRow {
+    name: String,
+    data: String,
+    partial: bool,
+    leftovers: String,
+    snapshots: usize,
+    snapshot_bytes: String,
+    images: String,
+    total: String,
+    can_trim: bool,
+    trimmable: String,
+}
+
+#[derive(Template)]
+#[template(path = "disk.html")]
+struct DiskPage {
+    rows: Vec<DiskRow>,
+    keep: usize,
+    images: Option<(String, String)>,
+    note: Option<String>,
+    error: Option<String>,
+}
+
+async fn disk_html(apps: &Apps, note: Option<String>, error: Option<String>) -> Html<String> {
+    use crate::metrics::fmt_bytes as fb;
+    let data = apps
+        .backups_root()
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_default();
+    let mut rows = Vec::new();
+    for name in apps.instance_names() {
+        let inst = runner::Instance {
+            dir: apps.root.join(&name),
+            name,
+        };
+        let (i2, b) = (inst.clone(), apps.backups_root());
+        let Ok(mut u) =
+            tokio::task::spawn_blocking(move || crate::diskusage::measure(&i2, &b)).await
+        else {
+            continue;
+        };
+        u.images = crate::diskusage::image_bytes(&data, &inst).await;
+        rows.push(DiskRow {
+            total: fb(u.total() as f64),
+            data: fb(u.data as f64),
+            partial: u.partial,
+            leftovers: fb(u.leftovers as f64),
+            snapshots: u.snapshots,
+            snapshot_bytes: fb(u.snapshot_bytes as f64),
+            images: fb(u.images as f64),
+            can_trim: u.trimmable > 0,
+            trimmable: fb(u.trimmable as f64),
+            name: u.name,
+        });
+    }
+    render(DiskPage {
+        rows,
+        keep: crate::diskusage::KEEP_AFTER_TRIM,
+        images: crate::diskusage::docker_images_line(&data).await,
+        note,
+        error,
+    })
+}
+
+/// `GET /settings/disk`: sizes per app.
+pub async fn disk_show(State(apps): State<Apps>) -> Html<String> {
+    disk_html(&apps, None, None).await
+}
+
+/// `POST /instances/{name}/trim-snapshots`: delete the oldest local snapshots, keep the newest few.
+pub async fn trim_snapshots(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let busy = apps
+        .jobs
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(_, j)| j.instance == name && j.state == JobState::Running);
+    if busy {
+        return Err(StatusCode::CONFLICT);
+    }
+    crate::audit::record("app.trim-snapshots", &name);
+    let (note, error) = match crate::backup::prune(
+        &apps.backups_root(),
+        &name,
+        crate::diskusage::KEEP_AFTER_TRIM,
+    ) {
+        Ok(n) => (Some(format!("{name}: deleted {n} old snapshot(s).")), None),
+        Err(e) => (None, Some(e)),
+    };
+    Ok(disk_html(&apps, note, error).await)
+}
+
+/// `POST /settings/disk/prune-images`: remove Docker images no container uses.
+pub async fn prune_images(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let data = apps
+        .backups_root()
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_default();
+    crate::audit::record("docker.prune-images", "unused images");
+    let (note, error) = match crate::diskusage::prune_images(&data).await {
+        Ok(s) => (Some(s), None),
+        Err(e) => (None, Some(e)),
+    };
+    Ok(disk_html(&apps, note, error).await)
+}
+
 #[derive(Template)]
 #[template(path = "backup_schedule.html")]
 struct SchedulePage {
