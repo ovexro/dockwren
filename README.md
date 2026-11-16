@@ -40,7 +40,7 @@ Release binaries and `SHA256SUMS` are on the
 
 - Single-admin login: strong generated password, Argon2id hash, `HttpOnly` + `SameSite=Strict`
   session cookie, login rate limit, sessions that survive restarts.
-- Overview: all containers (running or not) with image, state and status, refreshed every 5 s.
+- Overview: all containers (running or not) with image, state and status, refreshed every 5 s. Below the tiles it shows the hostname, OS, uptime, Dockwren version and (once apps are installed) the time since the last backup.
 - Resource graphs: CPU, memory, network and disk space as plain one-colour lines (last 1 h, 24 h, 7 days or 30 days), plus CPU/memory per running container. Sampled every 10 s; the 1 h and 24 h views live in memory, while 5-minute averages are kept 30 days in `metrics.log` in the data directory and survive restarts. A disk above 85% is flagged.
 - Start, stop (with confirmation) and restart a container; log viewer (last 200 lines, refreshed every 5 s).
 - App catalog with icons and install forms (generated passwords, per-field hints).
