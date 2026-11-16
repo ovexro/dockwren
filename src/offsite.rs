@@ -20,6 +20,11 @@ pub const IMAGE: &str = "restic/restic:0.18.0";
 /// Restic host name used for every snapshot, so "same backup as last time" detection works
 /// no matter what the throwaway container is called.
 const HOST: &str = "dockwren";
+/// Restic tag and file name of the off-host config export.
+const CONFIG_TAG: &str = "config";
+const CONFIG_FILE: &str = "dockwren.dwcfg";
+/// Shortest accepted repository password (also what seals the config export).
+const MIN_REPO_PASSWORD: usize = 8;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -511,9 +516,117 @@ impl Offsite {
             Duration::from_secs(3600),
         )
         .await?;
+        // The config export is a bonus: a failure here must not fail the data upload.
+        if let Err(e) = self.push_config(&cfg).await {
+            log(&format!("config export not uploaded: {e}"));
+        }
         self.mark_ok();
         log("off-host copy done");
         Ok(())
+    }
+
+    /// Upload the config export (compose files, `.env` passwords, state; no data) as a restic
+    /// snapshot tagged `config`, sealed with the repository password, so a lost server can be
+    /// rebuilt from the off-host target alone (`dockwren recover`).
+    async fn push_config(&self, cfg: &Config) -> Result<(), String> {
+        let data = self.data_dir()?;
+        let (bytes, _) = crate::configbundle::export_bytes(
+            &data.join("instances"),
+            &cfg.password,
+            MIN_REPO_PASSWORD,
+        )?;
+        let dir = data.join("offsite").join("config-out");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&dir)
+            .map_err(|e| format!("{}: {e}", dir.display()))?;
+        let res = async {
+            write_private(&dir.join(CONFIG_FILE), &bytes).map_err(|e| e.to_string())?;
+            let bind = format!("{}:/cfg:ro", dir.display());
+            self.run(
+                cfg,
+                std::slice::from_ref(&bind),
+                None,
+                &[
+                    "backup".into(),
+                    "/cfg".into(),
+                    "--tag".into(),
+                    CONFIG_TAG.into(),
+                    "--host".into(),
+                    HOST.into(),
+                ],
+                Duration::from_secs(600),
+            )
+            .await?;
+            self.run(
+                cfg,
+                &[bind],
+                None,
+                &[
+                    "forget".into(),
+                    "--tag".into(),
+                    CONFIG_TAG.into(),
+                    "--host".into(),
+                    HOST.into(),
+                    "--keep-last".into(),
+                    "5".into(),
+                    "--prune".into(),
+                    "--retry-lock".into(),
+                    "5m".into(),
+                ],
+                Duration::from_secs(600),
+            )
+            .await
+            .map(|_| ())
+        }
+        .await;
+        let _ = std::fs::remove_dir_all(&dir);
+        res
+    }
+
+    /// Download the newest off-host config export and return its bytes (for `recover`).
+    pub async fn pull_config(&self) -> Result<Vec<u8>, String> {
+        let cfg = self.get();
+        if !cfg.enabled() {
+            return Err("no off-host target is configured".into());
+        }
+        let data = self.data_dir()?;
+        let out_dir = data.join("offsite").join("pull-config");
+        let _ = std::fs::remove_dir_all(&out_dir);
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&out_dir)
+            .map_err(|e| format!("{}: {e}", out_dir.display()))?;
+        let meta = std::fs::metadata(data).map_err(|e| e.to_string())?;
+        let script = "owner=\"$1\"; shift; restic \"$@\" && chown -R \"$owner\" /out";
+        let extra = vec![script.to_string(), format!("{}:{}", meta.uid(), meta.gid())];
+        let res = self
+            .run(
+                &cfg,
+                &[format!("{}:/out", out_dir.display())],
+                Some(&extra),
+                &[
+                    "restore".into(),
+                    "latest".into(),
+                    "--tag".into(),
+                    CONFIG_TAG.into(),
+                    "--target".into(),
+                    "/out".into(),
+                ],
+                Duration::from_secs(600),
+            )
+            .await;
+        let bytes = res.and_then(|_| {
+            std::fs::read(out_dir.join("cfg").join(CONFIG_FILE)).map_err(|_| {
+                "the off-host target has no config export (made by Dockwren 0.1.32 or later after a backup)"
+                    .to_string()
+            })
+        });
+        let _ = std::fs::remove_dir_all(&out_dir);
+        bytes
     }
 
     /// Bring the newest off-host copy of `name` back into `<backups_root>/<name>/` (existing

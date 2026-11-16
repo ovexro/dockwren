@@ -580,9 +580,136 @@ async fn cli_config(cfg: &config::Config, export: bool, args: &[String]) -> Resu
         if let Some(h) = r.hosts.get(n) {
             println!("  was public at {h}: publish again with `dockwren expose {n} {h}`");
         }
-        println!("  then restore data: dockwren backup pull {n} (if off-host backups are set up), dockwren restore {n}");
+        println!(
+            "  then restore data: dockwren backup pull {n} (if off-host backups are set up), dockwren restore {n}"
+        );
     }
     Ok(())
+}
+
+/// One answer for `recover`: env `DOCKWREN_OFFSITE_<KEY>`, else a prompt (hidden for secrets).
+fn ask(key: &str, label: &str, secret: bool) -> Result<String, String> {
+    if let Ok(v) = std::env::var(format!("DOCKWREN_OFFSITE_{key}")) {
+        return Ok(v);
+    }
+    use std::io::{IsTerminal, Write};
+    let tty = std::io::stdin().is_terminal();
+    eprint!("{label}: ");
+    let _ = std::io::stderr().flush();
+    let hide = secret
+        && tty
+        && std::process::Command::new("stty")
+            .arg("-echo")
+            .status()
+            .is_ok_and(|s| s.success());
+    let mut line = String::new();
+    let r = std::io::stdin().read_line(&mut line);
+    if hide {
+        let _ = std::process::Command::new("stty").arg("echo").status();
+        eprintln!();
+    }
+    r.map_err(|e| format!("{label}: {e}"))?;
+    Ok(line.trim().to_string())
+}
+
+/// Off-host target for `recover`: the saved one, or asked for (kind and fields).
+fn recover_target(off: &offsite::Offsite) -> Result<(), String> {
+    if off.get().enabled() {
+        println!("using the off-host target already saved on this server");
+        return Ok(());
+    }
+    let mut f = offsite::Form {
+        kind: ask("KIND", "Off-host target type (sftp or s3)", false)?.to_lowercase(),
+        ..Default::default()
+    };
+    match f.kind.as_str() {
+        "s3" => {
+            f.endpoint = ask("ENDPOINT", "S3 endpoint URL (https://...)", false)?;
+            f.bucket = ask("BUCKET", "Bucket", false)?;
+            f.access_key = ask("ACCESS_KEY", "Access key", true)?;
+            f.secret_key = ask("SECRET_KEY", "Secret key", true)?;
+        }
+        "sftp" => {
+            f.host = ask("HOST", "SFTP host", false)?;
+            f.port = ask("PORT", "SFTP port (empty = 22)", false)?;
+            f.user = ask("USER", "SFTP user", false)?;
+            f.path = ask("PATH", "Folder on the server", false)?;
+            let file = ask(
+                "PRIVATE_KEY_FILE",
+                "Path of the SSH private key file",
+                false,
+            )?;
+            f.private_key = std::fs::read_to_string(&file).map_err(|e| format!("{file}: {e}"))?;
+        }
+        _ => return Err("the target type must be sftp or s3".into()),
+    }
+    f.password = ask(
+        "PASSWORD",
+        "Repository password (from your password manager)",
+        true,
+    )?;
+    if f.password.is_empty() {
+        return Err("the repository password is needed".into());
+    }
+    let (c, _) = offsite::Config::from_form(&f, &offsite::Config::default())?;
+    off.set(c)
+}
+
+/// `dockwren recover`: rebuild a lost server from the off-host target alone.
+async fn cli_recover(cfg: &config::Config) -> Result<(), String> {
+    let off = offsite::Offsite::open(&cfg.data_dir);
+    recover_target(&off)?;
+    println!("downloading the config export...");
+    let bytes = off.pull_config().await?;
+    let root = cfg.instances_dir();
+    let r = configbundle::import_bytes(&root, &bytes, &off.get().password)?;
+    for n in &r.skipped {
+        println!("{n}: already exists here, left alone");
+    }
+    let backups = cfg.data_dir.join("backups");
+    let templates = apps::catalog(cfg)?;
+    let mut failed = Vec::new();
+    for n in &r.created {
+        println!("== {n}");
+        let inst = runner::Instance {
+            name: n.clone(),
+            dir: root.join(n),
+        };
+        let step = async {
+            runner::bring_up(&inst, &mut |s| println!("  {s}"))
+                .await
+                .map_err(|e| format!("could not start: {e}"))?;
+            match off.pull(&backups, n, &mut |s| println!("  {s}")).await {
+                Ok(_) => {}
+                Err(e) if !backup::list(&backups, n).is_empty() => {
+                    println!("  pull: {e} (using the snapshots already here)")
+                }
+                Err(e) => return Err(format!("no data to restore: {e}")),
+            }
+            backup::restore_instance(cfg, &templates, n, None, false, &mut |s| println!("  {s}"))
+                .await
+                .map(|snap| println!("  restored from {}", snap.display()))
+        };
+        if let Err(e) = step.await {
+            println!("  {n}: {e}");
+            failed.push(n.clone());
+        } else if let Some(h) = r.hosts.get(n) {
+            println!("  was public at {h}: publish again with `dockwren expose {n} {h}`");
+        }
+    }
+    println!(
+        "recovered {} of {} app(s)",
+        r.created.len() - failed.len(),
+        r.created.len()
+    );
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "not recovered: {} (the others are done; retry those with `dockwren backup pull <app>` and `dockwren restore <app>`)",
+            failed.join(", ")
+        ))
+    }
 }
 
 async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String> {
@@ -635,7 +762,7 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     Ok(())
 }
 
-const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | export FILE | import FILE | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
+const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | export FILE | import FILE | recover | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
 
 /// CLI commands work on the panel's data directory; explain the usual permission mistake
 /// instead of failing later with a bare "Permission denied".
@@ -673,8 +800,8 @@ async fn main() {
         | Some("setup-osupdate")
         | Some("self-update") => {}
         Some(
-            "install" | "export" | "import" | "backup" | "update" | "restore" | "verify" | "cleanup" | "expose"
-            | "unexpose" | "remove",
+            "install" | "export" | "import" | "recover" | "backup" | "update" | "restore"
+            | "verify" | "cleanup" | "expose" | "unexpose" | "remove",
         ) => check_data_dir(&cfg.data_dir),
         Some(_) => {}
     }
@@ -734,6 +861,13 @@ async fn main() {
             let args: Vec<String> = std::env::args().skip(2).collect();
             if let Err(e) = cli_config(&cfg, c == "export", &args).await {
                 eprintln!("{c} failed: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        Some("recover") => {
+            if let Err(e) = cli_recover(&cfg).await {
+                eprintln!("recover failed: {e}");
                 std::process::exit(1);
             }
             return;

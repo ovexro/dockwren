@@ -46,7 +46,11 @@ impl Limits {
         if !cpus.is_empty() {
             let ok_chars = cpus.chars().all(|c| c.is_ascii_digit() || c == '.')
                 && cpus.matches('.').count() <= 1;
-            let v: f64 = if ok_chars { cpus.parse().unwrap_or(0.0) } else { 0.0 };
+            let v: f64 = if ok_chars {
+                cpus.parse().unwrap_or(0.0)
+            } else {
+                0.0
+            };
             if !(0.1..=64.0).contains(&v) {
                 return Err("CPUs must be a number from 0.1 to 64.".into());
             }

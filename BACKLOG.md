@@ -5,6 +5,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 
 ## Open
 - PLAN (user approved all five, 2026-11-16; build in this order, one release each when ready):
+  STATUS (1): code + unit tests done locally (recover, config export to off-host); needs a real VPS drill before release v0.1.32; UI list of remote snapshots still open.
   (1) One-command recovery: `dockwren recover` = import + `backup pull` + `restore` for every app; also push the encrypted config export to the off-host target after each backup (never stale, survives disk loss); handle offsite.toml/credentials without hand-copying (prompt or re-enter); fold in the readable-bundle hint and the "restore from off-host" UI button / list remote snapshots.
   (2) Real restore test: on a schedule restore the latest snapshot into a throwaway instance, wait healthy, delete it, notify on failure (beyond `verify`, which only reads the archive).
   (3) Disk usage per app: data, snapshots, images per app, with "free this space" suggestions (old snapshots, unused images).

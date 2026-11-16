@@ -588,7 +588,10 @@ mod tests {
         a.insert("A".to_string(), "two words".to_string());
         replace_env(&d, &a).unwrap();
         let mode = std::fs::metadata(d.join(".env")).unwrap().permissions();
-        assert_eq!(std::os::unix::fs::PermissionsExt::mode(&mode) & 0o777, 0o600);
+        assert_eq!(
+            std::os::unix::fs::PermissionsExt::mode(&mode) & 0o777,
+            0o600
+        );
         assert_eq!(crate::runner::read_env(&d).unwrap(), a);
         assert!(!d.join(".env.tmp").exists());
         std::fs::remove_dir_all(&d).unwrap();

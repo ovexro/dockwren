@@ -45,9 +45,9 @@ fn key(pass: &str, salt: &[u8]) -> Result<ChaCha20Poly1305, String> {
     ChaCha20Poly1305::new_from_slice(&k).map_err(|e| e.to_string())
 }
 
-fn seal(b: &Bundle, pass: &str) -> Result<Vec<u8>, String> {
-    if pass.chars().count() < MIN_PASSPHRASE {
-        return Err(format!("passphrase must be at least {MIN_PASSPHRASE} characters"));
+fn seal(b: &Bundle, pass: &str, min: usize) -> Result<Vec<u8>, String> {
+    if pass.chars().count() < min {
+        return Err(format!("passphrase must be at least {min} characters"));
     }
     let mut salt = [0u8; 16];
     let mut nonce = [0u8; 12];
@@ -119,11 +119,7 @@ fn collect(instances_root: &Path) -> Result<Bundle, String> {
 
 /// Write the encrypted export to `out` (mode 0600, never overwrites). Returns the instance count.
 pub fn export(instances_root: &Path, out: &Path, pass: &str) -> Result<usize, String> {
-    let b = collect(instances_root)?;
-    if b.instances.is_empty() {
-        return Err("no instances to export".into());
-    }
-    let data = seal(&b, pass)?;
+    let (data, n) = export_bytes(instances_root, pass, MIN_PASSPHRASE)?;
     let mut f = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -131,7 +127,21 @@ pub fn export(instances_root: &Path, out: &Path, pass: &str) -> Result<usize, St
         .open(out)
         .map_err(|e| format!("{}: {e}", out.display()))?;
     f.write_all(&data).map_err(|e| e.to_string())?;
-    Ok(b.instances.len())
+    Ok(n)
+}
+
+/// The sealed export as bytes plus the instance count. `min` is the shortest accepted
+/// passphrase (the off-host copy is sealed with the repository password, which may be 8+).
+pub fn export_bytes(
+    instances_root: &Path,
+    pass: &str,
+    min: usize,
+) -> Result<(Vec<u8>, usize), String> {
+    let b = collect(instances_root)?;
+    if b.instances.is_empty() {
+        return Err("no instances to export".into());
+    }
+    Ok((seal(&b, pass, min)?, b.instances.len()))
 }
 
 pub struct Imported {
@@ -151,7 +161,12 @@ pub fn import(instances_root: &Path, file: &Path, pass: &str) -> Result<Imported
         };
         format!("{}: {e}{hint}", file.display())
     })?;
-    let b = open(&data, pass)?;
+    import_bytes(instances_root, &data, pass)
+}
+
+/// Same as [`import`], from the bytes of an export.
+pub fn import_bytes(instances_root: &Path, data: &[u8], pass: &str) -> Result<Imported, String> {
+    let b = open(data, pass)?;
     // Validate everything before writing anything.
     for (name, files) in &b.instances {
         if !crate::runner::valid_name(name) {
@@ -223,9 +238,13 @@ mod tests {
         assert_eq!(export(&a, &f, "correct horse battery").unwrap(), 1);
         let raw = std::fs::read(&f).unwrap();
         assert!(!String::from_utf8_lossy(&raw).contains("s3cret-value"));
-        let mode = std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&f).unwrap().permissions());
+        let mode =
+            std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&f).unwrap().permissions());
         assert_eq!(mode & 0o777, 0o600);
-        assert!(export(&a, &f, "correct horse battery").is_err(), "no overwrite");
+        assert!(
+            export(&a, &f, "correct horse battery").is_err(),
+            "no overwrite"
+        );
 
         let b = tmp("b");
         assert!(import(&b, &f, "wrong passphrase here").is_err());
@@ -236,10 +255,29 @@ mod tests {
             "DB_PASSWORD='s3cret-value'\n"
         );
         assert!(!b.join("gt/data").exists());
-        let mode = std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(b.join("gt/.env")).unwrap().permissions());
+        let mode = std::os::unix::fs::PermissionsExt::mode(
+            &std::fs::metadata(b.join("gt/.env")).unwrap().permissions(),
+        );
         assert_eq!(mode & 0o777, 0o600);
         let again = import(&b, &f, "correct horse battery").unwrap();
         assert_eq!(again.skipped, vec!["gt"]);
+        std::fs::remove_dir_all(&a).unwrap();
+        std::fs::remove_dir_all(&b).unwrap();
+    }
+
+    #[test]
+    fn bytes_round_trip_with_the_shorter_repository_password() {
+        let a = tmp("d");
+        make_instance(&a, "gt");
+        assert!(export_bytes(&a, "8chars!!", MIN_PASSPHRASE).is_err());
+        let (data, n) = export_bytes(&a, "8chars!!", 8).unwrap();
+        assert_eq!(n, 1);
+        let b = tmp("e");
+        assert!(import_bytes(&b, &data, "wrong-pass").is_err());
+        assert_eq!(
+            import_bytes(&b, &data, "8chars!!").unwrap().created,
+            vec!["gt"]
+        );
         std::fs::remove_dir_all(&a).unwrap();
         std::fs::remove_dir_all(&b).unwrap();
     }

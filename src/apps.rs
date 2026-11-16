@@ -1114,7 +1114,9 @@ pub async fn update_preview(
         .ok()
         .and_then(|s| toml::from_str(&s).ok())
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    let t = apps.template(&state.template).ok_or(StatusCode::NOT_FOUND)?;
+    let t = apps
+        .template(&state.template)
+        .ok_or(StatusCode::NOT_FOUND)?;
     if t.manifest.app.version <= state.version {
         return Err(StatusCode::NOT_FOUND);
     }
@@ -1576,7 +1578,9 @@ fn main_service(apps: &Apps, dir: &std::path::Path) -> Result<String, StatusCode
         .ok()
         .and_then(|s| toml::from_str(&s).ok())
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    let t = apps.template(&state.template).ok_or(StatusCode::NOT_FOUND)?;
+    let t = apps
+        .template(&state.template)
+        .ok_or(StatusCode::NOT_FOUND)?;
     t.manifest
         .services
         .iter()

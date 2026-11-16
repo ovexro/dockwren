@@ -144,8 +144,16 @@ pub fn preview(old_compose: &str, t: &Template, from: u32) -> Preview {
         from,
         to,
         changes,
-        added: n.keys().filter(|k| !o.contains_key(*k)).map(|k| tag(&n, k)).collect(),
-        removed: o.keys().filter(|k| !n.contains_key(*k)).map(|k| tag(&o, k)).collect(),
+        added: n
+            .keys()
+            .filter(|k| !o.contains_key(*k))
+            .map(|k| tag(&n, k))
+            .collect(),
+        removed: o
+            .keys()
+            .filter(|k| !n.contains_key(*k))
+            .map(|k| tag(&o, k))
+            .collect(),
         snapshot: t.manifest.update.pre_update.iter().any(|s| s == "backup"),
         migrations: migrations.iter().map(|g| g.name.clone()).collect(),
         blocked,
@@ -317,7 +325,8 @@ mod tests {
 
     #[test]
     fn preview_lists_changes_and_blocks_major_jumps() {
-        let t = crate::template::catalog(None).unwrap()
+        let t = crate::template::catalog(None)
+            .unwrap()
             .into_iter()
             .find(|t| t.manifest.app.id == "gitea")
             .unwrap();
