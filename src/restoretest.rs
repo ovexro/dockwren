@@ -9,7 +9,7 @@ use crate::runner::{self, Instance};
 use crate::template::Template;
 
 /// Free memory (MiB) below which the test is skipped: a second copy must not starve the live apps.
-const MIN_FREE_MIB: u64 = 1024;
+pub(crate) const MIN_FREE_MIB: u64 = 1024;
 
 /// Days between passing tests of the same app when run from the schedule.
 pub const EVERY_DAYS: u64 = 6;
@@ -36,7 +36,7 @@ pub fn due(data_dir: &Path, name: &str, now: u64) -> bool {
     last_pass(data_dir, name).is_none_or(|t| now.saturating_sub(t) >= EVERY_DAYS * 86_400)
 }
 
-fn available_mib() -> Option<u64> {
+pub(crate) fn available_mib() -> Option<u64> {
     let m = std::fs::read_to_string("/proc/meminfo").ok()?;
     let kb: u64 = m
         .lines()
@@ -60,13 +60,14 @@ fn test_name(name: &str) -> String {
 
 /// Delete a throwaway directory. Files written by containers belong to root, so they are
 /// removed from inside a container first; the (now empty) folder is removed last.
-async fn wipe(inst: &Instance, root: &Path, image: Option<&str>) {
-    // Safety: only ever below `<data>/restore-test/` and only `rt-*` folders.
+pub(crate) async fn wipe(inst: &Instance, root: &Path, prefix: &str, image: Option<&str>) {
+    // Safety: only ever a direct child of `root` whose name starts with `prefix` (`rt-` below
+    // `<data>/restore-test/`; a clone's own name below `<data>/instances/`).
     let ok = inst.dir.parent() == Some(root)
         && inst
             .dir
             .file_name()
-            .is_some_and(|n| n.to_string_lossy().starts_with("rt-"));
+            .is_some_and(|n| n.to_string_lossy().starts_with(prefix));
     if !ok {
         return;
     }
@@ -155,7 +156,7 @@ pub async fn run(
     // A crashed earlier test may have left its copy behind.
     if dir.exists() {
         log("removing a leftover test copy");
-        wipe(&inst, &root, None).await;
+        wipe(&inst, &root, "rt-", None).await;
         if dir.exists() {
             return Err(format!("cannot clear {}", dir.display()));
         }
@@ -199,7 +200,7 @@ pub async fn run(
             .map_err(|e| format!("snapshot link: {e}"))
     };
     if let Err(e) = setup() {
-        wipe(&inst, &root, None).await;
+        wipe(&inst, &root, "rt-", None).await;
         let _ = std::fs::remove_dir_all(root.join("backups").join(&tname));
         return Err(e);
     }
@@ -226,7 +227,7 @@ pub async fn run(
     )
     .await;
     log("deleting the throwaway copy");
-    wipe(&inst, &root, image.as_deref()).await;
+    wipe(&inst, &root, "rt-", image.as_deref()).await;
     let _ = std::fs::remove_dir_all(root.join("backups").join(&tname));
     result.map_err(|e| format!("restore test of snapshot {snap_name} failed: {e}"))?;
     let now = crate::schedule::now();

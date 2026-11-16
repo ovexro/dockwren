@@ -4,6 +4,7 @@ mod audit;
 mod auth;
 mod backup;
 mod backupwatch;
+mod clone;
 mod config;
 mod configbundle;
 mod deliver;
@@ -465,6 +466,7 @@ fn app(
             "/instances/{name}/restore-test",
             post(apps::restore_test_submit),
         )
+        .route("/instances/{name}/clone", post(apps::clone_submit))
         .route("/instances/{name}/cleanup", post(apps::cleanup_submit))
         .route("/static/htmx.min.js", get(htmx_js))
         .route("/logout", post(auth::logout))

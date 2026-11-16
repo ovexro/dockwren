@@ -403,6 +403,54 @@ impl Apps {
         Ok(job_id)
     }
 
+    /// Start a job that duplicates an app from one of its snapshots under a new name.
+    fn spawn_clone(
+        &self,
+        name: &str,
+        new_name: &str,
+        snap: Option<String>,
+    ) -> Result<String, StatusCode> {
+        let dir = self.root.join(name);
+        let text =
+            std::fs::read_to_string(dir.join("state.toml")).map_err(|_| StatusCode::NOT_FOUND)?;
+        let st: InstanceState =
+            toml::from_str(&text).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        self.template(&st.template)
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        let tpl_id = st.template;
+        let job_id = new_job(self, new_name, "Duplicate into")?;
+        let apps = self.clone();
+        let id = job_id.clone();
+        let (name, new_name) = (name.to_string(), new_name.to_string());
+        tokio::spawn(async move {
+            let inst = runner::Instance { name, dir };
+            let t = apps.template(&tpl_id).expect("checked above");
+            let data = apps
+                .backups_root()
+                .parent()
+                .map(std::path::Path::to_path_buf);
+            let result = match data {
+                Some(data) => {
+                    crate::clone::run(&data, &inst, t, &new_name, snap.as_deref(), &mut |s| {
+                        apps.with_job(&id, |j| j.log.push(s.to_string()));
+                    })
+                    .await
+                }
+                None => Err("no data directory".to_string()),
+            };
+            apps.note_job(
+                "Duplicate into",
+                &new_name,
+                result.as_ref().err().map(|e| e.as_str()),
+            );
+            apps.with_job(&id, |j| match result {
+                Ok(_) => j.state = JobState::Done,
+                Err(e) => j.state = JobState::Failed(e),
+            });
+        });
+        Ok(job_id)
+    }
+
     fn job_done(&self, id: &str) -> bool {
         self.with_job(id, |j| j.state == JobState::Done)
             .unwrap_or(false)
@@ -1389,6 +1437,27 @@ pub async fn restore_test_submit(
     }
     let id = apps.spawn_restore_test(&name)?;
     crate::audit::record("app.restore-test", &name);
+    job_fragment(&apps, &id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// `POST /instances/{name}/clone`: duplicate an app from a snapshot (fields `new_name`, `snapshot`).
+pub async fn clone_submit(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Form(values): Form<HashMap<String, String>>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) || !runner::valid_name(&name) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let new_name = values.get("new_name").map(|s| s.trim()).unwrap_or("");
+    if !runner::valid_name(new_name) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let snap = values.get("snapshot").filter(|s| !s.is_empty()).cloned();
+    let id = apps.spawn_clone(&name, new_name, snap)?;
+    crate::audit::record("app.clone", &format!("{name} -> {new_name}"));
     job_fragment(&apps, &id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
