@@ -419,6 +419,7 @@ fn app(
             "/instances/{name}/restore",
             get(apps::restore_form).post(apps::restore_submit),
         )
+        .route("/instances/{name}/verify", post(apps::verify_submit))
         .route("/instances/{name}/cleanup", post(apps::cleanup_submit))
         .route("/static/htmx.min.js", get(htmx_js))
         .route("/logout", post(auth::logout))
@@ -569,7 +570,7 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     Ok(())
 }
 
-const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
+const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
 
 /// CLI commands work on the panel's data directory; explain the usual permission mistake
 /// instead of failing later with a bare "Permission denied".
@@ -607,8 +608,8 @@ async fn main() {
         | Some("setup-osupdate")
         | Some("self-update") => {}
         Some(
-            "install" | "backup" | "update" | "restore" | "cleanup" | "expose" | "unexpose"
-            | "remove",
+            "install" | "backup" | "update" | "restore" | "verify" | "cleanup" | "expose"
+            | "unexpose" | "remove",
         ) => check_data_dir(&cfg.data_dir),
         Some(_) => {}
     }
@@ -822,6 +823,34 @@ async fn main() {
                 Ok(snap) => println!("restored from {}, up and healthy", snap.display()),
                 Err(e) => {
                     eprintln!("restore failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
+        Some("verify") => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            let name = args.first().map(|s| s.as_str()).unwrap_or_default();
+            if !runner::valid_name(name) || args.len() > 2 {
+                eprintln!("usage: dockwren verify <instance> [snapshot]");
+                std::process::exit(2);
+            }
+            let result = async {
+                let templates = apps::catalog(&cfg)?;
+                backup::verify_instance(
+                    &cfg,
+                    &templates,
+                    name,
+                    args.get(1).map(|s| s.as_str()),
+                    &mut |s| println!("  {s}"),
+                )
+                .await
+            }
+            .await;
+            match result {
+                Ok(snap) => println!("{} verified: it can be restored", snap.display()),
+                Err(e) => {
+                    eprintln!("verify failed: {e}");
                     std::process::exit(1);
                 }
             }
@@ -1816,6 +1845,7 @@ mod tests {
             ("POST", "/settings/cloudflare/disconnect"),
             ("GET", "/instances/gt/restore"),
             ("POST", "/instances/gt/restore"),
+            ("POST", "/instances/gt/verify"),
             ("POST", "/instances/gt/cleanup"),
         ] {
             let res = test_app()

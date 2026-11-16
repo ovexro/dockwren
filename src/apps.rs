@@ -307,6 +307,52 @@ impl Apps {
         Ok(job_id)
     }
 
+    /// Start a job that checks a snapshot (the newest when `snap` is None). CONFLICT when a job for it runs.
+    fn spawn_verify(&self, name: &str, snap: Option<String>) -> Result<String, StatusCode> {
+        let dir = self.root.join(name);
+        let text =
+            std::fs::read_to_string(dir.join("state.toml")).map_err(|_| StatusCode::NOT_FOUND)?;
+        let st: InstanceState =
+            toml::from_str(&text).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        self.template(&st.template)
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        let tpl_id = st.template;
+        let job_id = new_job(self, name, "Verifying")?;
+        let apps = self.clone();
+        let id = job_id.clone();
+        let name = name.to_string();
+        tokio::spawn(async move {
+            let inst = runner::Instance {
+                name: name.clone(),
+                dir,
+            };
+            let t = apps.template(&tpl_id).expect("checked above");
+            let result =
+                crate::backup::verify(&apps.backups_root(), &inst, t, snap.as_deref(), &mut |s| {
+                    apps.with_job(&id, |j| j.log.push(s.to_string()));
+                })
+                .await;
+            apps.note_job(
+                "Verifying",
+                &name,
+                result.as_ref().err().map(|e| e.as_str()),
+            );
+            apps.with_job(&id, |j| match result {
+                Ok(_) => {
+                    j.log.push("backup verified: it can be restored".into());
+                    j.state = JobState::Done;
+                }
+                Err(e) => j.state = JobState::Failed(e),
+            });
+        });
+        Ok(job_id)
+    }
+
+    fn job_done(&self, id: &str) -> bool {
+        self.with_job(id, |j| j.state == JobState::Done)
+            .unwrap_or(false)
+    }
+
     fn job_running(&self, id: &str) -> bool {
         self.with_job(id, |j| j.state == JobState::Running)
             .unwrap_or(false)
@@ -336,6 +382,14 @@ impl Apps {
                     };
                     while apps.job_running(&id) {
                         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    }
+                    // Check the snapshot just taken; a failure raises its own notification.
+                    if apps.job_done(&id)
+                        && let Ok(vid) = apps.spawn_verify(&name, None)
+                    {
+                        while apps.job_running(&vid) {
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        }
                     }
                 }
                 if apps.schedule.get().auto_update {
@@ -1064,6 +1118,23 @@ pub async fn instance_backup(
     job_fragment(&apps, &id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+/// `POST /instances/{name}/verify`: check a snapshot (form field `snapshot`, newest when absent).
+pub async fn verify_submit(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Form(values): Form<HashMap<String, String>>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let snap = values.get("snapshot").filter(|s| !s.is_empty()).cloned();
+    let id = apps.spawn_verify(&name, snap)?;
+    crate::audit::record("app.verify", &name);
+    job_fragment(&apps, &id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 #[derive(Template)]
 #[template(path = "backup_schedule.html")]
 struct SchedulePage {
@@ -1281,6 +1352,7 @@ pub(crate) fn utc_stamp(epoch: u64) -> String {
 struct SnapshotView {
     name: String,
     when: String,
+    verified: Option<String>,
 }
 
 #[derive(Template)]
@@ -1311,7 +1383,12 @@ pub async fn restore_form(
         .filter_map(|p| {
             let n = p.file_name()?.to_str()?.to_string();
             let when = utc_stamp(n.parse().ok()?);
-            Some(SnapshotView { name: n, when })
+            let verified = crate::backup::verified_at(p).map(utc_stamp);
+            Some(SnapshotView {
+                name: n,
+                when,
+                verified,
+            })
         })
         .collect();
     let leftovers = crate::backup::restore_leftover_names(&apps.root.join(&name))

@@ -880,7 +880,8 @@ pub struct Fact {
 const ICON_SERVER: &str = "M2 4h20v6H2z M2 14h20v6H2z M6 7h.01 M6 17h.01";
 const ICON_OS: &str = "M4 4h16v12H4z M8 20h8 M12 16v4";
 const ICON_CLOCK: &str = "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 7v5l3 2";
-const ICON_TAG: &str = "M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z M7.5 7.5h.01";
+const ICON_TAG: &str =
+    "M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z M7.5 7.5h.01";
 pub const ICON_BACKUP: &str = "M21 8v13H3V8 M1 3h22v5H1z M10 12h4";
 
 /// Identity facts of this server for the Overview; unknown ones are left out.
@@ -907,7 +908,12 @@ pub fn host_facts() -> Vec<Fact> {
     ]
     .into_iter()
     .filter(|f| !f.2.is_empty())
-    .map(|(icon, label, value)| Fact { icon, label, value, link: None })
+    .map(|(icon, label, value)| Fact {
+        icon,
+        label,
+        value,
+        link: None,
+    })
     .collect()
 }
 
