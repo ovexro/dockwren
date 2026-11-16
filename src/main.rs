@@ -669,6 +669,7 @@ async fn cli_recover(cfg: &config::Config) -> Result<(), String> {
     let backups = cfg.data_dir.join("backups");
     let templates = apps::catalog(cfg)?;
     let mut failed = Vec::new();
+    let mut empty: Vec<String> = Vec::new();
     for n in &r.created {
         println!("== {n}");
         let inst = runner::Instance {
@@ -684,6 +685,11 @@ async fn cli_recover(cfg: &config::Config) -> Result<(), String> {
                 Err(e) if !backup::list(&backups, n).is_empty() => {
                     println!("  pull: {e} (using the snapshots already here)")
                 }
+                Err(e) if e.contains("no snapshot found") => {
+                    println!("  no backup of {n} exists off-host: it stays empty (a fresh app)");
+                    empty.push(n.clone());
+                    return Ok(());
+                }
                 Err(e) => return Err(format!("no data to restore: {e}")),
             }
             backup::restore_instance(cfg, &templates, n, None, false, &mut |s| println!("  {s}"))
@@ -698,9 +704,10 @@ async fn cli_recover(cfg: &config::Config) -> Result<(), String> {
         }
     }
     println!(
-        "recovered {} of {} app(s)",
-        r.created.len() - failed.len(),
-        r.created.len()
+        "recovered {} of {} app(s); {} started empty (no backup existed)",
+        r.created.len() - failed.len() - empty.len(),
+        r.created.len(),
+        empty.len()
     );
     if failed.is_empty() {
         Ok(())
