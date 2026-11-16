@@ -11,7 +11,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 
 - Email: switch dockwren.dev DNS to Purelymail + install SnappyMail live at webmail host (details in memory email-setup). Verified open 2026-11-15.
 
-- Security: check pinned image versions (PHP in Nextcloud, WordPress, SnappyMail) against PHP advisories at each release; PHP2Shell fixed in 8.5.12/8.4.27/8.3.36/8.2.35 (all live PHP apps verified patched 2026-11-15). Verified open 2026-11-15.
+- Security: check pinned image versions (PHP in Nextcloud, WordPress, SnappyMail) against PHP advisories at each release; PHP2Shell fixed in 8.5.12/8.4.27/8.3.36/8.2.35 (all PHP apps incl. Roundcube verified patched 2026-11-16 at v0.1.31, newest on php.net is still 8.3.36/8.4.27/8.5.12). Verified open 2026-11-16.
 
 ## Decisions (do not re-propose)
 - Multi-server over SSH: DROPPED by the user (2026-11-15). Stays dropped.
