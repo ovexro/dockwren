@@ -94,3 +94,7 @@ again by restic, so whoever holds the repository password can read your apps' pa
 password like the export passphrase. `dockwren recover` uses it to rebuild a lost server.
 
 The restore test (`dockwren restore-test`, or weekly when switched on) starts a short-lived copy of an app from its newest snapshot. The copy has the same configuration and secrets as the app, its ports are bound to this server only, and it is deleted when the test ends (folder `restore-test/` in the data directory).
+
+## Third-party templates
+
+Templates from a git URL are pinned to one full commit hash, fetched without hooks, submodules or a checkout (only `manifest.toml`, `compose.yaml` and `icon.svg` are read), re-checked at every start, and shown for approval before they are stored. They may not run commands in containers, reuse a built-in id, or use devices, extra privileges or long-form mounts. The checks are text checks, not a sandbox: an approved app still runs whatever its container images do, so only add sources you have read.

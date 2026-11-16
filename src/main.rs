@@ -25,6 +25,7 @@ mod selfupdate;
 mod stack;
 mod template;
 mod terminal;
+mod thirdparty;
 mod totp;
 mod update;
 mod upstream;
@@ -357,6 +358,16 @@ fn app(
         .route("/settings", get(settings_page))
         .route("/settings/tab/{tab}", get(settings_tab))
         .route("/settings/audit", get(audit::show))
+        .route("/settings/templates", get(thirdparty::show))
+        .route(
+            "/settings/templates/review",
+            post(thirdparty::review_submit),
+        )
+        .route("/settings/templates/add", post(thirdparty::add_submit))
+        .route(
+            "/settings/templates/remove",
+            post(thirdparty::remove_submit),
+        )
         .route("/settings/disk", get(apps::disk_show))
         .route("/settings/disk/prune-images", post(apps::prune_images))
         .route(
@@ -787,7 +798,7 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     Ok(())
 }
 
-const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | export FILE | import FILE | recover | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | restore-test <instance> | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
+const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | export FILE | import FILE | recover | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | restore-test <instance> | template add <https-url> <commit> [--yes] | template list | template remove <id> | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
 
 /// CLI commands work on the panel's data directory; explain the usual permission mistake
 /// instead of failing later with a bare "Permission denied".
@@ -826,7 +837,7 @@ async fn main() {
         | Some("self-update") => {}
         Some(
             "install" | "export" | "import" | "recover" | "backup" | "update" | "restore"
-            | "verify" | "restore-test" | "cleanup" | "expose" | "unexpose" | "remove",
+            | "verify" | "restore-test" | "template" | "cleanup" | "expose" | "unexpose" | "remove",
         ) => check_data_dir(&cfg.data_dir),
         Some(_) => {}
     }
@@ -1125,6 +1136,77 @@ async fn main() {
                 Err(e) => {
                     eprintln!("restore test failed: {e}");
                     std::process::exit(1);
+                }
+            }
+            return;
+        }
+        Some("template") => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            let usage = "usage: dockwren template add <https-url> <full-commit-hash> [--yes] | template list | template remove <id>";
+            match args
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .as_slice()
+            {
+                ["list"] => {
+                    for s in thirdparty::list(&cfg.data_dir) {
+                        println!("{}  {} @ {}", s.id, s.url, s.sha);
+                    }
+                }
+                ["remove", id] => match thirdparty::remove(&cfg.data_dir, id) {
+                    Ok(()) => {
+                        println!("removed {id}; restart dockwren to drop it from the catalog")
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(1);
+                    }
+                },
+                ["add", url, sha, rest @ ..] if rest.is_empty() || rest == ["--yes"] => {
+                    let fetched = match thirdparty::fetch(&cfg.data_dir, url, sha).await {
+                        Ok(f) => f,
+                        Err(e) => {
+                            eprintln!("cannot fetch: {e}");
+                            std::process::exit(1);
+                        }
+                    };
+                    let t = match thirdparty::review(&fetched, None) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            eprintln!("refused: {e}");
+                            std::process::exit(1);
+                        }
+                    };
+                    println!(
+                        "== {} ({}) version {}\n{}\n\n== compose.yaml\n{}",
+                        t.manifest.app.name,
+                        t.manifest.app.id,
+                        t.manifest.app.version,
+                        t.manifest.app.description,
+                        fetched.compose
+                    );
+                    if rest != ["--yes"] {
+                        print!("Add this template? [y/N] ");
+                        let _ = std::io::Write::flush(&mut std::io::stdout());
+                        let mut line = String::new();
+                        let _ = std::io::stdin().read_line(&mut line);
+                        if !line.trim().eq_ignore_ascii_case("y") {
+                            println!("not added");
+                            return;
+                        }
+                    }
+                    match thirdparty::add(&cfg.data_dir, url, sha, &fetched) {
+                        Ok(s) => println!("added {}; restart dockwren to load it", s.id),
+                        Err(e) => {
+                            eprintln!("cannot add: {e}");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                _ => {
+                    eprintln!("{usage}");
+                    std::process::exit(2);
                 }
             }
             return;

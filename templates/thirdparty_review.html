@@ -1,0 +1,15 @@
+<div id="thirdparty">
+  <h3>Review: {{ name }} ({{ id }}), version {{ version }}</h3>
+  <p><small>Source: {{ url }} @ {{ sha }}. Nothing has been stored yet.</small></p>
+  {% if let Some(r) = replaces %}<p role="alert">This replaces the pinned source {{ r }}. Installed apps are not changed.</p>{% endif %}
+  <p>{{ description }}</p>
+  {% if !lan_ports.is_empty() %}<p>Publishes on your network (all interfaces), asked again at install: {% for l in lan_ports %}{{ l }} {% endfor %}</p>{% endif %}
+  <p>The automatic checks passed (no privileged mode, host networking, host mounts, devices or extra capabilities; ports only on 127.0.0.1 unless declared below; no commands run inside containers). They are simple text checks, not a sandbox: read the files yourself, and remember an app is whatever its images do.</p>
+  <details open><summary>compose.yaml</summary><pre>{{ compose }}</pre></details>
+  <details><summary>manifest.toml</summary><pre>{{ manifest }}</pre></details>
+  <form hx-post="/settings/templates/add" hx-target="#thirdparty" hx-swap="outerHTML">
+    <input type="hidden" name="url" value="{{ url }}"><input type="hidden" name="sha" value="{{ sha }}">
+    <button type="submit" class="primary">Add this template</button>
+    <button type="button" hx-get="/settings/templates" hx-target="#thirdparty" hx-swap="outerHTML">Cancel</button>
+  </form>
+</div>

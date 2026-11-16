@@ -230,6 +230,8 @@ pub struct Template {
     pub compose: String,
     /// Optional `icon.svg` shown in the catalog and instance list.
     pub icon: Option<String>,
+    /// `url@sha` of a pinned third-party source; None for bundled and local templates.
+    pub source: Option<String>,
 }
 
 /// Parse and validate a template from its two files' contents.
@@ -240,6 +242,7 @@ pub fn parse(manifest: &str, compose: &str) -> Result<Template, String> {
         manifest,
         compose: compose.to_string(),
         icon: None,
+        source: None,
     })
 }
 

@@ -590,6 +590,8 @@ struct AppView {
     name: String,
     description: String,
     https_note: bool,
+    /// `url@sha` for a pinned third-party template.
+    third_party: Option<String>,
 }
 
 /// Hidden template that pasted Compose stacks are filed under.
@@ -772,6 +774,7 @@ pub async fn list(State(apps): State<Apps>) -> Html<String> {
                 name: t.manifest.app.name.clone(),
                 description: t.manifest.app.description.clone(),
                 https_note: t.manifest.app.needs_public_https,
+                third_party: t.source.clone(),
             })
             .collect(),
     })
@@ -1209,7 +1212,14 @@ pub async fn instance_remove(
 
 /// Load the template catalog for the server (bundled + optional override dir).
 pub fn catalog(cfg: &crate::config::Config) -> Result<Vec<AppTemplate>, String> {
-    template::catalog(cfg.apps_dir_override().as_deref())
+    let mut all = template::catalog(cfg.apps_dir_override().as_deref())?;
+    for t in crate::thirdparty::load_all(&cfg.data_dir) {
+        if all.iter().all(|a| a.manifest.app.id != t.manifest.app.id) {
+            all.push(t);
+        }
+    }
+    all.sort_by(|a, b| a.manifest.app.id.cmp(&b.manifest.app.id));
+    Ok(all)
 }
 
 #[derive(Template)]
