@@ -4,6 +4,12 @@ Open items only, one line each, with the date it was last verified open. Deliver
 (delete the line in the SAME commit that delivers it; grep this file for the feature's keywords first).
 
 ## Open
+- PLAN (user approved all five, 2026-11-16; build in this order, one release each when ready):
+  (1) One-command recovery: `dockwren recover` = import + `backup pull` + `restore` for every app; also push the encrypted config export to the off-host target after each backup (never stale, survives disk loss); handle offsite.toml/credentials without hand-copying (prompt or re-enter); fold in the readable-bundle hint and the "restore from off-host" UI button / list remote snapshots.
+  (2) Real restore test: on a schedule restore the latest snapshot into a throwaway instance, wait healthy, delete it, notify on failure (beyond `verify`, which only reads the archive).
+  (3) Disk usage per app: data, snapshots, images per app, with "free this space" suggestions (old snapshots, unused images).
+  (4) Update windows + "skip this version": auto-update only inside a chosen time window; skip a bad upstream release without disabling updates.
+  (5) Extra template sources: git URL pinned to a commit, same strict manifest checks (host ports, privileged refused); think through trust model first.
 - OS updates: not tested on aarch64 Ubuntu (x86_64 Ubuntu 22.04/24.04/26.04, Debian 13 x86_64 and Debian 13 aarch64 on the Pi pass, 2026-11-14). Verified open 2026-11-14.
 - OS updates: real-packages run seen on a fresh Ubuntu 24.04 VPS (38 pkgs, exit 0, reboot notice) but not yet on the live server (nothing to install there). Verified open 2026-11-14.
 - IDEA (2026-11-14): more catalog templates (open-ended; done so far: Nextcloud, Jellyfin, Grafana, n8n, Syncthing, Homepage, Navidrome, Stirling-PDF, Wiki.js, Ghost, SnappyMail, Immich, Roundcube, AdGuard Home, Pi-hole). Items 2-6 of the old list (update badge/auto-update, image heads-up, resource alerts, self-update, audit log, add stack) are delivered.
