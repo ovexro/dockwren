@@ -151,17 +151,21 @@ pub fn claimed_ports(root: &Path) -> std::collections::HashSet<u16> {
     out
 }
 
-/// Explicit `-f` list when the instance has resource limits. Naming any file turns off
-/// compose's automatic loading of the override, so name that one too.
+/// Explicit `-f` list when the instance has resource limits or a log cap. Naming any file
+/// turns off compose's automatic loading of the override, so name that one too.
 fn compose_files(dir: &Path) -> Vec<String> {
-    if !dir.join(crate::limits::YAML).is_file() {
+    let extra: Vec<&str> = [crate::limits::YAML, crate::logcap::YAML]
+        .into_iter()
+        .filter(|f| dir.join(f).is_file())
+        .collect();
+    if extra.is_empty() {
         return Vec::new();
     }
     let mut files = vec!["compose.yaml"];
     if dir.join("compose.override.yaml").is_file() {
         files.push("compose.override.yaml");
     }
-    files.push(crate::limits::YAML);
+    files.extend(extra);
     files
         .into_iter()
         .flat_map(|f| ["-f".to_string(), dir.join(f).display().to_string()])
@@ -372,6 +376,8 @@ pub async fn run_post_start(
 /// Install steps 3-5 of the spec: validate, pull, start, wait healthy.
 /// `log` receives one line per step.
 pub async fn bring_up(inst: &Instance, log: &mut (dyn FnMut(&str) + Send)) -> Result<(), String> {
+    log("capping container logs");
+    crate::logcap::ensure(inst).await?;
     log("checking compose file");
     compose(inst, &["config", "-q"]).await?;
     log("pulling images");

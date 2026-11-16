@@ -669,6 +669,8 @@ struct InstanceView {
     editable: bool,
     /// The template is known, so the main service can be limited.
     limitable: bool,
+    /// Docker logs of this app have no size cap yet.
+    uncapped: bool,
 }
 
 #[derive(Template)]
@@ -1148,6 +1150,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             hostname: crate::public::read(&dir),
             editable,
             limitable,
+            uncapped: !crate::logcap::enabled(&dir),
         });
     }
     out
@@ -2033,6 +2036,73 @@ pub async fn limits_submit(
         apps2.with_job(&id, |j| match result {
             Ok(()) => {
                 j.log.push("limits applied".into());
+                j.state = JobState::Done;
+            }
+            Err(e) => j.state = JobState::Failed(e),
+        });
+    });
+    job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// `POST /instances/{name}/logcap`: cap the Docker logs of an installed app (10 MB x 3 files
+/// per container) and recreate the containers; on failure the cap file is removed again.
+pub async fn logcap_submit(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let dir = apps.root.join(&name);
+    if crate::logcap::enabled(&dir) {
+        return Err(StatusCode::CONFLICT);
+    }
+    let job_id = new_job(&apps, &name, "Capping logs of")?;
+    crate::audit::record("app.logcap", &name);
+    let apps2 = apps.clone();
+    let id = job_id.clone();
+    tokio::spawn(async move {
+        let inst = runner::Instance {
+            name: name.clone(),
+            dir,
+        };
+        let log = |s: &str| {
+            apps2.with_job(&id, |j| j.log.push(s.to_string()));
+        };
+        let result = async {
+            log("writing the log cap");
+            crate::logcap::ensure(&inst).await?;
+            let up = async {
+                log("checking compose file");
+                runner::compose(&inst, &["config", "-q"]).await?;
+                log("recreating containers");
+                runner::compose(&inst, &["up", "-d"]).await?;
+                log("waiting for healthy");
+                runner::wait_healthy(&inst, std::time::Duration::from_secs(240)).await
+            }
+            .await;
+            if let Err(e) = up {
+                log("failed: removing the log cap");
+                crate::logcap::remove(&inst.dir);
+                let back = runner::compose(&inst, &["up", "-d"]).await;
+                return Err(match back {
+                    Ok(_) => format!("{e} (log cap removed)"),
+                    Err(b) => format!("{e} (removing the log cap also failed: {b})"),
+                });
+            }
+            Ok::<(), String>(())
+        }
+        .await;
+        apps2.note_job(
+            "Capping logs of",
+            &name,
+            result.as_ref().err().map(|e| e.as_str()),
+        );
+        apps2.with_job(&id, |j| match result {
+            Ok(()) => {
+                j.log.push("logs are capped".into());
                 j.state = JobState::Done;
             }
             Err(e) => j.state = JobState::Failed(e),

@@ -220,6 +220,8 @@ pub async fn update(
             log("update failed, restoring the previous compose files");
             write_compose(&inst.dir, &old_compose, old_override.as_deref())?;
             let back = async {
+                // The service list may differ from the failed version's.
+                crate::logcap::ensure(inst).await?;
                 runner::compose(inst, &["up", "-d"]).await?;
                 runner::wait_healthy(inst, Duration::from_secs(120)).await
             }

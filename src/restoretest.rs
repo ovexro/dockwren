@@ -174,6 +174,7 @@ pub async fn run(
             "compose.yaml",
             "compose.override.yaml",
             crate::limits::YAML,
+            crate::logcap::YAML,
             "state.toml",
         ] {
             let from = live.dir.join(f);

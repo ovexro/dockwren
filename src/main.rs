@@ -12,6 +12,7 @@ mod docker;
 mod hostupdates;
 mod install;
 mod limits;
+mod logcap;
 mod metrics;
 mod notify;
 mod offsite;
@@ -456,6 +457,7 @@ fn app(
             "/instances/{name}/limits",
             get(apps::limits_form).post(apps::limits_submit),
         )
+        .route("/instances/{name}/logcap", post(apps::logcap_submit))
         .route("/instances/{name}/pull", post(apps::pull_submit))
         .route("/instances/{name}/verify", post(apps::verify_submit))
         .route(
@@ -2203,6 +2205,7 @@ mod tests {
             ("POST", "/instances/gt/settings"),
             ("GET", "/instances/gt/limits"),
             ("POST", "/instances/gt/limits"),
+            ("POST", "/instances/gt/logcap"),
             ("GET", "/instances/gt/restore"),
             ("POST", "/instances/gt/restore"),
             ("POST", "/instances/gt/verify"),
