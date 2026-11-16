@@ -14,8 +14,6 @@ Open items only, one line each, with the date it was last verified open. Deliver
       - Marking: catalog shows a "third-party" label with url + short sha; installs record the source.
       - Not doing: auto-updating sources, running anything from the repo at fetch time, private repos/credentials (v1).
       - Open question: post_start commands run inside containers; allow for third-party, or refuse in v1 (recommended: refuse).
-- OS updates: not tested on aarch64 Ubuntu (x86_64 Ubuntu 22.04/24.04/26.04, Debian 13 x86_64 and Debian 13 aarch64 on the Pi pass, 2026-11-14). Verified open 2026-11-14.
-- OS updates: real-packages run seen on a fresh Ubuntu 24.04 VPS (38 pkgs, exit 0, reboot notice) but not yet on the live server (nothing to install there). Verified open 2026-11-14.
 - IDEA (2026-11-14): more catalog templates (open-ended; done so far: Nextcloud, Jellyfin, Grafana, n8n, Syncthing, Homepage, Navidrome, Stirling-PDF, Wiki.js, Ghost, SnappyMail, Immich, Roundcube, AdGuard Home, Pi-hole). Items 2-6 of the old list (update badge/auto-update, image heads-up, resource alerts, self-update, audit log, add stack) are delivered.
 - IDEA (2026-11-15): more `lan_ports` templates: Home Assistant (host networking, still refused). AdGuard Home and Pi-hole done (Pi-hole has no DHCP: needs cap_add).
 
