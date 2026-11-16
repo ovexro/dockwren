@@ -222,6 +222,49 @@ pub fn resolve(
     })
 }
 
+/// Apply Settings-page `input` to an existing instance's `current` env. Only fields marked
+/// `editable` can change; everything else (secrets, ports, name) is carried over untouched.
+/// A key missing from `input` keeps its value; an empty value falls back to the default.
+pub fn apply_edits(
+    t: &Template,
+    current: &BTreeMap<String, String>,
+    input: &HashMap<String, String>,
+) -> Result<BTreeMap<String, String>, String> {
+    let mut env = current.clone();
+    for f in t.manifest.fields.iter().filter(|f| f.editable) {
+        let Some(given) = input.get(&f.key).map(|v| v.trim()) else {
+            continue;
+        };
+        let raw = match (given.is_empty(), &f.default) {
+            (false, _) => given.to_string(),
+            (true, Some(d)) => subst(d, &env)?,
+            (true, None) if !f.required => String::new(),
+            (true, None) => return Err(format!("{}: required", f.label)),
+        };
+        let value = if raw.is_empty() {
+            raw
+        } else {
+            validate_field(f, &raw)?
+        };
+        env.insert(f.key.clone(), value);
+    }
+    Ok(env)
+}
+
+/// Atomically replace `<dir>/.env` (temp file + rename, mode 0600).
+pub fn replace_env(dir: &Path, env: &BTreeMap<String, String>) -> std::io::Result<()> {
+    let tmp = dir.join(".env.tmp");
+    let _ = std::fs::remove_file(&tmp);
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&tmp)?;
+    f.write_all(render_env(env).as_bytes())?;
+    f.sync_all()?;
+    std::fs::rename(&tmp, dir.join(".env"))
+}
+
 // Manual Debug so secrets can never end up in logs or panic messages.
 impl std::fmt::Debug for Resolved {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -495,6 +538,60 @@ mod tests {
         assert_eq!(a.env["POSTGRES_PASSWORD"].len(), 32);
         assert_ne!(a.env["POSTGRES_PASSWORD"], b.env["POSTGRES_PASSWORD"]);
         assert!(a.revealed.is_empty());
+    }
+
+    #[test]
+    fn edits_change_only_editable_fields() {
+        let t = tmpl("vaultwarden");
+        let mut cur = BTreeMap::new();
+        cur.insert("SIGNUPS_ALLOWED".to_string(), "true".to_string());
+        cur.insert("WEB_PORT".to_string(), "8100".to_string());
+        cur.insert("ADMIN_TOKEN".to_string(), "secret".to_string());
+        let input: HashMap<String, String> = [
+            ("SIGNUPS_ALLOWED", "false"),
+            ("WEB_PORT", "9999"),
+            ("ADMIN_TOKEN", "x"),
+            ("PUBLIC_URL", "https://evil/"),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let new = apply_edits(&t, &cur, &input).unwrap();
+        assert_eq!(new["SIGNUPS_ALLOWED"], "false");
+        assert_eq!(new["WEB_PORT"], "8100");
+        assert_eq!(new["ADMIN_TOKEN"], "secret");
+        assert!(!new.contains_key("PUBLIC_URL"));
+    }
+
+    #[test]
+    fn edits_validate_and_keep_missing_keys() {
+        let t = tmpl("vaultwarden");
+        let mut cur = BTreeMap::new();
+        cur.insert("SIGNUPS_ALLOWED".to_string(), "true".to_string());
+        let bad: HashMap<String, String> =
+            [("SIGNUPS_ALLOWED".to_string(), "maybe".to_string())].into();
+        assert!(apply_edits(&t, &cur, &bad).is_err());
+        let quote: HashMap<String, String> =
+            [("SIGNUPS_ALLOWED".to_string(), "a'b".to_string())].into();
+        assert!(apply_edits(&t, &cur, &quote).is_err());
+        let none = HashMap::new();
+        assert_eq!(apply_edits(&t, &cur, &none).unwrap(), cur);
+    }
+
+    #[test]
+    fn replace_env_is_private_and_round_trips() {
+        let d = std::env::temp_dir().join(format!("dw-repl-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let mut a = BTreeMap::new();
+        a.insert("A".to_string(), "1".to_string());
+        write_env(&d, &a).unwrap();
+        a.insert("A".to_string(), "two words".to_string());
+        replace_env(&d, &a).unwrap();
+        let mode = std::fs::metadata(d.join(".env")).unwrap().permissions();
+        assert_eq!(std::os::unix::fs::PermissionsExt::mode(&mode) & 0o777, 0o600);
+        assert_eq!(crate::runner::read_env(&d).unwrap(), a);
+        assert!(!d.join(".env.tmp").exists());
+        std::fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]

@@ -25,6 +25,7 @@ help = "The door this app uses on this server; it can only be reached from the s
 
 [[fields]]
 key = "MUSIC_PATH"
+editable = true
 label = "Music folder"
 type = "string"
 default = "/srv/music"
@@ -33,6 +34,7 @@ help = "The folder on this server that holds your music. It is shown inside Navi
 
 [[fields]]
 key = "TIME_ZONE"
+editable = true
 label = "Time zone"
 type = "string"
 default = "UTC"

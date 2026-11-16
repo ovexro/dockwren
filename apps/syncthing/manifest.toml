@@ -33,6 +33,7 @@ help = "The folder on this server that Syncthing keeps in sync with your other d
 
 [[fields]]
 key = "TIME_ZONE"
+editable = true
 label = "Time zone"
 type = "string"
 default = "UTC"

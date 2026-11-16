@@ -35,6 +35,7 @@ help = "The door the admin page uses on this server; it can only be reached from
 
 [[fields]]
 key = "TZ"
+editable = true
 label = "Time zone"
 type = "string"
 default = "UTC"

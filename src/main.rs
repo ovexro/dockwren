@@ -419,6 +419,10 @@ fn app(
             "/instances/{name}/restore",
             get(apps::restore_form).post(apps::restore_submit),
         )
+        .route(
+            "/instances/{name}/settings",
+            get(apps::settings_form).post(apps::settings_submit),
+        )
         .route("/instances/{name}/verify", post(apps::verify_submit))
         .route("/instances/{name}/cleanup", post(apps::cleanup_submit))
         .route("/static/htmx.min.js", get(htmx_js))
@@ -1843,6 +1847,8 @@ mod tests {
             ("POST", "/settings/cloudflare/connect"),
             ("POST", "/settings/cloudflare/tunnel"),
             ("POST", "/settings/cloudflare/disconnect"),
+            ("GET", "/instances/gt/settings"),
+            ("POST", "/instances/gt/settings"),
             ("GET", "/instances/gt/restore"),
             ("POST", "/instances/gt/restore"),
             ("POST", "/instances/gt/verify"),

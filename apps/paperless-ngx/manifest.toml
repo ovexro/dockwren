@@ -41,6 +41,7 @@ help = "The username you will sign in with. Dockwren creates a strong password f
 
 [[fields]]
 key = "TIME_ZONE"
+editable = true
 label = "Time zone"
 type = "string"
 default = "UTC"
@@ -49,6 +50,7 @@ help = "Your region, so dates and times are right. For example Europe/Bucharest.
 
 [[fields]]
 key = "OCR_LANGUAGE"
+editable = true
 label = "OCR language"
 type = "string"
 default = "eng"

@@ -559,6 +559,8 @@ struct InstanceView {
     snapshots: usize,
     last_backup: Option<String>,
     hostname: Option<String>,
+    /// The template has settings that can be changed after install.
+    editable: bool,
 }
 
 #[derive(Template)]
@@ -1001,6 +1003,9 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             .and_then(|p| p.file_name()?.to_str()?.parse::<u64>().ok())
             .map(|e| utc_stamp(e).trim_end_matches(" UTC").to_string());
         let name_for_upstream = name.clone();
+        let editable = apps
+            .template(&state.template)
+            .is_some_and(|t| t.manifest.fields.iter().any(|f| f.editable));
         out.push(InstanceView {
             name,
             app: state.template,
@@ -1016,6 +1021,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             snapshots,
             last_backup,
             hostname: crate::public::read(&dir),
+            editable,
         });
     }
     out
@@ -1353,6 +1359,171 @@ struct SnapshotView {
     name: String,
     when: String,
     verified: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "settings.html")]
+struct SettingsPage {
+    instance: String,
+    fields: Vec<FieldView>,
+    error: Option<String>,
+}
+
+/// The editable fields of an instance with their current values (from `.env`).
+fn settings_view(
+    apps: &Apps,
+    name: &str,
+    entered: Option<&HashMap<String, String>>,
+    error: Option<String>,
+) -> Result<SettingsPage, StatusCode> {
+    let dir = apps.root.join(name);
+    let state: InstanceState = std::fs::read_to_string(dir.join("state.toml"))
+        .ok()
+        .and_then(|s| toml::from_str(&s).ok())
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let t = apps
+        .template(&state.template)
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let env = runner::read_env(&dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let fields: Vec<FieldView> = t
+        .manifest
+        .fields
+        .iter()
+        .filter(|f| f.editable)
+        .map(|f| {
+            let select = matches!(f.kind, FieldType::Bool | FieldType::Select);
+            let options = match f.kind {
+                FieldType::Bool => vec!["true".to_string(), "false".to_string()],
+                FieldType::Select => f.options.clone(),
+                _ => Vec::new(),
+            };
+            let value = entered
+                .and_then(|e| e.get(&f.key))
+                .or_else(|| env.get(&f.key))
+                .cloned()
+                .unwrap_or_default();
+            FieldView {
+                key: f.key.clone(),
+                label: f.label.clone(),
+                input: if select { "select" } else { "text" },
+                value,
+                placeholder: f.default.clone().unwrap_or_default(),
+                help: f.help.clone().unwrap_or_default(),
+                options,
+                required: f.required && f.default.is_none(),
+            }
+        })
+        .collect();
+    if fields.is_empty() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    Ok(SettingsPage {
+        instance: name.to_string(),
+        fields,
+        error,
+    })
+}
+
+/// `GET /instances/{name}/settings`: form with the settings that can be changed after install.
+pub async fn settings_form(
+    State(apps): State<Apps>,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    known_instance(&apps, &name)?;
+    Ok(render(settings_view(&apps, &name, None, None)?))
+}
+
+/// `POST /instances/{name}/settings`: validate, rewrite `.env`, recreate the containers.
+/// When the app does not come back healthy the old `.env` is put back and started again.
+pub async fn settings_submit(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Form(values): Form<HashMap<String, String>>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let dir = apps.root.join(&name);
+    let state: InstanceState = std::fs::read_to_string(dir.join("state.toml"))
+        .ok()
+        .and_then(|s| toml::from_str(&s).ok())
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let t = apps
+        .template(&state.template)
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let old = runner::read_env(&dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let new = match crate::install::apply_edits(t, &old, &values) {
+        Ok(n) => n,
+        Err(e) => return Ok(render(settings_view(&apps, &name, Some(&values), Some(e))?)),
+    };
+    let changed: Vec<&str> = t
+        .manifest
+        .fields
+        .iter()
+        .filter(|f| f.editable && old.get(&f.key) != new.get(&f.key))
+        .map(|f| f.key.as_str())
+        .collect();
+    if changed.is_empty() {
+        return Ok(render(settings_view(
+            &apps,
+            &name,
+            Some(&values),
+            Some("Nothing changed.".into()),
+        )?));
+    }
+    let job_id = new_job(&apps, &name, "Applying settings to")?;
+    crate::audit::record("app.settings", &format!("{name}: {}", changed.join(", ")));
+    let apps2 = apps.clone();
+    let id = job_id.clone();
+    let changed: Vec<String> = changed.iter().map(|s| s.to_string()).collect();
+    tokio::spawn(async move {
+        let inst = runner::Instance {
+            name: name.clone(),
+            dir,
+        };
+        let log = |s: &str| {
+            apps2.with_job(&id, |j| j.log.push(s.to_string()));
+        };
+        let result = async {
+            log(&format!("changing {}", changed.join(", ")));
+            crate::install::replace_env(&inst.dir, &new).map_err(|e| format!(".env: {e}"))?;
+            let up = async {
+                log("checking compose file");
+                runner::compose(&inst, &["config", "-q"]).await?;
+                log("recreating containers");
+                runner::compose(&inst, &["up", "-d"]).await?;
+                log("waiting for healthy");
+                runner::wait_healthy(&inst, std::time::Duration::from_secs(240)).await
+            }
+            .await;
+            if let Err(e) = up {
+                log("failed: putting the old settings back");
+                crate::install::replace_env(&inst.dir, &old).map_err(|e| format!(".env: {e}"))?;
+                let back = runner::compose(&inst, &["up", "-d"]).await;
+                return Err(match back {
+                    Ok(_) => format!("{e} (old settings restored)"),
+                    Err(b) => format!("{e} (restoring the old settings also failed: {b})"),
+                });
+            }
+            Ok::<(), String>(())
+        }
+        .await;
+        apps2.note_job(
+            "Applying settings to",
+            &name,
+            result.as_ref().err().map(|e| e.as_str()),
+        );
+        apps2.with_job(&id, |j| match result {
+            Ok(()) => {
+                j.log.push("settings applied".into());
+                j.state = JobState::Done;
+            }
+            Err(e) => j.state = JobState::Failed(e),
+        });
+    });
+    job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 #[derive(Template)]

@@ -25,6 +25,7 @@ help = "The door this app uses on this server; it can only be reached from the s
 
 [[fields]]
 key = "IMAP_SERVER"
+editable = true
 label = "IMAP server"
 type = "string"
 default = "ssl://imap.purelymail.com"
@@ -33,6 +34,7 @@ help = "Where your mail is read from, written as ssl://name (or tls://name). You
 
 [[fields]]
 key = "IMAP_PORT"
+editable = true
 label = "IMAP port"
 type = "string"
 default = "993"
@@ -41,6 +43,7 @@ help = "Usually 993 for ssl:// and 143 for tls://."
 
 [[fields]]
 key = "SMTP_SERVER"
+editable = true
 label = "SMTP server"
 type = "string"
 default = "ssl://smtp.purelymail.com"
@@ -49,6 +52,7 @@ help = "Where your mail is sent through, written as ssl://name (or tls://name). 
 
 [[fields]]
 key = "SMTP_PORT"
+editable = true
 label = "SMTP port"
 type = "string"
 default = "465"

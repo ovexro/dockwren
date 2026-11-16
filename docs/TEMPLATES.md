@@ -77,7 +77,10 @@ services:
 **`[[fields]]`** are the install form, in order. Keys are `UPPER_SNAKE_CASE`.
 - `type`: `string`, `password`, `int`, `bool`, `port`, `url`, `email`, `select`.
 - Optional: `default`, `pattern` (string/password only), `required` (default true), `help`,
-  `options` (required for `select`), `min`, `max`.
+  `options` (required for `select`), `min`, `max`, `editable` (default false: the field also shows on
+  the app's Settings page; only for values the app reads from its environment on every start, never
+  first-run bootstrap values such as an admin name; not allowed on port/password fields,
+  `INSTANCE_NAME` or the `public_url_field`).
 - `INSTANCE_NAME` is reserved and always present; define the field to give it a label and default.
 - A `default` may reference earlier fields as `${KEY}`. `port` accepts `auto`.
 - Everything is validated again on the server.

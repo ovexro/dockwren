@@ -33,6 +33,7 @@ help = "The full web address of the app, for example https://media.example.com, 
 
 [[fields]]
 key = "MEDIA_PATH"
+editable = true
 label = "Media folder"
 type = "string"
 default = "/srv/media"
@@ -41,6 +42,7 @@ help = "The folder on this server that holds your movies, shows and music. It is
 
 [[fields]]
 key = "TIME_ZONE"
+editable = true
 label = "Time zone"
 type = "string"
 default = "UTC"

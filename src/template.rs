@@ -104,6 +104,10 @@ pub struct Field {
     pub min: Option<i64>,
     #[serde(default)]
     pub max: Option<i64>,
+    /// Can be changed after install from the app's Settings page. Only for values the
+    /// running app reads from its environment on every start (not first-run bootstrap values).
+    #[serde(default)]
+    pub editable: bool,
 }
 
 fn yes() -> bool {
@@ -462,6 +466,16 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
                     ));
                 }
             }
+        }
+        if f.editable
+            && (matches!(f.kind, FieldType::Port | FieldType::Password)
+                || f.key == "INSTANCE_NAME"
+                || m.app.public_url_field.as_deref() == Some(f.key.as_str()))
+        {
+            return Err(format!(
+                "field {}: port, password, instance name and public URL fields cannot be editable",
+                f.key
+            ));
         }
         if f.kind == FieldType::Select && f.options.is_empty() {
             return Err(format!("field {}: select needs options", f.key));
@@ -836,6 +850,25 @@ mod tests {
         let mut m = manifest("");
         m.app.public_url_field = Some("NOPE".into());
         assert!(validate(&m, OK).unwrap_err().contains("public_url_field"));
+    }
+
+    #[test]
+    fn editable_rejects_ports_passwords_name_and_public_url() {
+        for (key, kind) in [
+            ("P", "port"),
+            ("W", "password"),
+            ("INSTANCE_NAME", "string"),
+        ] {
+            let m = manifest(&format!(
+                "[[fields]]\nkey=\"{key}\"\nlabel=\"x\"\ntype=\"{kind}\"\ndefault=\"abcdefgh\"\neditable=true\n"
+            ));
+            assert!(validate(&m, OK).unwrap_err().contains("editable"), "{key}");
+        }
+        let mut m = manifest(
+            "[[fields]]\nkey=\"U\"\nlabel=\"x\"\ntype=\"url\"\ndefault=\"http://a/\"\neditable=true\n",
+        );
+        m.app.public_url_field = Some("U".into());
+        assert!(validate(&m, OK).unwrap_err().contains("editable"));
     }
 
     #[test]

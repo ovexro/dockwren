@@ -25,6 +25,7 @@ help = "The door this app uses on this server; it can only be reached from the s
 
 [[fields]]
 key = "ALLOWED_HOSTS"
+editable = true
 label = "Allowed host names"
 type = "string"
 default = "localhost:${WEB_PORT},127.0.0.1:${WEB_PORT}"
@@ -33,6 +34,7 @@ help = "Homepage only answers to the host names listed here, comma separated, ea
 
 [[fields]]
 key = "TIME_ZONE"
+editable = true
 label = "Time zone"
 type = "string"
 default = "UTC"

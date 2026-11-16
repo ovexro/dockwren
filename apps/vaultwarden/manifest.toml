@@ -30,6 +30,7 @@ default = "http://127.0.0.1:${WEB_PORT}/"
 
 [[fields]]
 key = "SIGNUPS_ALLOWED"
+editable = true
 label = "Allow sign-ups"
 type = "bool"
 default = "true"

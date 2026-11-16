@@ -33,6 +33,7 @@ help = "The full web address of the app, for example https://n8n.example.com, wi
 
 [[fields]]
 key = "TIME_ZONE"
+editable = true
 label = "Time zone"
 type = "string"
 default = "UTC"

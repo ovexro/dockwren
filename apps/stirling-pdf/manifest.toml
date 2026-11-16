@@ -25,6 +25,7 @@ help = "The door this app uses on this server; it can only be reached from the s
 
 [[fields]]
 key = "TIME_ZONE"
+editable = true
 label = "Time zone"
 type = "string"
 default = "UTC"
