@@ -108,6 +108,50 @@ fn write_compose(dir: &Path, compose: &str, over: Option<&str>) -> Result<(), St
     }
 }
 
+/// What an update would do, for the preview page (nothing is changed).
+#[derive(Debug, PartialEq, Eq)]
+pub struct Preview {
+    pub from: u32,
+    pub to: u32,
+    pub changes: Vec<Change>,
+    /// Images the new version adds (`image:tag`) or no longer uses.
+    pub added: Vec<String>,
+    pub removed: Vec<String>,
+    pub snapshot: bool,
+    /// Names of the migrations that run after start.
+    pub migrations: Vec<String>,
+    /// Set when the update would be refused (e.g. a database major jump).
+    pub blocked: Option<String>,
+}
+
+/// Work out what updating from `old_compose` / version `from` to template `t` would do.
+pub fn preview(old_compose: &str, t: &Template, from: u32) -> Preview {
+    let to = t.manifest.app.version;
+    let (changes, blocked) = match plan(old_compose, &t.compose, &t.manifest.update.pinned_major) {
+        Ok(c) => (c, None),
+        Err(e) => (Vec::new(), Some(e)),
+    };
+    let (o, n) = (images(old_compose), images(&t.compose));
+    let tag = |m: &BTreeMap<String, String>, k: &String| format!("{k}:{}", m[k]);
+    let mut migrations: Vec<_> = t
+        .manifest
+        .migrations
+        .iter()
+        .filter(|g| g.to_version > from && g.to_version <= to)
+        .collect();
+    migrations.sort_by_key(|g| g.to_version);
+    Preview {
+        from,
+        to,
+        changes,
+        added: n.keys().filter(|k| !o.contains_key(*k)).map(|k| tag(&n, k)).collect(),
+        removed: o.keys().filter(|k| !n.contains_key(*k)).map(|k| tag(&o, k)).collect(),
+        snapshot: t.manifest.update.pre_update.iter().any(|s| s == "backup"),
+        migrations: migrations.iter().map(|g| g.name.clone()).collect(),
+        blocked,
+    }
+}
+
 fn read_opt(path: &Path) -> Result<Option<String>, String> {
     match std::fs::read_to_string(path) {
         Ok(s) => Ok(Some(s)),
@@ -269,6 +313,21 @@ mod tests {
         // the same jump is fine for an image that is not pinned
         assert!(plan(OLD, &OLD.replace("28.3.0", "29.0.0"), &pins).is_ok());
         assert!(plan(OLD, OLD, &pins).unwrap().is_empty());
+    }
+
+    #[test]
+    fn preview_lists_changes_and_blocks_major_jumps() {
+        let t = crate::template::catalog(None).unwrap()
+            .into_iter()
+            .find(|t| t.manifest.app.id == "gitea")
+            .unwrap();
+        let old = t.compose.replace("image: ", "image: old-");
+        let p = preview(&old, &t, 0);
+        assert!(p.changes.is_empty());
+        assert!(!p.added.is_empty() && !p.removed.is_empty());
+        let same = preview(&t.compose, &t, 0);
+        assert!(same.added.is_empty() && same.removed.is_empty() && same.blocked.is_none());
+        assert_eq!(same.to, t.manifest.app.version);
     }
 
     #[test]

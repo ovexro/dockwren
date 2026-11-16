@@ -1,0 +1,17 @@
+<div id="update-preview">
+  <h3>Update {{ instance }}: version {{ p.from }} → {{ p.to }}</h3>
+  <p><small>Nothing has been changed yet.</small></p>
+  {% if let Some(b) = p.blocked %}<p role="alert">This update is refused: {{ b }}</p>{% endif %}
+  <ul>
+  {% for c in p.changes %}<li>Image <code>{{ c.image }}</code>: {{ c.from }} → {{ c.to }}</li>{% endfor %}
+  {% for a in p.added %}<li>New image: <code>{{ a }}</code></li>{% endfor %}
+  {% for r in p.removed %}<li>Image no longer used: <code>{{ r }}</code></li>{% endfor %}
+  {% if p.changes.is_empty() && p.added.is_empty() && p.removed.is_empty() %}<li>No image changes; only the app's configuration files are updated.</li>{% endif %}
+  {% for m in p.migrations %}<li>Runs after start: {{ m }}</li>{% endfor %}
+  <li>{% if p.snapshot %}A snapshot is taken first.{% else %}No snapshot is taken first.{% endif %} If the update fails, the old version is started again (data is not rolled back).</li>
+  </ul>
+  {% if p.blocked.is_none() %}
+  <button class="primary" hx-post="/instances/{{ instance }}/update" hx-target="#install" hx-swap="innerHTML">Update now</button>
+  {% endif %}
+  <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
+</div>

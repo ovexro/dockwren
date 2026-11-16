@@ -379,7 +379,10 @@ fn app(
         .route("/jobs/{id}", get(apps::job))
         .route("/instances/list", get(apps::instances))
         .route("/instances/{name}/remove", post(apps::instance_remove))
-        .route("/instances/{name}/update", post(apps::instance_update))
+        .route(
+            "/instances/{name}/update",
+            get(apps::update_preview).post(apps::instance_update),
+        )
         .route("/instances/{name}/backup", post(apps::instance_backup))
         .route(
             "/settings/backups",

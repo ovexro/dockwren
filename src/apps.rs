@@ -1096,6 +1096,36 @@ pub fn catalog(cfg: &crate::config::Config) -> Result<Vec<AppTemplate>, String> 
     template::catalog(cfg.apps_dir_override().as_deref())
 }
 
+#[derive(Template)]
+#[template(path = "update_preview.html")]
+struct UpdatePreviewPage {
+    instance: String,
+    p: crate::update::Preview,
+}
+
+/// `GET /instances/{name}/update`: what the update would change, with a button to run it.
+pub async fn update_preview(
+    State(apps): State<Apps>,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    known_instance(&apps, &name)?;
+    let dir = apps.root.join(&name);
+    let state: InstanceState = std::fs::read_to_string(dir.join("state.toml"))
+        .ok()
+        .and_then(|s| toml::from_str(&s).ok())
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let t = apps.template(&state.template).ok_or(StatusCode::NOT_FOUND)?;
+    if t.manifest.app.version <= state.version {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let old = std::fs::read_to_string(dir.join("compose.yaml"))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(render(UpdatePreviewPage {
+        instance: name,
+        p: crate::update::preview(&old, t, state.version),
+    }))
+}
+
 /// Start an update job for an instance whose bundled template is newer.
 pub async fn instance_update(
     State(apps): State<Apps>,
