@@ -30,6 +30,7 @@ mod thirdparty;
 mod totp;
 mod update;
 mod upstream;
+mod webcheck;
 
 use std::sync::Arc;
 
@@ -1294,6 +1295,7 @@ async fn main() {
     release::spawn_checker(notify.clone());
     upstream::spawn_checker(apps.clone(), notify.clone());
     hostupdates::spawn_checker(notify.clone());
+    webcheck::spawn_checker(apps.clone(), notify.clone());
     backupwatch::spawn_checker(notify.clone());
     let os_control = Arc::new(osupdate::Control::new(Some(&cfg.data_dir)));
     osupdate::spawn_watcher(os_control.clone(), notify.clone());

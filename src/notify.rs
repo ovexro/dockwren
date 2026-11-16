@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 const LOG_FILE: &str = "notifications.log";
 const PREFS_FILE: &str = "notify-settings.json";
 /// Every kind a producer raises: (kind, label, what it does). Settings lists exactly these.
-pub const KINDS: [(&str, &str, &str); 12] = [
+pub const KINDS: [(&str, &str, &str); 13] = [
     (
         "terminal.opened",
         "Web terminal opened",
@@ -76,6 +76,11 @@ pub const KINDS: [(&str, &str, &str); 12] = [
         "host.cpu_high",
         "CPU use high",
         "CPU use averaged 90% or more over the last 15 minutes. Clears below 80%.",
+    ),
+    (
+        "app.unreachable",
+        "App not reachable at its public address",
+        "Every 5 minutes, requests the public https address of each app that has one (the app is only watched after its first successful check). Raised after 3 failed checks in a row (connection error or HTTP 500 and up); clears on the first good one.",
     ),
     (
         "container.problem",

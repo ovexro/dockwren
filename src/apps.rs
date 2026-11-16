@@ -665,6 +665,8 @@ struct InstanceView {
     snapshots: usize,
     last_backup: Option<String>,
     hostname: Option<String>,
+    /// Last external check of the public URL: Some(true) reachable, Some(false) down.
+    public_up: Option<bool>,
     /// The template has settings that can be changed after install.
     editable: bool,
     /// The template is known, so the main service can be limited.
@@ -1148,6 +1150,8 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             snapshots,
             last_backup,
             hostname: crate::public::read(&dir),
+            public_up: crate::webcheck::status(&name_for_upstream)
+                .map(|s| s == crate::webcheck::Status::Up),
             editable,
             limitable,
             uncapped: !crate::logcap::enabled(&dir),

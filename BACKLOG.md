@@ -16,7 +16,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
       - Open question: post_start commands run inside containers; allow for third-party, or refuse in v1 (recommended: refuse).
 - PLAN 2 (user approved all five, 2026-11-16; build in this order, one release each, verify the item is still open before starting):
   (1) released v0.1.38 (src/logcap.rs; Cap logs button + auto on install/update): Docker log size cap: default max-size/max-file in every app's compose (override file) + a button for already installed apps.
-  (2) External check of public URLs: probe each exposed hostname periodically, notify when unreachable (tunnel/DNS down), show status in Apps.
+  (2) released v0.1.39 (src/webcheck.rs; probe every 5 min, 3 fails raise app.unreachable, status in Apps): external check of public URLs.
   (3) Clone app: restore the newest snapshot under a new name and port ("Duplicate"), reusing the restore-test mechanism.
   (4) Image vulnerability scan (Trivy or Grype in a container): per-app counts critical/high, notify on new critical CVEs.
   (5) Generated passwords: show again (re-auth) and rotate with app restart.

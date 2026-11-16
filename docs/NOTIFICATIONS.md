@@ -95,4 +95,14 @@ container list. Thresholds are fixed (no settings); each kind has its on/off swi
   (Docker's OOM flag, so a manual kill with 137 stays quiet). It must be seen on two polls in a row, so
   an update that recreates containers does not raise it. Key `container.problem:<name>`.
 
+## Public address checks
+
+- `app.unreachable`: every 5 minutes the panel requests `https://<hostname>/` of each app that has a
+  public hostname, from the server itself (DNS and the Cloudflare tunnel, like a visitor). A connection
+  error or an HTTP status of 500 or more is a failed check; 200, redirects (a login page), 401, 403 and
+  404 count as reachable. Three failed checks in a row (about 10 minutes) raise a warning, the first good
+  one closes it. An app is watched only after its first successful check, so a hostname that was saved but
+  never published stays quiet. The Apps page shows "reachable" or "unreachable" next to the address.
+  Key `app.unreachable:<app name>`.
+
 The lower "clear" levels stop a value that hovers around a line from opening and closing the event.
