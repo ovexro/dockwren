@@ -23,4 +23,4 @@ Open items only, one line each, with the date it was last verified open. Deliver
 
 ## Standing
 - At every tag/wrapup with new features re-check README, GitHub description/topics, SECURITY.md, docs/TEMPLATES.md (memory public-repo-freshness).
-- IDEA (2026-11-14): off-host follow-ups: one-step disaster recovery (today: `backup pull`, reinstall the app, `restore`; a snapshot has no compose/.env), "restore from off-host" button in the UI (CLI `backup pull` exists), list remote snapshots, show last upload per app; tested on a real B2 bucket and a full empty-VPS recovery (2026-11-14); not tested on AWS. Not started.
+- IDEA (2026-11-14): off-host follow-ups: one-step disaster recovery (today: `import` the config export, `backup pull`, `restore`; v0.1.30 added export/import, CLI only), "restore from off-host" button in the UI (CLI `backup pull` exists), list remote snapshots, show last upload per app; tested on a real B2 bucket and a full empty-VPS recovery (2026-11-14); not tested on AWS. Not started.

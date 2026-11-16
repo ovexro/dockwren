@@ -5,6 +5,7 @@ mod auth;
 mod backup;
 mod backupwatch;
 mod config;
+mod configbundle;
 mod deliver;
 mod docker;
 mod hostupdates;
@@ -532,6 +533,58 @@ async fn cli_unexpose(cfg: &config::Config, args: &[String]) -> Result<(), Strin
     Ok(())
 }
 
+/// Passphrase from `DOCKWREN_PASSPHRASE`, else the first line of stdin.
+fn read_passphrase() -> Result<String, String> {
+    if let Ok(p) = std::env::var("DOCKWREN_PASSPHRASE") {
+        return Ok(p);
+    }
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|e| format!("passphrase: {e}"))?;
+    Ok(line.trim_end_matches(['\n', '\r']).to_string())
+}
+
+/// `dockwren export FILE` / `dockwren import FILE`: encrypted copy of every app's config.
+async fn cli_config(cfg: &config::Config, export: bool, args: &[String]) -> Result<(), String> {
+    let [file] = args else {
+        return Err(format!(
+            "usage: dockwren {} FILE   (passphrase from DOCKWREN_PASSPHRASE or the first line of stdin)",
+            if export { "export" } else { "import" }
+        ));
+    };
+    let file = std::path::Path::new(file);
+    let pass = read_passphrase()?;
+    let root = cfg.instances_dir();
+    if export {
+        let n = configbundle::export(&root, file, &pass)?;
+        println!(
+            "{n} app(s) exported to {} (encrypted; it holds your apps' passwords, keep it safe).",
+            file.display()
+        );
+        return Ok(());
+    }
+    let r = configbundle::import(&root, file, &pass)?;
+    for n in &r.skipped {
+        println!("{n}: already exists here, skipped");
+    }
+    for n in &r.created {
+        println!("{n}: recreated, starting (empty, data comes from a snapshot)");
+        let inst = runner::Instance {
+            name: n.clone(),
+            dir: root.join(n),
+        };
+        if let Err(e) = runner::bring_up(&inst, &mut |s| println!("  {s}")).await {
+            println!("  {n}: could not start: {e}");
+        }
+        if let Some(h) = r.hosts.get(n) {
+            println!("  was public at {h}: publish again with `dockwren expose {n} {h}`");
+        }
+        println!("  then restore data: dockwren backup pull {n} (if off-host backups are set up), dockwren restore {n}");
+    }
+    Ok(())
+}
+
 async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String> {
     let app = args
         .first()
@@ -582,7 +635,7 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     Ok(())
 }
 
-const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
+const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | export FILE | import FILE | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
 
 /// CLI commands work on the panel's data directory; explain the usual permission mistake
 /// instead of failing later with a bare "Permission denied".
@@ -620,7 +673,7 @@ async fn main() {
         | Some("setup-osupdate")
         | Some("self-update") => {}
         Some(
-            "install" | "backup" | "update" | "restore" | "verify" | "cleanup" | "expose"
+            "install" | "export" | "import" | "backup" | "update" | "restore" | "verify" | "cleanup" | "expose"
             | "unexpose" | "remove",
         ) => check_data_dir(&cfg.data_dir),
         Some(_) => {}
@@ -675,6 +728,14 @@ async fn main() {
             println!("New admin password (shown once, not stored):");
             println!("    {password}");
             println!("A running server applies it immediately and signs all sessions out.");
+            return;
+        }
+        Some(c @ ("export" | "import")) => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            if let Err(e) = cli_config(&cfg, c == "export", &args).await {
+                eprintln!("{c} failed: {e}");
+                std::process::exit(1);
+            }
             return;
         }
         Some("install") => {
