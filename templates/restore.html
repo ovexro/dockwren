@@ -13,6 +13,10 @@
     <button type="button" hx-post="/instances/{{ instance }}/verify" hx-target="#install" hx-swap="innerHTML" title="Reads the snapshot end to end and checks it holds everything needed. Nothing is changed and the app keeps running.">Verify selected snapshot</button> <button type="button" hx-post="/instances/{{ instance }}/restore-test" hx-target="#install" hx-swap="innerHTML" hx-confirm="Restore the newest snapshot into a temporary copy and delete it again? This uses extra memory and disk for a few minutes; the running app is not touched.">Test restore (newest snapshot)</button> <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
   </form>
   {% endif %}
+  {% if offsite %}
+  <p><small>Snapshots missing here (for example after a disk loss) can be fetched from your off-host target. Existing ones are never overwritten.</small></p>
+  <button hx-post="/instances/{{ instance }}/pull" hx-target="#install" hx-swap="innerHTML">Fetch snapshots from off-host</button>
+  {% endif %}
   {% if leftovers > 0 %}
   <p>{{ leftovers }} old copy folder(s) from earlier restores take up disk space.<br><small>Delete them once you are sure the restored app is fine. Snapshots are not touched.</small></p>
   <button hx-post="/instances/{{ instance }}/cleanup" hx-target="#install" hx-swap="innerHTML"

@@ -1801,6 +1801,7 @@ struct RestorePage {
     instance: String,
     snapshots: Vec<SnapshotView>,
     leftovers: usize,
+    offsite: bool,
 }
 
 fn known_instance(apps: &Apps, name: &str) -> Result<(), StatusCode> {
@@ -1838,7 +1839,53 @@ pub async fn restore_form(
         instance: name,
         snapshots,
         leftovers,
+        offsite: apps.offsite.get().enabled(),
     }))
+}
+
+/// `POST /instances/{name}/pull`: download the newest off-host copy of the app's snapshots
+/// (existing local snapshots are never overwritten), so they show up in the Restore list.
+pub async fn pull_submit(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    if !apps.offsite.get().enabled() {
+        return Err(StatusCode::CONFLICT);
+    }
+    let job_id = new_job(&apps, &name, "Downloading backups of")?;
+    crate::audit::record("app.backup-pull", &name);
+    let apps2 = apps.clone();
+    let id = job_id.clone();
+    tokio::spawn(async move {
+        let result = apps2
+            .offsite
+            .pull(&apps2.backups_root(), &name, &mut |s| {
+                apps2.with_job(&id, |j| j.log.push(s.to_string()));
+            })
+            .await;
+        apps2.note_job(
+            "Downloading backups of",
+            &name,
+            result.as_ref().err().map(|e| e.as_str()),
+        );
+        apps2.with_job(&id, |j| match result {
+            Ok(added) => {
+                j.log.push(if added.is_empty() {
+                    "nothing new: every off-host snapshot is already here".into()
+                } else {
+                    "done: open Restore again to pick one".into()
+                });
+                j.state = JobState::Done;
+            }
+            Err(e) => j.state = JobState::Failed(e),
+        });
+    });
+    job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 /// Start a restore job. A safety snapshot is always taken first and current

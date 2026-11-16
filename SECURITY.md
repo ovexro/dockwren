@@ -92,3 +92,5 @@ With off-host backups on, the same kind of export (same format, no app data) is 
 backup as a restic snapshot tagged `config`. It is sealed with the repository password and then encrypted
 again by restic, so whoever holds the repository password can read your apps' passwords: protect that
 password like the export passphrase. `dockwren recover` uses it to rebuild a lost server.
+
+The restore test (`dockwren restore-test`, or weekly when switched on) starts a short-lived copy of an app from its newest snapshot. The copy has the same configuration and secrets as the app, its ports are bound to this server only, and it is deleted when the test ends (folder `restore-test/` in the data directory).

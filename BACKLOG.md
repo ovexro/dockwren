@@ -5,7 +5,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 
 ## Open
 - PLAN (user approved all five, 2026-11-16; build in this order, one release each when ready):
-  STATUS: (1) released in v0.1.32. (2) restore test built and drilled live on vaultwarden + wordpress (2026-11-16), not yet released. Still open from (1)+(2): UI list of remote snapshots + "restore from off-host" button.
+  STATUS: (1) released v0.1.32, (2) restore test + off-host fetch button released v0.1.33. Next: (3) disk usage per app.
   (1) One-command recovery: `dockwren recover` = import + `backup pull` + `restore` for every app; also push the encrypted config export to the off-host target after each backup (never stale, survives disk loss); handle offsite.toml/credentials without hand-copying (prompt or re-enter); fold in the readable-bundle hint and the "restore from off-host" UI button / list remote snapshots.
   (3) Disk usage per app: data, snapshots, images per app, with "free this space" suggestions (old snapshots, unused images).
   (4) Update windows + "skip this version": auto-update only inside a chosen time window; skip a bad upstream release without disabling updates.

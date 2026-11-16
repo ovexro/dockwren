@@ -433,6 +433,7 @@ fn app(
             "/instances/{name}/limits",
             get(apps::limits_form).post(apps::limits_submit),
         )
+        .route("/instances/{name}/pull", post(apps::pull_submit))
         .route("/instances/{name}/verify", post(apps::verify_submit))
         .route(
             "/instances/{name}/restore-test",
@@ -2110,6 +2111,7 @@ mod tests {
             ("GET", "/instances/gt/restore"),
             ("POST", "/instances/gt/restore"),
             ("POST", "/instances/gt/verify"),
+            ("POST", "/instances/gt/pull"),
             ("POST", "/instances/gt/restore-test"),
             ("POST", "/instances/gt/cleanup"),
         ] {
