@@ -143,7 +143,14 @@ pub struct Imported {
 /// Recreate the instance directories from an export. Existing instances are skipped.
 /// Nothing is started: the caller brings each created instance up.
 pub fn import(instances_root: &Path, file: &Path, pass: &str) -> Result<Imported, String> {
-    let data = std::fs::read(file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let data = std::fs::read(file).map_err(|e| {
+        let hint = if e.kind() == std::io::ErrorKind::PermissionDenied {
+            " (the panel user must be able to read the file: copy it into the data directory, e.g. /var/lib/dockwren, or run import as that user)"
+        } else {
+            ""
+        };
+        format!("{}: {e}{hint}", file.display())
+    })?;
     let b = open(&data, pass)?;
     // Validate everything before writing anything.
     for (name, files) in &b.instances {
