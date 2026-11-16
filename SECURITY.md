@@ -87,3 +87,8 @@ key derived with Argon2id) and created with mode 0600. It is CLI only on purpose
 button in the web UI. Treat the file like a password manager export, and do not leave the passphrase
 in shell history (use `DOCKWREN_PASSPHRASE` from a protected environment, or type it on stdin). The file
 does not contain app data, the admin password or the off-host backup credentials.
+
+With off-host backups on, the same kind of export (same format, no app data) is also uploaded after every
+backup as a restic snapshot tagged `config`. It is sealed with the repository password and then encrypted
+again by restic, so whoever holds the repository password can read your apps' passwords: protect that
+password like the export passphrase. `dockwren recover` uses it to rebuild a lost server.
