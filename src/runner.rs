@@ -143,6 +143,23 @@ pub fn claimed_ports(root: &Path) -> std::collections::HashSet<u16> {
     out
 }
 
+/// Explicit `-f` list when the instance has resource limits. Naming any file turns off
+/// compose's automatic loading of the override, so name that one too.
+fn compose_files(dir: &Path) -> Vec<String> {
+    if !dir.join(crate::limits::YAML).is_file() {
+        return Vec::new();
+    }
+    let mut files = vec!["compose.yaml"];
+    if dir.join("compose.override.yaml").is_file() {
+        files.push("compose.override.yaml");
+    }
+    files.push(crate::limits::YAML);
+    files
+        .into_iter()
+        .flat_map(|f| ["-f".to_string(), dir.join(f).display().to_string()])
+        .collect()
+}
+
 /// Run `docker compose` for an instance; returns stdout, or stderr on failure.
 pub async fn compose(inst: &Instance, args: &[&str]) -> Result<String, String> {
     compose_with_stdin(inst, args, None).await
@@ -172,6 +189,7 @@ pub async fn compose_with_stdin(
         .arg(&inst.dir)
         .arg("--env-file")
         .arg(inst.dir.join(".env"))
+        .args(compose_files(&inst.dir))
         .args(args)
         .output()
         .await
@@ -393,6 +411,21 @@ mod tests {
         ] {
             assert!(!valid_name(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn limits_file_adds_explicit_compose_files() {
+        let d = std::env::temp_dir().join(format!("dw-cf-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        assert!(compose_files(&d).is_empty());
+        std::fs::write(d.join(crate::limits::YAML), "x").unwrap();
+        let n = |v: &[String]| v.iter().filter(|a| *a == "-f").count();
+        assert_eq!(n(&compose_files(&d)), 2);
+        std::fs::write(d.join("compose.override.yaml"), "x").unwrap();
+        let f = compose_files(&d);
+        assert_eq!(n(&f), 3);
+        assert!(f.last().unwrap().ends_with("compose.limits.yaml"));
+        std::fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]

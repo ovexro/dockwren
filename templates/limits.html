@@ -1,0 +1,16 @@
+<div id="limits">
+  <h3>Resources of {{ instance }}</h3>
+  <p><small>Limits apply to the main service ({{ service }}) only, not to helper containers such as the database. Saving restarts the app. If it does not come back healthy, the old limits are put back. Leave a field empty for no limit. An app that hits its memory limit is stopped by Docker, so do not set it too low.</small></p>
+  {% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
+  <form hx-post="/instances/{{ instance }}/limits" hx-target="#install" hx-swap="innerHTML"
+        hx-confirm="Save and restart {{ instance }} with these limits?">
+    <p><label>Memory limit
+      <input type="text" name="memory" value="{{ memory }}" placeholder="e.g. 512m or 2g">
+    </label><br><small>At least 64m.</small></p>
+    <p><label>CPU limit
+      <input type="text" name="cpus" value="{{ cpus }}" placeholder="e.g. 1.5">
+    </label><br><small>Number of CPUs, 0.1 to 64.</small></p>
+    <button class="primary" type="submit">Save and restart</button>
+    <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
+  </form>
+</div>

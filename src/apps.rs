@@ -561,6 +561,8 @@ struct InstanceView {
     hostname: Option<String>,
     /// The template has settings that can be changed after install.
     editable: bool,
+    /// The template is known, so the main service can be limited.
+    limitable: bool,
 }
 
 #[derive(Template)]
@@ -1006,6 +1008,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
         let editable = apps
             .template(&state.template)
             .is_some_and(|t| t.manifest.fields.iter().any(|f| f.editable));
+        let limitable = apps.template(&state.template).is_some();
         out.push(InstanceView {
             name,
             app: state.template,
@@ -1022,6 +1025,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             last_backup,
             hostname: crate::public::read(&dir),
             editable,
+            limitable,
         });
     }
     out
@@ -1518,6 +1522,137 @@ pub async fn settings_submit(
         apps2.with_job(&id, |j| match result {
             Ok(()) => {
                 j.log.push("settings applied".into());
+                j.state = JobState::Done;
+            }
+            Err(e) => j.state = JobState::Failed(e),
+        });
+    });
+    job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+#[derive(Template)]
+#[template(path = "limits.html")]
+struct LimitsPage {
+    instance: String,
+    service: String,
+    memory: String,
+    cpus: String,
+    error: Option<String>,
+}
+
+/// Name of the main service of an instance, from its template.
+fn main_service(apps: &Apps, dir: &std::path::Path) -> Result<String, StatusCode> {
+    let state: InstanceState = std::fs::read_to_string(dir.join("state.toml"))
+        .ok()
+        .and_then(|s| toml::from_str(&s).ok())
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let t = apps.template(&state.template).ok_or(StatusCode::NOT_FOUND)?;
+    t.manifest
+        .services
+        .iter()
+        .find(|s| s.main)
+        .map(|s| s.name.clone())
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// `GET /instances/{name}/limits`: form with the memory and CPU limits of the main service.
+pub async fn limits_form(
+    State(apps): State<Apps>,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    known_instance(&apps, &name)?;
+    let dir = apps.root.join(&name);
+    let service = main_service(&apps, &dir)?;
+    let l = crate::limits::load(&dir);
+    Ok(render(LimitsPage {
+        instance: name,
+        service,
+        memory: l.memory,
+        cpus: l.cpus,
+        error: None,
+    }))
+}
+
+/// `POST /instances/{name}/limits`: store the limits, recreate the containers; on failure the
+/// old limits are put back. Empty fields remove the limit.
+pub async fn limits_submit(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Form(values): Form<HashMap<String, String>>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let dir = apps.root.join(&name);
+    let service = main_service(&apps, &dir)?;
+    let get = |k: &str| values.get(k).map(String::as_str).unwrap_or("");
+    let old = crate::limits::load(&dir);
+    let page = |error: &str| {
+        render(LimitsPage {
+            instance: name.clone(),
+            service: service.clone(),
+            memory: get("memory").to_string(),
+            cpus: get("cpus").to_string(),
+            error: Some(error.to_string()),
+        })
+    };
+    let new = match crate::limits::Limits::parse(get("memory"), get("cpus")) {
+        Ok(l) => l,
+        Err(e) => return Ok(page(&e)),
+    };
+    if new == old {
+        return Ok(page("Nothing changed."));
+    }
+    let job_id = new_job(&apps, &name, "Applying limits to")?;
+    let summary = if new.is_empty() {
+        "removed".to_string()
+    } else {
+        format!("memory={} cpus={}", new.memory, new.cpus)
+    };
+    crate::audit::record("app.limits", &format!("{name}: {summary}"));
+    let apps2 = apps.clone();
+    let id = job_id.clone();
+    tokio::spawn(async move {
+        let inst = runner::Instance {
+            name: name.clone(),
+            dir,
+        };
+        let log = |s: &str| {
+            apps2.with_job(&id, |j| j.log.push(s.to_string()));
+        };
+        let result = async {
+            crate::limits::save(&inst.dir, &new, &service)?;
+            let up = async {
+                log("checking compose file");
+                runner::compose(&inst, &["config", "-q"]).await?;
+                log("recreating containers");
+                runner::compose(&inst, &["up", "-d"]).await?;
+                log("waiting for healthy");
+                runner::wait_healthy(&inst, std::time::Duration::from_secs(240)).await
+            }
+            .await;
+            if let Err(e) = up {
+                log("failed: putting the old limits back");
+                crate::limits::save(&inst.dir, &old, &service)?;
+                let back = runner::compose(&inst, &["up", "-d"]).await;
+                return Err(match back {
+                    Ok(_) => format!("{e} (old limits restored)"),
+                    Err(b) => format!("{e} (restoring the old limits also failed: {b})"),
+                });
+            }
+            Ok::<(), String>(())
+        }
+        .await;
+        apps2.note_job(
+            "Applying limits to",
+            &name,
+            result.as_ref().err().map(|e| e.as_str()),
+        );
+        apps2.with_job(&id, |j| match result {
+            Ok(()) => {
+                j.log.push("limits applied".into());
                 j.state = JobState::Done;
             }
             Err(e) => j.state = JobState::Failed(e),

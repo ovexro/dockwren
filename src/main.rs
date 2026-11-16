@@ -9,6 +9,7 @@ mod deliver;
 mod docker;
 mod hostupdates;
 mod install;
+mod limits;
 mod metrics;
 mod notify;
 mod offsite;
@@ -422,6 +423,10 @@ fn app(
         .route(
             "/instances/{name}/settings",
             get(apps::settings_form).post(apps::settings_submit),
+        )
+        .route(
+            "/instances/{name}/limits",
+            get(apps::limits_form).post(apps::limits_submit),
         )
         .route("/instances/{name}/verify", post(apps::verify_submit))
         .route("/instances/{name}/cleanup", post(apps::cleanup_submit))
@@ -1849,6 +1854,8 @@ mod tests {
             ("POST", "/settings/cloudflare/disconnect"),
             ("GET", "/instances/gt/settings"),
             ("POST", "/instances/gt/settings"),
+            ("GET", "/instances/gt/limits"),
+            ("POST", "/instances/gt/limits"),
             ("GET", "/instances/gt/restore"),
             ("POST", "/instances/gt/restore"),
             ("POST", "/instances/gt/verify"),
