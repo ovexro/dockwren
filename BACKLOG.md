@@ -7,7 +7,13 @@ Open items only, one line each, with the date it was last verified open. Deliver
 - PLAN (user approved all five, 2026-11-16; build in this order, one release each when ready):
   STATUS: (1) released v0.1.32, (2) restore test + off-host fetch button released v0.1.33. (3) disk usage per app released v0.1.34. (4) update window + skip version released v0.1.35. Next: (5) extra template sources.
   (1) One-command recovery: `dockwren recover` = import + `backup pull` + `restore` for every app; also push the encrypted config export to the off-host target after each backup (never stale, survives disk loss); handle offsite.toml/credentials without hand-copying (prompt or re-enter); fold in the readable-bundle hint and the "restore from off-host" UI button / list remote snapshots.
-  (5) Extra template sources: git URL pinned to a commit, same strict manifest checks (host ports, privileged refused); think through trust model first.
+  (5) Extra template sources. DESIGN (proposed 2026-11-16, awaiting user OK):
+      - Source: `dockwren template add <git-url> <full-commit-sha>` (also a Settings form); https only, no branch/tag tracking. Fetch once (shallow, no submodules, no hooks, size and file-count caps), keep a copy under <data>/templates/<id>/, record url+sha in a sources file.
+      - Checks: same `template::validate` as bundled (no host ports outside `lan_ports`, no privileged/host network/pid, no host mounts outside the app folder); also refuse any id that equals a bundled id (the existing extra_dir mechanism silently OVERRIDES bundled templates: close that for pinned sources).
+      - Approval: show manifest + compose (images, ports, mounts, post_start commands) and require an explicit "Add" click; a new sha for the same source is a new approval with a diff, like app updates.
+      - Marking: catalog shows a "third-party" label with url + short sha; installs record the source.
+      - Not doing: auto-updating sources, running anything from the repo at fetch time, private repos/credentials (v1).
+      - Open question: post_start commands run inside containers; allow for third-party, or refuse in v1 (recommended: refuse).
 - OS updates: not tested on aarch64 Ubuntu (x86_64 Ubuntu 22.04/24.04/26.04, Debian 13 x86_64 and Debian 13 aarch64 on the Pi pass, 2026-11-14). Verified open 2026-11-14.
 - OS updates: real-packages run seen on a fresh Ubuntu 24.04 VPS (38 pkgs, exit 0, reboot notice) but not yet on the live server (nothing to install there). Verified open 2026-11-14.
 - IDEA (2026-11-14): more catalog templates (open-ended; done so far: Nextcloud, Jellyfin, Grafana, n8n, Syncthing, Homepage, Navidrome, Stirling-PDF, Wiki.js, Ghost, SnappyMail, Immich, Roundcube, AdGuard Home, Pi-hole). Items 2-6 of the old list (update badge/auto-update, image heads-up, resource alerts, self-update, audit log, add stack) are delivered.
