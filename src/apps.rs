@@ -2580,6 +2580,8 @@ struct PublicPage {
     direct: bool,
     /// Preflight lines for direct HTTPS: (ok, text).
     checks: Vec<(bool, String)>,
+    /// Expiry of the certificate Caddy serves (direct mode only).
+    cert_expiry: Option<String>,
 }
 
 fn public_page(
@@ -2621,6 +2623,7 @@ fn public_page(
         zone_warning: None,
         direct: crate::direct::is_direct(&dir),
         checks: Vec::new(),
+        cert_expiry: None,
     }
 }
 
@@ -2668,9 +2671,11 @@ pub async fn public_form(
 ) -> Result<Html<String>, StatusCode> {
     known_instance(&apps, &name)?;
     let host = crate::public::read(&apps.root.join(&name)).unwrap_or_default();
-    Ok(render(
-        with_zone_warning(public_page(&apps, &name, host, None, false)).await,
-    ))
+    let mut page = public_page(&apps, &name, host.clone(), None, false);
+    if page.direct {
+        page.cert_expiry = crate::direct::cert_expiry(&host).await;
+    }
+    Ok(render(with_zone_warning(page).await))
 }
 
 pub async fn public_submit(
@@ -2966,7 +2971,10 @@ pub async fn public_direct(
             });
         }
     }
-    let mut page = public_page(&apps, &name, host, None, false);
+    let mut page = public_page(&apps, &name, host.clone(), None, false);
+    if page.direct {
+        page.cert_expiry = crate::direct::cert_expiry(&host).await;
+    }
     page.checks = checks;
     page.result = Some((ok, lines));
     Ok(render(page))

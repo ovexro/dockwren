@@ -244,6 +244,19 @@ pub async fn preflight(data_dir: &Path, host: &str, port: Option<u16>) -> Vec<Ch
             format!("{host} resolves to {}; could not look up this server's public IP to compare.", resolved.join(", ")),
         ),
     });
+    let ufw = Command::new("systemctl")
+        .args(["is-active", "ufw"])
+        .output()
+        .await
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "active")
+        .unwrap_or(false);
+    if ufw {
+        v.push((
+            false,
+            false,
+            "The ufw firewall is active here, and Let's Encrypt cannot reach this server unless 80 and 443 are open. Dockwren does not change your firewall; run on the server: sudo ufw allow 80/tcp && sudo ufw allow 443/tcp".to_string(),
+        ));
+    }
     v.push((
         true,
         false,
@@ -251,6 +264,31 @@ pub async fn preflight(data_dir: &Path, host: &str, port: Option<u16>) -> Vec<Ch
             .to_string(),
     ));
     v
+}
+
+/// `notAfter=Feb 15 13:35:21 2027 GMT` (openssl output) -> `Feb 15 2027`.
+fn parse_not_after(out: &str) -> Option<String> {
+    let rest = out
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("notAfter="))?;
+    let p: Vec<&str> = rest.split_whitespace().collect();
+    (p.len() >= 4).then(|| format!("{} {} {}", p[0], p[1], p[3]))
+}
+
+/// Expiry date of the certificate Caddy serves for `host` (asked over TLS on this machine).
+/// None when openssl is missing or no certificate is served yet.
+pub async fn cert_expiry(host: &str) -> Option<String> {
+    let script = format!(
+        "echo | openssl s_client -connect 127.0.0.1:443 -servername {host} 2>/dev/null | openssl x509 -noout -enddate"
+    );
+    let out = tokio::time::timeout(
+        Duration::from_secs(6),
+        Command::new("sh").args(["-c", &script]).output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    parse_not_after(&String::from_utf8_lossy(&out.stdout))
 }
 
 #[cfg(test)]
@@ -275,6 +313,15 @@ mod tests {
         assert!(port_busy(ss, 443));
         assert!(!port_busy(ss, 8));
         assert!(!port_busy("LISTEN 0 4096 127.0.0.1:8080 0.0.0.0:*", 80));
+    }
+
+    #[test]
+    fn expiry_is_read_from_openssl_output() {
+        assert_eq!(
+            parse_not_after("notAfter=Feb 15 13:35:21 2027 GMT\n").as_deref(),
+            Some("Feb 15 2027")
+        );
+        assert_eq!(parse_not_after("garbage"), None);
     }
 
     #[test]

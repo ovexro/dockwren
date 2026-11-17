@@ -42,7 +42,7 @@
     <button type="submit" name="action" value="on">Publish directly</button>
     {% if direct %}<button type="submit" name="action" value="off">Turn direct HTTPS off</button>{% endif %}
   </form>
-  {% if direct %}<p><strong>Direct HTTPS is on for this app.</strong></p>{% endif %}
+  {% if direct %}<p><strong>Direct HTTPS is on for this app.</strong>{% if let Some(d) = cert_expiry %} Certificate valid until {{ d }} (Caddy renews it by itself).{% else %} No certificate served yet; it can take a minute after publishing.{% endif %}</p>{% endif %}
   {% endif %}
   {% if let Some(s) = snippet %}
   <p>Add this rule to your Cloudflare Tunnel (ingress, above the catch-all):</p>

@@ -1330,6 +1330,20 @@ async fn main() {
     upstream::spawn_checker(apps.clone(), notify.clone());
     hostupdates::spawn_checker(notify.clone());
     webcheck::spawn_checker(apps.clone(), notify.clone());
+    {
+        // Direct HTTPS: make sure the Caddy container matches the instances (also after a restore).
+        let (root, data) = (
+            apps.root.clone(),
+            apps.root.parent().map(|p| p.to_path_buf()),
+        );
+        tokio::spawn(async move {
+            if let Some(data) = data
+                && let Err(e) = direct::reconcile(&data, &root).await
+            {
+                eprintln!("direct HTTPS: {e}");
+            }
+        });
+    }
     vulnscan::spawn_checker(apps.clone(), notify.clone(), cfg.data_dir.clone());
     backupwatch::spawn_checker(notify.clone());
     let os_control = Arc::new(osupdate::Control::new(Some(&cfg.data_dir)));

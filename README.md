@@ -120,8 +120,10 @@ one Caddy container (`dockwren-caddy`, host networking) that listens on ports 80
 free Let's Encrypt certificate (HTTP-01) and proxies the hostname to the app. Requirements: an A record
 for the hostname pointing at this server's public IP (DNS only, not proxied), and ports 80/443 free on the
 server and forwarded to it. The Check button tests these first. A hostname uses either this or the
-Cloudflare Tunnel, never both. Certificates are kept in `caddy/data` in the data directory. Opening
-80/443 in `ufw` is still manual for now.
+Cloudflare Tunnel, never both. Certificates are kept in `caddy/data` in the data directory. If `ufw` is active, Check
+shows the exact `ufw allow` commands (the panel never changes your firewall). The dialog shows when the
+certificate expires; Caddy renews it by itself. The config export keeps which apps are direct, and the
+panel restarts Caddy on start, so a restored server re-issues certificates without extra steps.
 
 ## Public hostnames (Cloudflare Tunnel)
 

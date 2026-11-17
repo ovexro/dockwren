@@ -25,6 +25,7 @@ const FILES: &[&str] = &[
     ".env",
     "limits.toml",
     "compose.limits.yaml",
+    "public-mode.txt",
 ];
 pub const MIN_PASSPHRASE: usize = 12;
 
