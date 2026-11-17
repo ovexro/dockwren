@@ -9,7 +9,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 - Security: WordPress template has 2 fixable criticals needing upstream rebuilds (rechecked 2026-11-17, images unchanged since 2026-11-11, no wordpress 7.1.5 / mariadb 11.8.10 yet): apache2 2.4.69 (fix 2.4.71) in wordpress:7.1.4-php8.x-apache; Go stdlib 1.24.6 (fix 1.24.13) in mariadb:11.8.9. Recheck both tags at each release.
 - Off-host: not tested on AWS (B2 tested). Low value, keep unless asked.
 - Ideas queue (proposed and verified not built/not excluded 2026-11-17; user approved all, order = recommendation):
-  1. Adopt running containers / existing Compose projects as managed stacks: phases 1 (scan) + 2 (adopt, named volumes only) built; open: host bind mounts (data relocation), backups of named volumes, ports claimed in .env, ProtectHome files, passkeys next.
+  1. Adopt running containers / existing Compose projects as managed stacks: phases 1 (scan) + 2 (adopt, named volumes only) built; open: host bind mounts (data relocation), backups of named volumes, ports claimed in .env, ProtectHome files.
   2. Rotate generated app passwords from the Passwords page (change in the app/DB too, only for templates with a migration step); medium, delicate.
   Non-code: list Dockwren in awesome-selfhosted + public announcement (outward action: ask the user first).
 - Test hygiene: `adopt::tests::adopted_project_is_not_recreated` uses fixed port 45873 and leaves its containers when it fails; a stale one makes every later run fail. Use a free port and clean up on failure.
