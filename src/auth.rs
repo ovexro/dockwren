@@ -187,6 +187,11 @@ impl Auth {
         })
     }
 
+    /// Data dir of a production instance (`None` in unit tests).
+    pub fn data_dir(&self) -> Option<&Path> {
+        self.dir.as_deref()
+    }
+
     /// Production: credential and sessions live in `data_dir`.
     pub fn open(data_dir: &Path, secure_cookie: bool) -> Result<Self, String> {
         let hash_path = data_dir.join(HASH_FILE);

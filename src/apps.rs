@@ -720,6 +720,8 @@ struct InstanceView {
     upstream: Option<String>,
     snapshots: usize,
     last_backup: Option<String>,
+    /// Epoch of the newest snapshot.
+    last_backup_at: Option<u64>,
     hostname: Option<String>,
     /// Last external check of the public URL: Some(true) reachable, Some(false) down.
     public_up: Option<bool>,
@@ -1185,10 +1187,10 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
         let update_skipped = newer.is_some() && skipped_version(&dir) == newer;
         let snaps = crate::backup::list(&apps.backups_root(), &name);
         let snapshots = snaps.len();
-        let last_backup = snaps
+        let last_backup_at = snaps
             .last()
-            .and_then(|p| p.file_name()?.to_str()?.parse::<u64>().ok())
-            .map(|e| utc_stamp(e).trim_end_matches(" UTC").to_string());
+            .and_then(|p| p.file_name()?.to_str()?.parse::<u64>().ok());
+        let last_backup = last_backup_at.map(|e| utc_stamp(e).trim_end_matches(" UTC").to_string());
         let name_for_upstream = name.clone();
         let editable = apps
             .template(&state.template)
@@ -1212,6 +1214,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
                 .map(|f| f.summary()),
             snapshots,
             last_backup,
+            last_backup_at,
             hostname: crate::public::read(&dir),
             public_up: crate::webcheck::status(&name_for_upstream)
                 .map(|s| s == crate::webcheck::Status::Up),
@@ -1223,6 +1226,35 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
         });
     }
     out
+}
+
+/// Read-only status of every app for the JSON API: health, last backup, scan counts.
+/// No hostnames, ports or secrets.
+pub async fn status_json(apps: &Apps) -> Vec<serde_json::Value> {
+    instance_views(apps)
+        .await
+        .into_iter()
+        .map(|v| {
+            let scan = crate::vulnscan::summary(&v.name).map(|s| {
+                serde_json::json!({
+                    "scanned_at": s.scanned,
+                    "critical": s.critical,
+                    "high": s.high,
+                    "fixable_critical": s.fixable_critical,
+                })
+            });
+            serde_json::json!({
+                "name": v.name,
+                "app": v.app,
+                "status": v.status,
+                "healthy": v.status == "healthy",
+                "public_up": v.public_up,
+                "update_available": v.update.is_some(),
+                "backup": {"snapshots": v.snapshots, "last_at": v.last_backup_at},
+                "scan": scan,
+            })
+        })
+        .collect()
 }
 
 /// Epoch of the newest snapshot of any installed app; None when there is none.

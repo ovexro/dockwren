@@ -49,6 +49,7 @@ Release binaries and `SHA256SUMS` are on the
 - Single-admin login: strong generated password, Argon2id hash, `HttpOnly` + `SameSite=Strict`
   session cookie, login rate limit, sessions that survive restarts.
 - Overview: all containers (running or not) with image, state and status, refreshed every 5 s. Below the tiles it shows the hostname, OS, uptime, Dockwren version and (once apps are installed) the time since the last backup.
+- Status API for monitoring: `sudo -u dockwren env DOCKWREN_DATA=/var/lib/dockwren dockwren status-token` prints a read-only token once (only its hash is kept; running it again replaces it, `--revoke` deletes it). `curl -H "Authorization: Bearer <token>" https://<panel>/api/status` then returns JSON with each app's health, last backup time and snapshot count, image scan counts, and the newest backup overall. No hostnames, ports or secrets; the token cannot sign in or change anything.
 - Resource graphs: CPU, memory, network and disk space as plain one-colour lines (last 1 h, 24 h, 7 days or 30 days), plus CPU/memory per running container. Sampled every 10 s; the 1 h and 24 h views live in memory, while 5-minute averages are kept 30 days in `metrics.log` in the data directory and survive restarts. A disk above 85% is flagged.
 - Start, stop (with confirmation) and restart a container; log viewer (last 200 lines, refreshed every 5 s).
 - App catalog with icons and install forms (generated passwords, per-field hints).
@@ -82,7 +83,7 @@ Release binaries and `SHA256SUMS` are on the
 - OS updates (optional, off by default): the panel always tells you when the server has pending package updates or needs a reboot. To install them from Settings too, run `sudo dockwren setup-osupdate --data-dir <your data dir>` once, then turn it on in Settings. Each start asks for your password (and 2FA code); it runs `apt-get update` and `apt-get full-upgrade` as root through a small systemd helper, shows the log live, and never reboots. Debian and Ubuntu only. See SECURITY.md.
 - Two-factor sign-in (optional): turn it on in Settings with any authenticator app (Google Authenticator works). Locked out? `dockwren disable-2fa` turns it off.
 
-CLI: `dockwren [serve | set-password | disable-2fa | setup-osupdate | self-update | install | export | import | recover | backup [pull] | update | restore | verify | restore-test | scan | doctor | template add/list/remove | cleanup | expose | unexpose | remove]`.
+CLI: `dockwren [serve | set-password | disable-2fa | status-token [--revoke] | setup-osupdate | self-update | install | export | import | recover | backup [pull] | update | restore | verify | restore-test | scan | doctor | template add/list/remove | cleanup | expose | unexpose | remove]`.
 
 ## Requirements
 

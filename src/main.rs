@@ -27,6 +27,7 @@ mod runner;
 mod schedule;
 mod selfupdate;
 mod stack;
+mod statusapi;
 mod template;
 mod terminal;
 mod thirdparty;
@@ -482,6 +483,7 @@ fn app(
         .route_layer(from_fn_with_state(auth.clone(), auth::require_session));
     let router = Router::new()
         .route("/health", get(health))
+        .route("/api/status", get(statusapi::status))
         .route("/static/dockwren.css", get(stylesheet))
         .route("/favicon.svg", get(favicon))
         .route("/favicon.ico", get(favicon))
@@ -812,7 +814,7 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     Ok(())
 }
 
-const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | export FILE | import FILE | recover | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | restore-test <instance> | scan <instance> | doctor | template add <https-url> <commit> [--yes] | template list | template remove <id> | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
+const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | status-token [--revoke] | install <app> [KEY=VALUE...] | export FILE | import FILE | recover | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | restore-test <instance> | scan <instance> | doctor | template add <https-url> <commit> [--yes] | template list | template remove <id> | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
 
 /// CLI commands work on the panel's data directory; explain the usual permission mistake
 /// instead of failing later with a bare "Permission denied".
@@ -847,6 +849,7 @@ async fn main() {
         | Some("serve")
         | Some("set-password")
         | Some("disable-2fa")
+        | Some("status-token")
         | Some("setup-osupdate")
         | Some("self-update") => {}
         Some(
@@ -897,6 +900,30 @@ async fn main() {
                     std::process::exit(1);
                 }
             }
+            return;
+        }
+        Some("status-token") => {
+            let revoke = std::env::args().nth(2).as_deref() == Some("--revoke");
+            if revoke {
+                match statusapi::revoke(&cfg.data_dir) {
+                    Ok(true) => println!("Status token revoked."),
+                    Ok(false) => println!("There was no status token."),
+                    Err(e) => {
+                        eprintln!("cannot revoke: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            let token = statusapi::create(&cfg.data_dir).unwrap_or_else(|e| {
+                panic!("cannot write the token in {}: {e}", cfg.data_dir.display())
+            });
+            println!("New read-only status token (shown once, only its hash is stored):");
+            println!("    {token}");
+            println!(
+                "Use it as: curl -H 'Authorization: Bearer <token>' https://<panel>/api/status"
+            );
+            println!("It replaces any earlier token. Revoke with: dockwren status-token --revoke");
             return;
         }
         Some("set-password") => {
@@ -1986,6 +2013,62 @@ mod tests {
         assert!(render_containers(Ok(vec![]), false).contains("No containers yet"));
         let err = render_containers(Err("boom".into()), false);
         assert!(err.contains("Docker is not reachable: boom"));
+    }
+
+    #[tokio::test]
+    async fn status_api_needs_a_valid_token_and_ignores_sessions() {
+        let dir = std::env::temp_dir().join(format!("dockwren-api-{}", auth::generate_password()));
+        let (_, _) = auth::load_or_create(&dir).unwrap();
+        let token = statusapi::create(&dir).unwrap();
+        let build = || {
+            app(
+                Arc::new(auth::Auth::open(&dir, false).unwrap()),
+                DockerClient::connect().unwrap(),
+                apps::Apps::new(template::catalog(None).unwrap(), dir.join("instances")),
+                metrics::Shared::default(),
+                Arc::new(std::sync::Mutex::new(notify::Store::memory())),
+                Arc::new(terminal::Switch::new(false, None)),
+                Arc::new(osupdate::Control::new(None)),
+                Arc::new(selfupdate::Control::new(&std::env::temp_dir())),
+            )
+        };
+        for auth_header in [None, Some("Bearer dwst_wrong"), Some("Basic abc")] {
+            let mut r = Request::get("/api/status");
+            if let Some(h) = auth_header {
+                r = r.header(header::AUTHORIZATION, h);
+            }
+            let res = build()
+                .oneshot(r.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "{auth_header:?}");
+        }
+        let res = build()
+            .oneshot(
+                Request::get("/api/status")
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
+        assert!(v["apps"].as_array().unwrap().is_empty());
+        assert!(v["last_backup_at"].is_null());
+        // the token does not open the panel
+        let res = build()
+            .oneshot(
+                Request::get("/containers/list")
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
     }
 
     #[tokio::test]

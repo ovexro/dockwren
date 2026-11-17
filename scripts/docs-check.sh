@@ -49,7 +49,7 @@ for f in $(grep -oE '(src|href)="[^"#:]+"|\]\([^)#:]+\)' README.md | sed -E 's/^
 done
 
 # 7. Nothing tracked names a real host or private IP (memory no-hostnames-in-git).
-if git grep -nE '(^|[^0-9.])(192\.168\.|10\.[0-9]+\.[0-9]+\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|172\.(1[6-9]|2[0-9]|3[01])\.)[0-9]+\.[0-9]+|neo50q' -- . ':!Cargo.lock' ':!*.svg' | grep -vE '[0-9]/[0-9]+'; then
+if git grep -nE '(^|[^0-9.])(192\.168\.|10\.[0-9]+\.[0-9]+\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|172\.(1[6-9]|2[0-9]|3[01])\.)[0-9]+\.[0-9]+|neo50q' -- . ':!Cargo.lock' ':!*.svg' ':!scripts/docs-check.sh' | grep -vE '[0-9]/[0-9]+'; then
   fail "private IP or real hostname found in tracked files (above)"; fi
 
 # 8. GitHub description, topics and license.
