@@ -38,7 +38,9 @@ pub struct Apps {
 impl Apps {
     pub fn new(templates: Vec<AppTemplate>, root: PathBuf) -> Self {
         Self {
-            templates: Arc::new(std::sync::RwLock::new(Box::leak(templates.into_boxed_slice()))),
+            templates: Arc::new(std::sync::RwLock::new(Box::leak(
+                templates.into_boxed_slice(),
+            ))),
             root,
             jobs: Arc::default(),
             lock: Arc::default(),
@@ -586,7 +588,9 @@ impl Apps {
                         crate::notify::Severity::Info,
                         &format!("{name} was updated automatically"),
                     )
-                    .body("A snapshot was taken first and the app came back healthy. Nothing to do.")
+                    .body(
+                        "A snapshot was taken first and the app came back healthy. Nothing to do.",
+                    )
                     .link("/apps")
                     .key(format!("app.auto_updated:{name}:{to}")),
                 );
@@ -634,7 +638,11 @@ impl Apps {
     /// Rebuild the catalog from the bundled templates plus the stored third-party ones, so an
     /// added or removed template shows up without restarting the panel.
     pub fn reload_templates(&self) {
-        let data = self.root.parent().map(PathBuf::from).unwrap_or_else(|| self.root.clone());
+        let data = self
+            .root
+            .parent()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.root.clone());
         let over = std::env::var("DOCKWREN_APPS").ok().map(PathBuf::from);
         if let Ok(all) = catalog_in(&data, over.as_deref()) {
             *self.templates.write().unwrap() = Box::leak(all.into_boxed_slice());
@@ -1361,7 +1369,10 @@ pub fn catalog(cfg: &crate::config::Config) -> Result<Vec<AppTemplate>, String> 
     catalog_in(&cfg.data_dir, cfg.apps_dir_override().as_deref())
 }
 
-fn catalog_in(data_dir: &std::path::Path, over: Option<&std::path::Path>) -> Result<Vec<AppTemplate>, String> {
+fn catalog_in(
+    data_dir: &std::path::Path,
+    over: Option<&std::path::Path>,
+) -> Result<Vec<AppTemplate>, String> {
     let mut all = template::catalog(over)?;
     for t in crate::thirdparty::load_all(data_dir) {
         if all.iter().all(|a| a.manifest.app.id != t.manifest.app.id) {
@@ -1760,6 +1771,69 @@ pub async fn schedule_save(
     }
     crate::audit::record("settings.backup-schedule", "changed");
     Ok(schedule_html(&apps, Some("Saved."), None))
+}
+
+#[derive(Deserialize)]
+pub struct ConfigDownloadForm {
+    password: String,
+    #[serde(default)]
+    code: String,
+    passphrase: String,
+}
+
+fn config_download_error(msg: &str) -> Response {
+    let msg = msg.replace('&', "&amp;").replace('<', "&lt;");
+    (
+        StatusCode::BAD_REQUEST,
+        Html(format!(
+            "<!doctype html><meta charset=\"utf-8\"><title>Config export</title><p role=\"alert\">{msg}</p><p><a href=\"/settings/tab/system\">Back to Settings</a></p>"
+        )),
+    )
+        .into_response()
+}
+
+/// `POST /settings/config-export`: after re-auth, download the sealed config export
+/// (compose files, `.env` passwords, panel settings; no data) encrypted with a passphrase
+/// typed here. Restore it with `dockwren import` / `dockwren recover`.
+pub async fn config_download(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Form(f): Form<ConfigDownloadForm>,
+) -> Response {
+    if !crate::same_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(auth) = apps.auth.clone() else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    if !auth.reauth(f.password, &f.code).await {
+        return config_download_error("Wrong password or code.");
+    }
+    let root = apps.root.clone();
+    let pass = f.passphrase;
+    let res = tokio::task::spawn_blocking(move || {
+        crate::configbundle::export_bytes(&root, &pass, crate::configbundle::MIN_PASSPHRASE)
+    })
+    .await;
+    match res {
+        Ok(Ok((bytes, n))) => {
+            crate::audit::record("config.export_download", &format!("{n} instances"));
+            (
+                [
+                    (header::CONTENT_TYPE, "application/octet-stream"),
+                    (
+                        header::CONTENT_DISPOSITION,
+                        "attachment; filename=\"dockwren-config.dwx\"",
+                    ),
+                    (header::CACHE_CONTROL, "no-store"),
+                ],
+                bytes,
+            )
+                .into_response()
+        }
+        Ok(Err(e)) => config_download_error(&e),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 
 #[derive(Template)]
@@ -2558,7 +2632,9 @@ pub async fn restore_submit(
         .ok()
         .and_then(|s| toml::from_str(&s).ok())
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    let tpl = apps.template(&state.template).ok_or(StatusCode::NOT_FOUND)?;
+    let tpl = apps
+        .template(&state.template)
+        .ok_or(StatusCode::NOT_FOUND)?;
     let job_id = new_job(&apps, &name, "Restoring")?;
     crate::audit::record("app.restore", &name);
     let task_apps = apps.clone();

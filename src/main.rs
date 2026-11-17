@@ -442,6 +442,7 @@ fn app(
         .route("/settings/channels", get(deliver::show).post(deliver::save))
         .route("/settings/channels/test", post(deliver::test))
         .route("/settings/channels/{which}/remove", post(deliver::remove))
+        .route("/settings/config-export", post(apps::config_download))
         .route("/settings/2fa", get(auth::twofa_show))
         .route("/settings/2fa/start", post(auth::twofa_start))
         .route("/settings/2fa/enable", post(auth::twofa_enable))
@@ -2250,6 +2251,62 @@ mod tests {
         let off = post("kind=off").await;
         assert!(off.contains("Off-host copies are off"), "{off}");
         assert!(!off.contains("Repository password (shown once)"), "{off}");
+    }
+
+    #[tokio::test]
+    async fn config_export_download_needs_the_password_and_a_long_passphrase() {
+        let root = std::env::temp_dir().join(format!("dockwren-cfgdl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let inst = root.join("gt");
+        std::fs::create_dir_all(&inst).unwrap();
+        std::fs::write(inst.join("state.toml"), "template = \"x\"\nversion = 1\n").unwrap();
+        std::fs::write(inst.join("compose.yaml"), "services: {}\n").unwrap();
+        std::fs::write(inst.join(".env"), "DB_PASSWORD='s3cret-value'\n").unwrap();
+        let auth: SharedAuth =
+            Arc::new(auth::Auth::new(&auth::hash_password(PASSWORD), false).unwrap());
+        let apps =
+            apps::Apps::new(template::catalog(None).unwrap(), root.clone()).with_auth(auth.clone());
+        let app = app(
+            auth,
+            DockerClient::connect().unwrap(),
+            apps,
+            metrics::Shared::default(),
+            Arc::new(std::sync::Mutex::new(notify::Store::memory())),
+            Arc::new(terminal::Switch::new(false, None)),
+            Arc::new(osupdate::Control::new(None)),
+            Arc::new(selfupdate::Control::new(&std::env::temp_dir())),
+        );
+        let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+        let post = |body: &'static str| {
+            let app = app.clone();
+            let cookie = cookie.clone();
+            async move {
+                let req = Request::post("/settings/config-export")
+                    .header(header::COOKIE, cookie)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(body))
+                    .unwrap();
+                app.oneshot(req).await.unwrap()
+            }
+        };
+        let res = post("password=nope&passphrase=a+long+enough+passphrase").await;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        assert!(body_of(res).await.contains("Wrong password"));
+        let res = post("password=correct+horse+battery&passphrase=short").await;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        let res = post("password=correct+horse+battery&passphrase=a+long+enough+passphrase").await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(
+            res.headers()[header::CONTENT_DISPOSITION]
+                .to_str()
+                .unwrap()
+                .contains("attachment")
+        );
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        assert!(!String::from_utf8_lossy(&bytes).contains("s3cret-value"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[tokio::test]
