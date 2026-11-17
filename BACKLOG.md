@@ -22,4 +22,4 @@ Open items only, one line each, with the date it was last verified open. Deliver
 ## Standing
 - BEFORE EVERY TAG run `scripts/docs-check.sh` (README versions/apps/CLI/install options/env vars/links, no private IPs or hostnames, GitHub description/topics/license); fix what it flags. Screenshots: regenerate with `tools/shots.py` (the `apps-*-view.png` frames) into `docs/screenshots/` when the UI changes; never use Overview (shows the real hostname).
 - At every tag/wrapup with new features re-check README, GitHub description/topics, SECURITY.md, docs/TEMPLATES.md (memory public-repo-freshness).
-- Ports audit follow-up: Host listeners check (doctor, v0.1.50 pending) is doctor-only; consider an alert event like alerts::check_ports and attributing listeners to a process. Added 2026-11-17.
+- Ports audit: attribute each unexplained host listener to a process (ss -p needs root; /proc/<pid>/fd scan). Optional. Added 2026-11-17.

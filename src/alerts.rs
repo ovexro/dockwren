@@ -20,6 +20,7 @@ pub const MEM_KIND: &str = "host.memory_high";
 pub const CPU_KIND: &str = "host.cpu_high";
 pub const CONTAINER_KIND: &str = "container.problem";
 pub const PORT_KIND: &str = "container.port_open";
+pub const LISTEN_KIND: &str = "host.listener";
 
 const DISK_CRIT_PCT: f64 = 95.0;
 const DISK_CLEAR_PCT: f64 = 80.0;
@@ -272,6 +273,42 @@ pub fn check_ports(shared: &Shared, list: &[ContainerInfo]) {
     resolve_stale(shared, &format!("{PORT_KIND}:"), &keep);
 }
 
+/// Host sockets listening on every interface that neither Docker nor the allowlist (ssh, Caddy
+/// while it runs, `DOCKWREN_LISTEN_ALLOW`) explains.
+pub fn host_listeners(list: &[ContainerInfo]) -> Vec<u16> {
+    let mut allow: Vec<u16> = crate::listeners::BASE_ALLOW.to_vec();
+    if list.iter().any(|c| c.name == "dockwren-caddy" && c.state == "running") {
+        allow.extend([80, 443]);
+    }
+    if let Ok(extra) = std::env::var("DOCKWREN_LISTEN_ALLOW") {
+        allow.extend(crate::listeners::parse_allow(&extra));
+    }
+    let docker: std::collections::BTreeSet<u16> = list.iter().flat_map(|c| c.ports.iter().map(|p| p.port)).collect();
+    crate::listeners::unexpected(&crate::listeners::scan(), &allow, &docker)
+}
+
+/// Raise for each unexplained wildcard listener, close the events of ports that went away.
+pub fn check_listeners(shared: &Shared, list: &[ContainerInfo]) {
+    let mut keep = HashSet::new();
+    for port in host_listeners(list) {
+        let key = format!("{LISTEN_KIND}:{port}");
+        notify::raise(
+            shared,
+            NewEvent::new(
+                "host",
+                LISTEN_KIND,
+                Severity::Warning,
+                &format!("Something on this host listens on port {port} on every network interface"),
+            )
+            .body("Not explained by Docker, ssh or Caddy, so it may be reachable from the internet. Bind it to 127.0.0.1, or set DOCKWREN_LISTEN_ALLOW if it is intended.")
+            .link("/settings")
+            .key(key.clone()),
+        );
+        keep.insert(key);
+    }
+    resolve_stale(shared, &format!("{LISTEN_KIND}:"), &keep);
+}
+
 pub fn spawn(shared: Shared, metrics: metrics::Shared, docker: DockerClient) {
     tokio::spawn(async move {
         let mut previous = HashSet::new();
@@ -283,6 +320,7 @@ pub fn spawn(shared: Shared, metrics: metrics::Shared, docker: DockerClient) {
             }
             if let Ok(list) = docker.containers().await {
                 check_ports(&shared, &list);
+                check_listeners(&shared, &list);
                 previous = check_containers(&shared, &list, &previous);
             }
         }

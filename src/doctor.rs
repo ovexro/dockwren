@@ -340,16 +340,7 @@ async fn listeners_check(v: &mut Vec<Item>) {
         Ok(d) => d.containers().await.unwrap_or_default(),
         Err(_) => Vec::new(),
     };
-    let mut allow: Vec<u16> = crate::listeners::BASE_ALLOW.to_vec();
-    if list.iter().any(|c| c.name == "dockwren-caddy" && c.state == "running") {
-        allow.extend([80, 443]);
-    }
-    if let Ok(extra) = std::env::var("DOCKWREN_LISTEN_ALLOW") {
-        allow.extend(crate::listeners::parse_allow(&extra));
-    }
-    let docker: std::collections::BTreeSet<u16> =
-        list.iter().flat_map(|c| c.ports.iter().map(|p| p.port)).collect();
-    let odd = crate::listeners::unexpected(&crate::listeners::scan(), &allow, &docker);
+    let odd = crate::alerts::host_listeners(&list);
     v.push(if odd.is_empty() {
         item("Host listeners", Level::Ok, "Only expected ports (ssh, Caddy) listen on every interface.")
     } else {
