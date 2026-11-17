@@ -125,6 +125,15 @@ shows the exact `ufw allow` commands (the panel never changes your firewall). Th
 certificate expires; Caddy renews it by itself. The config export keeps which apps are direct, and the
 panel restarts Caddy on start, so a restored server re-issues certificates without extra steps.
 
+### DNS challenge variant
+
+"Publish with DNS challenge" proves the domain with a TXT record that Caddy creates in your Cloudflare
+account (token with Zone / DNS / Edit, pasted in the Cloudflare tab), instead of answering on port 80.
+Use it when port 80 is blocked or behind CGNAT, or when the app should be reachable only on your LAN or
+over Tailscale but still have a real certificate (point the hostname's A record at the private address).
+The first time, Dockwren builds a Caddy image that includes the Cloudflare DNS plugin; this takes a few
+minutes. The token is stored in `caddy/cloudflare.env` (mode 0600) in the data directory.
+
 ## Public hostnames (Cloudflare Tunnel)
 
 Each app has a "Public URL" button that records a hostname and shows the tunnel ingress rule to

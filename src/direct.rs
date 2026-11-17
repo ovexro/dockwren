@@ -61,7 +61,7 @@ pub fn caddyfile(entries: &[Entry]) -> String {
     let mut out = format!("{{\n\tadmin {ADMIN_SOCK}\n}}\n");
     for (host, port, dns) in entries {
         let tls = if *dns {
-            "\ttls {\n\t\tdns cloudflare {env.CLOUDFLARE_API_TOKEN}\n\t}\n"
+            "\ttls {\n\t\tdns cloudflare {env.CLOUDFLARE_API_TOKEN}\n\t\tresolvers 1.1.1.1 1.0.0.1\n\t}\n"
         } else {
             ""
         };
@@ -339,8 +339,12 @@ pub async fn preflight(data_dir: &Path, host: &str, port: Option<u16>, dns: bool
     v.push((
         true,
         false,
-        "Ports 80 and 443 must also be forwarded to this server on your router or firewall."
-            .to_string(),
+        if dns {
+            "To open the app from the internet, port 443 must be forwarded to this server (and allowed in ufw if it is active); for LAN or Tailscale only, nothing needs forwarding.".to_string()
+        } else {
+            "Ports 80 and 443 must also be forwarded to this server on your router or firewall."
+                .to_string()
+        },
     ));
     v
 }
@@ -388,7 +392,7 @@ mod tests {
     #[test]
     fn dns_host_gets_a_tls_block_with_the_token_from_the_environment() {
         let f = caddyfile(&[("c.example.com".into(), 8083, true)]);
-        assert!(f.contains("tls {\n\t\tdns cloudflare {env.CLOUDFLARE_API_TOKEN}\n\t}"));
+        assert!(f.contains("tls {\n\t\tdns cloudflare {env.CLOUDFLARE_API_TOKEN}\n\t\tresolvers 1.1.1.1 1.0.0.1\n\t}"));
         assert!(!f.contains("token="));
         assert!(compose_yaml(Path::new("/x"), true).contains("env_file: /x/cloudflare.env"));
         assert!(!compose_yaml(Path::new("/x"), false).contains("env_file"));
