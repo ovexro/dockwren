@@ -24,6 +24,12 @@ Open items only, one line each, with the date it was last verified open. Deliver
 
 - Security: check pinned image versions (PHP in Nextcloud, WordPress, SnappyMail) against PHP advisories at each release; PHP2Shell fixed in 8.5.12/8.4.27/8.3.36/8.2.35 (all PHP apps incl. Roundcube verified patched 2026-11-16 at v0.1.37, no newer security release found; 8.5.13/8.4.28 RCs seen, recheck after 2026-11-19). Verified open 2026-11-16.
 - Security: WordPress template has 2 fixable criticals that need upstream rebuilds (checked 2026-11-17, nothing to bump): CVE-2026-119618 apache2 2.4.69 (fix 2.4.71) in wordpress:7.1.4-php8.x-apache; CVE-2025-68121 Go stdlib 1.24.6 (fix 1.24.13) in mariadb:11.8.9 (newest 11.8 tag). Recheck both tags at the next release; wordpress:cli image is clean.
+- IDEA (2026-11-17, five gaps; user chose to start with #1 in the next session):
+  (1) RECOMMENDED FIRST: direct HTTPS without Cloudflare: bundled Caddy container with Let's Encrypt (DNS-01 or HTTP-01), as the original "direct hosting" layer; today only Cloudflare Tunnel publishes apps. Multi-release; design first.
+  (2) `dockwren doctor` + Health page: Docker/Compose versions, permissions, disk/memory, clock sync, DNS, tunnel and off-host target checks.
+  (3) Exposed-ports audit: list listening ports per app (Docker bypasses ufw), LAN vs internet reachability, notify on a newly opened port.
+  (4) Release notes in the update preview (upstream changelog / GitHub release notes).
+  (5) Read-only status API token: JSON with app health, last backup, scan counts, for Uptime Kuma or widgets (/metrics redirects to login today).
 
 ## Decisions (do not re-propose)
 - Multi-server over SSH: DROPPED by the user (2026-11-15). Stays dropped.
