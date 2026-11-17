@@ -23,6 +23,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 - IDEA (2026-11-14): more catalog templates (open-ended; done so far: Nextcloud, Jellyfin, Grafana, n8n, Syncthing, Homepage, Navidrome, Stirling-PDF, Wiki.js, Ghost, SnappyMail, Immich, Roundcube, AdGuard Home, Pi-hole). Items 2-6 of the old list (update badge/auto-update, image heads-up, resource alerts, self-update, audit log, add stack) are delivered.
 
 - Security: check pinned image versions (PHP in Nextcloud, WordPress, SnappyMail) against PHP advisories at each release; PHP2Shell fixed in 8.5.12/8.4.27/8.3.36/8.2.35 (all PHP apps incl. Roundcube verified patched 2026-11-16 at v0.1.37, no newer security release found; 8.5.13/8.4.28 RCs seen, recheck after 2026-11-19). Verified open 2026-11-16.
+- Security: WordPress template has 2 fixable criticals that need upstream rebuilds (checked 2026-11-17, nothing to bump): CVE-2026-119618 apache2 2.4.69 (fix 2.4.71) in wordpress:7.1.4-php8.x-apache; CVE-2025-68121 Go stdlib 1.24.6 (fix 1.24.13) in mariadb:11.8.9 (newest 11.8 tag). Recheck both tags at the next release; wordpress:cli image is clean.
 
 ## Decisions (do not re-propose)
 - Multi-server over SSH: DROPPED by the user (2026-11-15). Stays dropped.
