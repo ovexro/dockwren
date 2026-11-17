@@ -68,18 +68,7 @@
     <h2>OS updates</h2>
     <div id="osupdate" hx-get="/settings/osupdates" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>What updates by itself</h2>
-    <table>
-      <thead><tr><th>Part</th><th>How it updates</th><th style="text-align:left">Notified</th></tr></thead>
-      <tbody>
-        <tr><td>Apps (bundled templates)</td><td>Optional automatic, inside your time window: snapshot first, rolled back if the app is not healthy. Turn on under Scheduled backups. Recommended.</td><td style="text-align:left">Yes: update available, updated automatically, or failed</td></tr>
-        <tr><td>Newer image upstream (PHP, WordPress, databases)</td><td>Never automatic. Arrives as a tested template in a Dockwren release.</td><td style="text-align:left">Yes: newer upstream version</td></tr>
-        <tr><td>Database major versions</td><td>Never automatic: they need a manual migration.</td><td style="text-align:left">Yes, as above</td></tr>
-        <tr><td>OS packages</td><td>Only when you press the button (if you turned it on above), or with <code>apt</code> on the server. Never automatic.</td><td style="text-align:left">Yes: updates available, reboot needed</td></tr>
-        <tr><td>Kernel and reboots</td><td>Always manual.</td><td style="text-align:left">Yes: reboot needed</td></tr>
-        <tr><td>Dockwren itself</td><td>Only when you press the button (checksum verified, old binary kept). Never automatic.</td><td style="text-align:left">Yes: new release</td></tr>
-      </tbody>
-    </table>
-    <p><small>Each notification can be switched off, and sent to ntfy or a webhook, under Notifications.</small></p>
+    <div id="updatepolicy" hx-get="/settings/updatepolicy" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     {% else %}
     <h2>About</h2>
     <p>Dockwren version {{ version }}</p>

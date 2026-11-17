@@ -34,6 +34,7 @@ mod terminal;
 mod thirdparty;
 mod totp;
 mod update;
+mod updatepolicy;
 mod upstream;
 mod vulnscan;
 mod webcheck;
@@ -355,6 +356,7 @@ fn app(
         notify.clone(),
         terminal.clone(),
     );
+    let policy_routes = updatepolicy::router(auth.clone(), apps.clone(), os.clone(), su.clone());
     let os_routes = osupdate::router(auth.clone(), notify.clone(), os);
     let su_routes = selfupdate::router(auth.clone(), su);
     let protected = Router::new()
@@ -502,6 +504,7 @@ fn app(
         .merge(terminal_routes)
         .merge(os_routes)
         .merge(su_routes)
+        .merge(policy_routes)
 }
 
 /// `dockwren install <app> [KEY=VALUE...]`: resolve, prepare, bring up.

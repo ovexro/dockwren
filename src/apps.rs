@@ -605,6 +605,12 @@ impl Apps {
         }
     }
 
+    /// `(from, to)` UTC hours of the auto-update window when automatic updates are on.
+    pub fn auto_update_window(&self) -> Option<(u8, u8)> {
+        let s = self.schedule.get();
+        s.auto_update.then_some((s.update_from, s.update_to))
+    }
+
     pub fn instance_names(&self) -> Vec<String> {
         let mut v: Vec<String> = std::fs::read_dir(&self.root)
             .map(|rd| {

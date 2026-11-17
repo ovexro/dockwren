@@ -291,7 +291,7 @@ impl Control {
         }
     }
 
-    fn installed(&self) -> bool {
+    pub(crate) fn installed(&self) -> bool {
         self.dropin.exists()
     }
 

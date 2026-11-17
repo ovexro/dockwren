@@ -22,7 +22,6 @@ Open items only, one line each, with the date it was last verified open. Deliver
 - BEFORE EVERY TAG run `scripts/docs-check.sh` (README versions/apps/CLI/install options/env vars/links, no private IPs or hostnames, GitHub description/topics/license); fix what it flags. Screenshots: regenerate with `tools/shots.py` (the `apps-*-view.png` frames) into `docs/screenshots/` when the UI changes; never use Overview (shows the real hostname).
 - At every tag/wrapup with new features re-check README, GitHub description/topics, SECURITY.md, docs/TEMPLATES.md (memory public-repo-freshness).
 - Ports audit: attribute each unexplained host listener to a process (ss -p needs root; /proc/<pid>/fd scan). Optional. Added 2026-11-17.
-- Settings → System: "What updates by itself" table is static text; make it reflect live state (auto-update on/off, OS install on/off) if wanted. Optional. Added 2026-11-17.
 - Idea (next session, start here): prune old Docker images from the panel, with preview and confirmation (disk fills after updates; sits next to Settings → Disk usage). Added 2026-11-17.
 - Idea: notifications by e-mail (SMTP) next to bell, ntfy, webhook. Added 2026-11-17.
 - Idea: per-app uptime history (30-day graph), not just reachable/unreachable. Verify what webcheck keeps first. Added 2026-11-17.
