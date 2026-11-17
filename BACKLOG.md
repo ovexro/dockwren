@@ -24,3 +24,4 @@ Open items only, one line each, with the date it was last verified open. Deliver
 
 ## Standing
 - At every tag/wrapup with new features re-check README, GitHub description/topics, SECURITY.md, docs/TEMPLATES.md (memory public-repo-freshness).
+- Ports audit: containers with network_mode host (incl. the Caddy HTTPS container) publish no Docker ports and are not covered; would need a host listener scan (ss) with an allowlist for sshd/Caddy. Added 2026-11-17.
