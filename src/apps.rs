@@ -571,6 +571,24 @@ impl Apps {
             while self.job_running(&id) {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             }
+            // Failures (and rollbacks) already raise `job.failed`; tell the admin about successes.
+            let done = self
+                .with_job(&id, |j| matches!(j.state, JobState::Done))
+                .unwrap_or(false);
+            if done && let Some(n) = &self.notify {
+                crate::notify::raise(
+                    n,
+                    crate::notify::NewEvent::new(
+                        "apps",
+                        "app.auto_updated",
+                        crate::notify::Severity::Info,
+                        &format!("{name} was updated automatically"),
+                    )
+                    .body("A snapshot was taken first and the app came back healthy. Nothing to do.")
+                    .link("/apps")
+                    .key(format!("app.auto_updated:{name}:{to}")),
+                );
+            }
         }
     }
 
