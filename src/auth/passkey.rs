@@ -909,7 +909,7 @@ mod tests {
                 "panel.example.test:8443".into()
             ))
         );
-        for bad in ["192.168.1.5:8080", "[::1]:80", "localhost"] {
+        for bad in ["203.0.113.5:8080", "[::1]:80", "localhost"] {
             h.insert(header::HOST, bad.parse().unwrap());
             if bad == "localhost" {
                 assert!(host_of(&h).is_some());
