@@ -613,10 +613,11 @@ async fn cli_config(cfg: &config::Config, export: bool, args: &[String]) -> Resu
         );
         return Ok(());
     }
-    let r = configbundle::import(&root, file, &pass)?;
+    let r = configbundle::import(&root, file, &pass, false)?;
     for n in &r.skipped {
         println!("{n}: already exists here, skipped");
     }
+    print_panel(&r);
     for n in &r.created {
         println!("{n}: recreated, starting (empty, data comes from a snapshot)");
         let inst = runner::Instance {
@@ -634,6 +635,21 @@ async fn cli_config(cfg: &config::Config, export: bool, args: &[String]) -> Resu
         );
     }
     Ok(())
+}
+
+fn print_panel(r: &configbundle::Imported) {
+    if !r.panel_restored.is_empty() {
+        println!(
+            "panel settings restored: {} (sign in with your old password and 2FA; restart the panel to apply)",
+            r.panel_restored.join(", ")
+        );
+    }
+    if !r.panel_kept.is_empty() {
+        println!(
+            "panel settings kept as they are on this server: {}",
+            r.panel_kept.join(", ")
+        );
+    }
 }
 
 /// One answer for `recover`: env `DOCKWREN_OFFSITE_<KEY>`, else a prompt (hidden for secrets).
@@ -711,10 +727,11 @@ async fn cli_recover(cfg: &config::Config) -> Result<(), String> {
     println!("downloading the config export...");
     let bytes = off.pull_config().await?;
     let root = cfg.instances_dir();
-    let r = configbundle::import_bytes(&root, &bytes, &off.get().password)?;
+    let r = configbundle::import_bytes(&root, &bytes, &off.get().password, true)?;
     for n in &r.skipped {
         println!("{n}: already exists here, left alone");
     }
+    print_panel(&r);
     let backups = cfg.data_dir.join("backups");
     let templates = apps::catalog(cfg)?;
     let mut failed = Vec::new();
