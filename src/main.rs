@@ -488,6 +488,7 @@ fn app(
     let router = Router::new()
         .route("/health", get(health))
         .route("/api/status", get(statusapi::status))
+        .route("/api/metrics", get(statusapi::metrics))
         .route("/static/dockwren.css", get(stylesheet))
         .route("/favicon.svg", get(favicon))
         .route("/favicon.ico", get(favicon))
@@ -2089,6 +2090,24 @@ mod tests {
         assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
         assert!(v["apps"].as_array().unwrap().is_empty());
         assert!(v["last_backup_at"].is_null());
+        let res = build()
+            .oneshot(Request::get("/api/metrics").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        let res = build()
+            .oneshot(
+                Request::get("/api/metrics")
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(res.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/plain"));
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        assert!(String::from_utf8_lossy(&body).contains("dockwren_apps 0"));
         // the token does not open the panel
         let res = build()
             .oneshot(

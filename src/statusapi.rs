@@ -67,18 +67,144 @@ fn bearer(headers: &HeaderMap) -> Option<&str> {
     scheme.eq_ignore_ascii_case("bearer").then(|| token.trim())
 }
 
-pub async fn status(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let ok = match (state.auth.data_dir(), bearer(&headers)) {
+fn authorized(state: &AppState, headers: &HeaderMap) -> bool {
+    match (state.auth.data_dir(), bearer(headers)) {
         (Some(dir), Some(t)) => token_matches(dir, t),
         _ => false,
+    }
+}
+
+fn unauthorized() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        [(header::WWW_AUTHENTICATE, "Bearer")],
+        "unauthorized\n",
+    )
+        .into_response()
+}
+
+/// Prometheus label value: backslash, quote and newline escaped.
+fn label(v: &str) -> String {
+    v.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+}
+
+/// Prometheus text format (0.0.4) from the same data as `/api/status`.
+fn prometheus(version: &str, apps: &[serde_json::Value], last_backup: Option<u64>) -> String {
+    use std::fmt::Write;
+    let mut o = String::new();
+    let head = |o: &mut String, name: &str, help: &str| {
+        let _ = writeln!(o, "# HELP {name} {help}\n# TYPE {name} gauge");
     };
-    if !ok {
-        return (
-            StatusCode::UNAUTHORIZED,
-            [(header::WWW_AUTHENTICATE, "Bearer")],
-            "unauthorized\n",
-        )
-            .into_response();
+    head(&mut o, "dockwren_info", "Dockwren version (always 1).");
+    let _ = writeln!(o, "dockwren_info{{version=\"{}\"}} 1", label(version));
+    head(&mut o, "dockwren_apps", "Number of installed apps.");
+    let _ = writeln!(o, "dockwren_apps {}", apps.len());
+    if let Some(t) = last_backup {
+        head(
+            &mut o,
+            "dockwren_last_backup_timestamp_seconds",
+            "Unix time of the newest backup of any app.",
+        );
+        let _ = writeln!(o, "dockwren_last_backup_timestamp_seconds {t}");
+    }
+    type Pick = fn(&serde_json::Value) -> Option<f64>;
+    let series: [(&str, &str, Pick); 9] = [
+        ("dockwren_app_healthy", "1 when the app is healthy.", |a| {
+            a["healthy"].as_bool().map(f64::from)
+        }),
+        (
+            "dockwren_app_public_up",
+            "1 when the public address answers (only apps with one).",
+            |a| a["public_up"].as_bool().map(f64::from),
+        ),
+        (
+            "dockwren_app_update_available",
+            "1 when a newer version of the app is available.",
+            |a| a["update_available"].as_bool().map(f64::from),
+        ),
+        (
+            "dockwren_app_backup_snapshots",
+            "Snapshots kept for the app.",
+            |a| a["backup"]["snapshots"].as_f64(),
+        ),
+        (
+            "dockwren_app_last_backup_timestamp_seconds",
+            "Unix time of the app's newest backup.",
+            |a| a["backup"]["last_at"].as_f64(),
+        ),
+        (
+            "dockwren_app_scan_timestamp_seconds",
+            "Unix time of the app's last image scan.",
+            |a| a["scan"]["scanned_at"].as_f64(),
+        ),
+        (
+            "dockwren_app_scan_critical",
+            "Critical vulnerabilities in the last scan.",
+            |a| a["scan"]["critical"].as_f64(),
+        ),
+        (
+            "dockwren_app_scan_high",
+            "High vulnerabilities in the last scan.",
+            |a| a["scan"]["high"].as_f64(),
+        ),
+        (
+            "dockwren_app_scan_fixable_critical",
+            "Critical vulnerabilities with a fix available in the last scan.",
+            |a| a["scan"]["fixable_critical"].as_f64(),
+        ),
+    ];
+    for (name, help, pick) in series {
+        let rows: Vec<String> = apps
+            .iter()
+            .filter_map(|a| {
+                let v = pick(a)?;
+                Some(format!(
+                    "{name}{{instance=\"{}\",app=\"{}\"}} {v}",
+                    label(a["name"].as_str()?),
+                    label(a["app"].as_str().unwrap_or(""))
+                ))
+            })
+            .collect();
+        if rows.is_empty() {
+            continue;
+        }
+        head(&mut o, name, help);
+        for r in rows {
+            let _ = writeln!(o, "{r}");
+        }
+    }
+    o
+}
+
+/// `GET /api/metrics`: the same read-only token, Prometheus text format.
+pub async fn metrics(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if !authorized(&state, &headers) {
+        return unauthorized();
+    }
+    let apps = crate::apps::status_json(&state.apps).await;
+    let body = prometheus(
+        env!("CARGO_PKG_VERSION"),
+        &apps,
+        crate::apps::latest_backup(&state.apps),
+    );
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                "text/plain; version=0.0.4; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        body,
+    )
+        .into_response()
+}
+
+pub async fn status(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if !authorized(&state, &headers) {
+        return unauthorized();
     }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -131,6 +257,31 @@ mod tests {
         assert!(revoke(&d).unwrap());
         assert!(!token_matches(&d, &t2));
         assert!(!revoke(&d).unwrap());
+    }
+
+    #[test]
+    fn prometheus_text_has_labelled_series_and_skips_missing_ones() {
+        let apps = vec![
+            serde_json::json!({"name":"gt","app":"gitea","healthy":true,"public_up":null,
+                "update_available":false,"backup":{"snapshots":3,"last_at":1700000000},
+                "scan":{"scanned_at":1700000100,"critical":1,"high":4,"fixable_critical":0}}),
+            serde_json::json!({"name":"we\"ird","app":"x","healthy":false,"public_up":true,
+                "update_available":true,"backup":{"snapshots":0,"last_at":null},"scan":null}),
+        ];
+        let t = prometheus("1.2.3", &apps, Some(1700000000));
+        assert!(t.contains("dockwren_info{version=\"1.2.3\"} 1"));
+        assert!(t.contains("dockwren_apps 2"));
+        assert!(t.contains("dockwren_last_backup_timestamp_seconds 1700000000"));
+        assert!(t.contains("dockwren_app_healthy{instance=\"gt\",app=\"gitea\"} 1"));
+        assert!(t.contains("dockwren_app_healthy{instance=\"we\\\"ird\",app=\"x\"} 0"));
+        assert!(t.contains("dockwren_app_public_up{instance=\"we\\\"ird\",app=\"x\"} 1"));
+        assert!(
+            !t.contains("public_up{instance=\"gt\""),
+            "no value, no series"
+        );
+        assert!(t.contains("dockwren_app_scan_high{instance=\"gt\",app=\"gitea\"} 4"));
+        assert!(!t.contains("scan_high{instance=\"we"));
+        assert!(!prometheus("1", &[], None).contains("last_backup_timestamp"));
     }
 
     #[test]
