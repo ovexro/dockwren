@@ -15,17 +15,30 @@ use tokio::process::Command;
 const MODE_FILE: &str = "public-mode.txt";
 const IMAGE: &str = "caddy:2.11.9-alpine";
 const CONTAINER: &str = "dockwren-caddy";
+const PLUGIN: &str = "github.com/caddy-dns/cloudflare@v0.2.4";
+const CF_IMAGE: &str = "dockwren-caddy-cf:2.11.9";
 const ADMIN_SOCK: &str = "unix//config/admin.sock";
 
 /// True when the instance is published directly (not through the tunnel).
 pub fn is_direct(dir: &Path) -> bool {
-    std::fs::read_to_string(dir.join(MODE_FILE)).is_ok_and(|s| s.trim() == "direct")
+    std::fs::read_to_string(dir.join(MODE_FILE))
+        .is_ok_and(|s| matches!(s.trim(), "direct" | "direct-dns"))
+}
+
+/// True when the certificate is obtained with the DNS challenge (Cloudflare) instead of HTTP-01.
+pub fn is_dns(dir: &Path) -> bool {
+    std::fs::read_to_string(dir.join(MODE_FILE)).is_ok_and(|s| s.trim() == "direct-dns")
 }
 
 pub fn set_direct(dir: &Path, on: bool) -> Result<(), String> {
+    set_mode(dir, on, false)
+}
+
+pub fn set_mode(dir: &Path, on: bool, dns: bool) -> Result<(), String> {
     let p = dir.join(MODE_FILE);
     if on {
-        std::fs::write(&p, "direct\n").map_err(|e| format!("cannot write {}: {e}", p.display()))
+        let text = if dns { "direct-dns\n" } else { "direct\n" };
+        std::fs::write(&p, text).map_err(|e| format!("cannot write {}: {e}", p.display()))
     } else {
         match std::fs::remove_file(&p) {
             Ok(()) => Ok(()),
@@ -39,21 +52,45 @@ pub fn caddy_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("caddy")
 }
 
-/// Caddyfile for the given (hostname, local port) pairs. Hostnames are validated by
+/// One published hostname: name, local port, certificate by DNS challenge.
+pub type Entry = (String, u16, bool);
+
+/// Caddyfile for the given entries. Hostnames are validated by
 /// `public::valid_hostname` before they get here, so they cannot inject Caddyfile syntax.
-pub fn caddyfile(entries: &[(String, u16)]) -> String {
+pub fn caddyfile(entries: &[Entry]) -> String {
     let mut out = format!("{{\n\tadmin {ADMIN_SOCK}\n}}\n");
-    for (host, port) in entries {
+    for (host, port, dns) in entries {
+        let tls = if *dns {
+            "\ttls {\n\t\tdns cloudflare {env.CLOUDFLARE_API_TOKEN}\n\t}\n"
+        } else {
+            ""
+        };
         out.push_str(&format!(
-            "\n{host} {{\n\treverse_proxy 127.0.0.1:{port}\n}}\n"
+            "\n{host} {{\n{tls}\treverse_proxy 127.0.0.1:{port}\n}}\n"
         ));
     }
     out
 }
 
-fn compose_yaml(dir: &Path) -> String {
+fn dockerfile() -> String {
     format!(
-        "name: dockwren-caddy\nservices:\n  caddy:\n    image: {IMAGE}\n    container_name: {CONTAINER}\n    network_mode: host\n    restart: unless-stopped\n    volumes:\n      - {d}/Caddyfile:/etc/caddy/Caddyfile:ro\n      - {d}/data:/data\n      - {d}/config:/config\n    logging:\n      driver: json-file\n      options:\n        max-size: \"10m\"\n        max-file: \"3\"\n",
+        "FROM caddy:2.11.9-builder-alpine AS build\nRUN xcaddy build --with {PLUGIN}\nFROM caddy:2.11.9-alpine\nCOPY --from=build /usr/bin/caddy /usr/bin/caddy\n"
+    )
+}
+
+fn compose_yaml(dir: &Path, dns: bool) -> String {
+    let image = if dns {
+        format!("{CF_IMAGE}\n    build: {}", dir.display())
+    } else {
+        IMAGE.to_string()
+    };
+    let env = if dns {
+        format!("    env_file: {}/cloudflare.env\n", dir.display())
+    } else {
+        String::new()
+    };
+    format!(
+        "name: dockwren-caddy\nservices:\n  caddy:\n    image: {image}\n{env}    container_name: {CONTAINER}\n    network_mode: host\n    restart: unless-stopped\n    volumes:\n      - {d}/Caddyfile:/etc/caddy/Caddyfile:ro\n      - {d}/data:/data\n      - {d}/config:/config\n    logging:\n      driver: json-file\n      options:\n        max-size: \"10m\"\n        max-file: \"3\"\n",
         d = dir.display()
     )
 }
@@ -78,8 +115,8 @@ async fn docker(data_dir: &Path, args: &[&str]) -> Result<String, String> {
 }
 
 /// Hostnames and ports of every instance in direct mode, sorted by hostname.
-pub fn collect(instances_root: &Path) -> Vec<(String, u16)> {
-    let mut v: Vec<(String, u16)> = std::fs::read_dir(instances_root)
+pub fn collect(instances_root: &Path) -> Vec<Entry> {
+    let mut v: Vec<Entry> = std::fs::read_dir(instances_root)
         .into_iter()
         .flatten()
         .flatten()
@@ -90,7 +127,7 @@ pub fn collect(instances_root: &Path) -> Vec<(String, u16)> {
             }
             let host = crate::public::read(&dir)?;
             let port = crate::public::web_port(&dir)?;
-            Some((host, port))
+            Some((host, port, is_dns(&dir)))
         })
         .collect();
     v.sort();
@@ -118,14 +155,26 @@ pub async fn reconcile(data_dir: &Path, instances_root: &Path) -> Result<(), Str
     }
     std::fs::write(dir.join("Caddyfile"), caddyfile(&entries))
         .map_err(|e| format!("cannot write Caddyfile: {e}"))?;
-    std::fs::write(&compose, compose_yaml(&dir))
+    let dns = entries.iter().any(|e| e.2);
+    let env_path = dir.join("cloudflare.env");
+    if dns {
+        let token = crate::public::dns_token()
+            .ok_or("Cloudflare is not connected: paste a token in the Cloudflare tab first")?;
+        write_private(&env_path, &format!("CLOUDFLARE_API_TOKEN={token}\n"))?;
+        std::fs::write(dir.join("Dockerfile"), dockerfile())
+            .map_err(|e| format!("cannot write Dockerfile: {e}"))?;
+    } else {
+        let _ = std::fs::remove_file(&env_path);
+    }
+    std::fs::write(&compose, compose_yaml(&dir, dns))
         .map_err(|e| format!("cannot write compose.yaml: {e}"))?;
+    let compose_path = compose.display().to_string();
     let was_running = running(data_dir).await;
-    docker(
-        data_dir,
-        &["compose", "-f", &compose.display().to_string(), "up", "-d"],
-    )
-    .await?;
+    let mut up = vec!["compose", "-f", &compose_path, "up", "-d"];
+    if dns {
+        up.push("--build");
+    }
+    docker(data_dir, &up).await?;
     if was_running {
         docker(
             data_dir,
@@ -144,6 +193,20 @@ pub async fn reconcile(data_dir: &Path, instances_root: &Path) -> Result<(), Str
         .map_err(|e| format!("Caddy reload failed: {e}"))?;
     }
     Ok(())
+}
+
+fn write_private(path: &Path, content: &str) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    f.write_all(content.as_bytes())
+        .map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 
 pub async fn running(data_dir: &Path) -> bool {
@@ -180,7 +243,7 @@ async fn public_ip() -> Option<String> {
 }
 
 /// Things that must hold for Let's Encrypt to succeed. Read-only.
-pub async fn preflight(data_dir: &Path, host: &str, port: Option<u16>) -> Vec<Check> {
+pub async fn preflight(data_dir: &Path, host: &str, port: Option<u16>, dns: bool) -> Vec<Check> {
     let mut v: Vec<Check> = Vec::new();
     v.push(match port {
         Some(p) => (true, false, format!("App listens on 127.0.0.1:{p}.")),
@@ -197,7 +260,7 @@ pub async fn preflight(data_dir: &Path, host: &str, port: Option<u16>) -> Vec<Ch
         .await
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
         .unwrap_or_default();
-    for p in [80u16, 443] {
+    for p in if dns { vec![443u16] } else { vec![80u16, 443] } {
         v.push(if port_busy(&ss, p) && !ours {
             (
                 false,
@@ -222,10 +285,19 @@ pub async fn preflight(data_dir: &Path, host: &str, port: Option<u16>) -> Vec<Ch
         };
     let mine = public_ip().await;
     v.push(match (resolved.is_empty(), &mine) {
+        (false, _) if dns => (
+            true,
+            false,
+            format!("{host} resolves to {}. With the DNS challenge it may point anywhere, for example a LAN or Tailscale address.", resolved.join(", ")),
+        ),
         (true, _) => (
             false,
             false,
-            format!("{host} has no DNS A record yet. Point it at this server's public IP before publishing, or the certificate will fail."),
+            if dns {
+                format!("{host} has no DNS record yet. The certificate will work, but nobody can open the address until you create an A record for it.")
+            } else {
+                format!("{host} has no DNS A record yet. Point it at this server's public IP before publishing, or the certificate will fail.")
+            },
         ),
         (false, Some(ip)) if resolved.iter().any(|r| r == ip) => {
             (true, false, format!("{host} points at this server ({ip})."))
@@ -244,12 +316,19 @@ pub async fn preflight(data_dir: &Path, host: &str, port: Option<u16>) -> Vec<Ch
             format!("{host} resolves to {}; could not look up this server's public IP to compare.", resolved.join(", ")),
         ),
     });
-    let ufw = Command::new("systemctl")
-        .args(["is-active", "ufw"])
-        .output()
-        .await
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "active")
-        .unwrap_or(false);
+    if dns {
+        v.push(match crate::public::dns_token() {
+            Some(_) => (true, false, "Cloudflare token found; the certificate is requested with a DNS challenge, so port 80 is not needed.".to_string()),
+            None => (false, true, "No Cloudflare token: paste one in the Cloudflare tab (it needs Zone / DNS / Edit).".to_string()),
+        });
+    }
+    let ufw = !dns
+        && Command::new("systemctl")
+            .args(["is-active", "ufw"])
+            .output()
+            .await
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "active")
+            .unwrap_or(false);
     if ufw {
         v.push((
             false,
@@ -298,12 +377,22 @@ mod tests {
     #[test]
     fn caddyfile_has_one_block_per_host() {
         let f = caddyfile(&[
-            ("a.example.com".into(), 8081),
-            ("b.example.com".into(), 8082),
+            ("a.example.com".into(), 8081, false),
+            ("b.example.com".into(), 8082, false),
         ]);
         assert!(f.contains("a.example.com {\n\treverse_proxy 127.0.0.1:8081\n}"));
         assert!(f.contains("b.example.com {\n\treverse_proxy 127.0.0.1:8082\n}"));
         assert!(f.starts_with("{\n\tadmin unix//config/admin.sock\n}"));
+    }
+
+    #[test]
+    fn dns_host_gets_a_tls_block_with_the_token_from_the_environment() {
+        let f = caddyfile(&[("c.example.com".into(), 8083, true)]);
+        assert!(f.contains("tls {\n\t\tdns cloudflare {env.CLOUDFLARE_API_TOKEN}\n\t}"));
+        assert!(!f.contains("token="));
+        assert!(compose_yaml(Path::new("/x"), true).contains("env_file: /x/cloudflare.env"));
+        assert!(!compose_yaml(Path::new("/x"), false).contains("env_file"));
+        assert!(dockerfile().contains("caddy-dns/cloudflare@"));
     }
 
     #[test]
@@ -330,7 +419,9 @@ mod tests {
         std::fs::create_dir_all(&d).unwrap();
         assert!(!is_direct(&d));
         set_direct(&d, true).unwrap();
-        assert!(is_direct(&d));
+        assert!(is_direct(&d) && !is_dns(&d));
+        set_mode(&d, true, true).unwrap();
+        assert!(is_direct(&d) && is_dns(&d));
         set_direct(&d, false).unwrap();
         assert!(!is_direct(&d));
         set_direct(&d, false).unwrap();

@@ -2938,16 +2938,17 @@ pub async fn public_direct(
         }
     } else {
         let port = crate::public::web_port(&dir);
-        let pre = crate::direct::preflight(&data_dir, &host, port).await;
+        let dns = action == "on-dns" || action == "check-dns";
+        let pre = crate::direct::preflight(&data_dir, &host, port, dns).await;
         let blocked = pre.iter().any(|(good, blocks, _)| !good && *blocks);
         checks = pre.into_iter().map(|(g, _, t)| (g, t)).collect();
-        if action == "on" {
+        if action == "on" || action == "on-dns" {
             if blocked {
                 ok = false;
                 lines.push("Not published: fix the red items first.".to_string());
             } else {
                 crate::audit::record("app.direct.on", &format!("{name} -> {host}"));
-                let r = match crate::direct::set_direct(&dir, true) {
+                let r = match crate::direct::set_mode(&dir, true, dns) {
                     Ok(()) => crate::direct::reconcile(&data_dir, &apps.root).await,
                     Err(e) => Err(e),
                 };

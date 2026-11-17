@@ -269,6 +269,15 @@ impl Settings {
     }
 }
 
+/// Token for DNS-01 certificates: only the token is needed (no account or tunnel id).
+/// The environment wins; otherwise what was pasted in the panel.
+pub fn dns_token() -> Option<String> {
+    std::env::var("CLOUDFLARE_API_TOKEN")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .or_else(|| load_saved().token.filter(|v| !v.is_empty()))
+}
+
 /// What the web panel keeps after the user pastes a token.
 #[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
 pub struct Saved {

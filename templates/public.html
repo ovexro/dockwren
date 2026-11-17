@@ -35,11 +35,13 @@
   {% endif %}
   {% if command.is_some() %}
   <h4>Or publish directly, without Cloudflare</h4>
-  <p><small>A Caddy container on this server answers on ports 80/443 and gets a free Let's Encrypt certificate. The hostname's A record must point at this server's public IP and ports 80/443 must reach it. Use either this or the Cloudflare tunnel for a hostname, never both.</small></p>
+  <p><small>A Caddy container on this server answers on ports 80/443 and gets a free Let's Encrypt certificate. The hostname's A record must point at this server's public IP and ports 80/443 must reach it. Use either this or the Cloudflare tunnel for a hostname, never both. The DNS challenge variant uses your Cloudflare token to prove the domain instead, so port 80 is not needed and the address can be LAN or Tailscale only; the first time it builds a Caddy image with the Cloudflare plugin, which takes a few minutes.</small></p>
   {% if !checks.is_empty() %}<ul>{% for (good, t) in checks %}<li>{% if *good %}OK{% else %}Problem{% endif %}: {{ t }}</li>{% endfor %}</ul>{% endif %}
   <form hx-post="/instances/{{ instance }}/public/direct" hx-target="#install" hx-swap="innerHTML">
     <button type="submit" name="action" value="check">Check</button>
     <button type="submit" name="action" value="on">Publish directly</button>
+    <button type="submit" name="action" value="check-dns">Check (DNS challenge)</button>
+    <button type="submit" name="action" value="on-dns">Publish with DNS challenge</button>
     {% if direct %}<button type="submit" name="action" value="off">Turn direct HTTPS off</button>{% endif %}
   </form>
   {% if direct %}<p><strong>Direct HTTPS is on for this app.</strong>{% if let Some(d) = cert_expiry %} Certificate valid until {{ d }} (Caddy renews it by itself).{% else %} No certificate served yet; it can take a minute after publishing.{% endif %}</p>{% endif %}
