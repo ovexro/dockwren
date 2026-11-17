@@ -11,6 +11,7 @@ mod deliver;
 mod direct;
 mod diskusage;
 mod docker;
+mod doctor;
 mod hostupdates;
 mod install;
 mod limits;
@@ -373,6 +374,7 @@ fn app(
             "/settings/templates/remove",
             post(thirdparty::remove_submit),
         )
+        .route("/settings/doctor", get(doctor::show))
         .route("/settings/disk", get(apps::disk_show))
         .route("/settings/disk/prune-images", post(apps::prune_images))
         .route(
@@ -810,7 +812,7 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     Ok(())
 }
 
-const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | export FILE | import FILE | recover | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | restore-test <instance> | scan <instance> | template add <https-url> <commit> [--yes] | template list | template remove <id> | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
+const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | install <app> [KEY=VALUE...] | export FILE | import FILE | recover | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | restore-test <instance> | scan <instance> | doctor | template add <https-url> <commit> [--yes] | template list | template remove <id> | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
 
 /// CLI commands work on the panel's data directory; explain the usual permission mistake
 /// instead of failing later with a bare "Permission denied".
@@ -1109,6 +1111,14 @@ async fn main() {
                     eprintln!("verify failed: {e}");
                     std::process::exit(1);
                 }
+            }
+            return;
+        }
+        Some("doctor") => {
+            let items = doctor::run(&cfg.data_dir).await;
+            print!("{}", doctor::render_text(&items));
+            if doctor::worst(&items) == doctor::Level::Fail {
+                std::process::exit(1);
             }
             return;
         }

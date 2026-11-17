@@ -55,6 +55,8 @@
     <h2>Audit log</h2>
     <div id="audit" hx-get="/settings/audit" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     {% else if tab == "system" %}
+    <h2>Health</h2>
+    <div id="doctor" hx-get="/settings/doctor" hx-trigger="load" hx-swap="outerHTML">Checking…</div>
     <h2>Scheduled backups</h2>
     <div id="backup-schedule" hx-get="/settings/backups" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>Off-host backups</h2>

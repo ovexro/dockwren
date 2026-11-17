@@ -1,0 +1,12 @@
+<div id="doctor">
+  <p role="status">{{ summary }}</p>
+  <table>
+    <thead><tr><th style="text-align:left">Check</th><th>Result</th><th style="text-align:left">Details</th></tr></thead>
+    <tbody>
+    {% for r in rows %}<tr><td style="text-align:left">{{ r.0 }}</td><td><code>{{ r.1 }}</code></td><td style="text-align:left">{{ r.2 }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p><small>Read-only: nothing is changed. The same checks run in a terminal with <code>dockwren doctor</code>.</small></p>
+  <button hx-get="/settings/doctor" hx-target="#doctor" hx-swap="outerHTML">Check again</button>
+</div>
