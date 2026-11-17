@@ -26,6 +26,17 @@ const POLL: Duration = Duration::from_secs(600);
 const FIRST_DELAY: Duration = Duration::from_secs(600);
 const PER_IMAGE: Duration = Duration::from_secs(900);
 const FILE: &str = "vulnscan.json";
+/// Store key of the bundled Caddy image (direct HTTPS). Not a valid instance name, so it cannot
+/// collide with an app.
+const CADDY: &str = "@caddy";
+
+fn label(name: &str) -> &str {
+    if name == CADDY {
+        "Caddy (direct HTTPS)"
+    } else {
+        name
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Summary {
@@ -152,7 +163,8 @@ fn sync(shared: &Shared, name: &str, s: &mut Summary) {
             KIND,
             Severity::Warning,
             &format!(
-                "{name}: {} critical vulnerabilit{} with a fix available",
+                "{}: {} critical vulnerabilit{} with a fix available",
+                label(name),
                 s.ids.len(),
                 if s.ids.len() == 1 { "y" } else { "ies" }
             ),
@@ -265,7 +277,19 @@ async fn run_once(apps: &Apps, shared: &Shared, data_dir: &Path) {
         return;
     }
     let names: Vec<String> = apps.instance_names();
-    store().lock().unwrap().retain(|n, _| names.contains(n));
+    let caddy_used = !crate::direct::collect(&apps.root).is_empty();
+    store()
+        .lock()
+        .unwrap()
+        .retain(|n, _| names.contains(n) || (caddy_used && n == CADDY));
+    if !caddy_used {
+        notify::resolve(shared, &event_key(CADDY));
+    } else if let Ok(f) = scan_image(data_dir, crate::direct::IMAGE).await {
+        let mut s = summarize(&f, crate::schedule::now(), summary(CADDY).as_ref());
+        sync(shared, CADDY, &mut s);
+        store().lock().unwrap().insert(CADDY.to_string(), s);
+        save(data_dir, &store().lock().unwrap());
+    }
     for name in names {
         let inst = Instance {
             name: name.clone(),
@@ -386,6 +410,36 @@ mod tests {
         sync(&shared, "app", &mut s5);
         assert_eq!(open(&shared), 0);
         assert_eq!(s5.critical, 1);
+    }
+
+    #[test]
+    fn the_caddy_pin_is_scannable_and_labelled() {
+        let img = crate::direct::IMAGE;
+        assert!(
+            img.chars()
+                .all(|c| c.is_ascii_alphanumeric() || ".-/:".contains(c))
+        );
+        assert_eq!(label(CADDY), "Caddy (direct HTTPS)");
+        assert_eq!(label("memos"), "memos");
+        // Cannot clash with an instance name.
+        assert!(!CADDY.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+        let shared: Shared = Arc::new(Mutex::new(notify::Store::memory()));
+        let mut s = summarize(
+            &[Finding {
+                id: "CVE-1".into(),
+                critical: true,
+                fixable: true,
+            }],
+            1,
+            None,
+        );
+        sync(&shared, CADDY, &mut s);
+        assert_eq!(open(&shared), 1);
+        assert!(
+            shared.lock().unwrap().open_events()[0]
+                .title
+                .starts_with("Caddy (direct HTTPS):")
+        );
     }
 
     #[tokio::test]

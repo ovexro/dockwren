@@ -13,7 +13,7 @@ use std::time::Duration;
 use tokio::process::Command;
 
 const MODE_FILE: &str = "public-mode.txt";
-const IMAGE: &str = "caddy:2.11.9-alpine";
+pub const IMAGE: &str = "caddy:2.11.9-alpine";
 const CONTAINER: &str = "dockwren-caddy";
 const PLUGIN: &str = "github.com/caddy-dns/cloudflare@v0.2.4";
 const CF_IMAGE: &str = "dockwren-caddy-cf:2.11.9";
