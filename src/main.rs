@@ -2150,6 +2150,9 @@ mod tests {
             assert_eq!(res.status(), StatusCode::OK, "{tab}");
             let html = body_of(res).await;
             assert!(html.contains(has), "{tab} should contain {has}");
+            if tab == "system" {
+                assert!(html.contains("What updates by itself"));
+            }
             assert!(!html.contains(hasnt), "{tab} should not load {hasnt}");
             assert!(
                 html.contains(&format!("href=\"{path}\" aria-current")),
