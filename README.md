@@ -2,7 +2,8 @@
 
 A minimal, Docker-only control panel for your own server. Watch and control containers, install
 apps from Compose templates, update them with automatic rollback, back up and restore their data,
-and optionally publish them on a Cloudflare Tunnel hostname.
+publish them over HTTPS (a Cloudflare Tunnel hostname, or direct with Let's Encrypt), and check the
+health of the host they run on.
 
 - Single static Rust binary (axum + bollard), server-rendered UI with a small amount of htmx
   (vendored, no CDN, no JS build step).
