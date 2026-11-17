@@ -21,7 +21,9 @@ const KEEP_JOBS: usize = 20;
 
 #[derive(Clone)]
 pub struct Apps {
-    pub templates: Arc<Vec<AppTemplate>>,
+    /// Swapped as a whole when third-party templates change. Each generation is leaked on
+    /// purpose (a few KB per add/remove) so callers can keep `&'static` references.
+    templates: Arc<std::sync::RwLock<&'static [AppTemplate]>>,
     pub root: PathBuf,
     jobs: Arc<Mutex<Vec<(String, Job)>>>,
     /// Serialises "pick ports + create instance dir" so parallel installs cannot clash.
@@ -36,7 +38,7 @@ pub struct Apps {
 impl Apps {
     pub fn new(templates: Vec<AppTemplate>, root: PathBuf) -> Self {
         Self {
-            templates: Arc::new(templates),
+            templates: Arc::new(std::sync::RwLock::new(Box::leak(templates.into_boxed_slice()))),
             root,
             jobs: Arc::default(),
             lock: Arc::default(),
@@ -234,7 +236,7 @@ impl Apps {
             let result = crate::update::update_instance(
                 &task_apps.root,
                 &backups,
-                &task_apps.templates,
+                task_apps.templates(),
                 &name,
                 &mut |s| {
                     task_apps.with_job(&task_id, |j| j.log.push(s.to_string()));
@@ -618,8 +620,23 @@ impl Apps {
         v
     }
 
-    fn template(&self, id: &str) -> Option<&AppTemplate> {
-        self.templates.iter().find(|t| t.manifest.app.id == id)
+    /// The current catalog.
+    pub fn templates(&self) -> &'static [AppTemplate] {
+        *self.templates.read().unwrap()
+    }
+
+    /// Rebuild the catalog from the bundled templates plus the stored third-party ones, so an
+    /// added or removed template shows up without restarting the panel.
+    pub fn reload_templates(&self) {
+        let data = self.root.parent().map(PathBuf::from).unwrap_or_else(|| self.root.clone());
+        let over = std::env::var("DOCKWREN_APPS").ok().map(PathBuf::from);
+        if let Ok(all) = catalog_in(&data, over.as_deref()) {
+            *self.templates.write().unwrap() = Box::leak(all.into_boxed_slice());
+        }
+    }
+
+    fn template(&self, id: &str) -> Option<&'static AppTemplate> {
+        self.templates().iter().find(|t| t.manifest.app.id == id)
     }
 
     fn backups_root(&self) -> PathBuf {
@@ -850,7 +867,7 @@ fn render<T: askama::Template>(page: T) -> Html<String> {
 pub async fn list(State(apps): State<Apps>) -> Html<String> {
     render(AppsPage {
         apps: apps
-            .templates
+            .templates()
             .iter()
             .filter(|t| t.manifest.app.id != CUSTOM_ID)
             .map(|t| AppView {
@@ -1013,12 +1030,7 @@ pub async fn install_submit(
     if !crate::same_origin(&headers) {
         return Err(StatusCode::FORBIDDEN);
     }
-    let t_idx = apps
-        .templates
-        .iter()
-        .position(|t| t.manifest.app.id == id)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    let t = &apps.templates[t_idx];
+    let t = apps.template(&id).ok_or(StatusCode::NOT_FOUND)?;
 
     let prepared = {
         let _guard = apps.lock.lock().await;
@@ -1072,7 +1084,6 @@ pub async fn install_submit(
         };
         let result = async {
             runner::bring_up(&inst, &mut |s| push(s)).await?;
-            let t = &task_apps.templates[t_idx];
             let mut shown =
                 runner::run_post_start(&inst, t, &resolved.env, &mut |s| push(s)).await?;
             shown.extend(resolved.revealed.iter().cloned());
@@ -1337,8 +1348,12 @@ pub async fn instance_remove(
 
 /// Load the template catalog for the server (bundled + optional override dir).
 pub fn catalog(cfg: &crate::config::Config) -> Result<Vec<AppTemplate>, String> {
-    let mut all = template::catalog(cfg.apps_dir_override().as_deref())?;
-    for t in crate::thirdparty::load_all(&cfg.data_dir) {
+    catalog_in(&cfg.data_dir, cfg.apps_dir_override().as_deref())
+}
+
+fn catalog_in(data_dir: &std::path::Path, over: Option<&std::path::Path>) -> Result<Vec<AppTemplate>, String> {
+    let mut all = template::catalog(over)?;
+    for t in crate::thirdparty::load_all(data_dir) {
         if all.iter().all(|a| a.manifest.app.id != t.manifest.app.id) {
             all.push(t);
         }
@@ -2533,11 +2548,7 @@ pub async fn restore_submit(
         .ok()
         .and_then(|s| toml::from_str(&s).ok())
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    let t_idx = apps
-        .templates
-        .iter()
-        .position(|t| t.manifest.app.id == state.template)
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let tpl = apps.template(&state.template).ok_or(StatusCode::NOT_FOUND)?;
     let job_id = new_job(&apps, &name, "Restoring")?;
     crate::audit::record("app.restore", &name);
     let task_apps = apps.clone();
@@ -2550,7 +2561,7 @@ pub async fn restore_submit(
         let result = crate::backup::restore(
             &task_apps.backups_root(),
             &inst,
-            &task_apps.templates[t_idx],
+            tpl,
             Some(&snap),
             true,
             &mut |s| {

@@ -394,7 +394,7 @@ struct ListPage {
 fn list_html(apps: &Apps, note: Option<String>, error: Option<String>) -> Html<String> {
     let sources = list(&data_dir(apps));
     let loaded = apps
-        .templates
+        .templates()
         .iter()
         .filter(|t| t.source.is_some())
         .map(|t| t.manifest.app.id.clone())
@@ -505,10 +505,11 @@ pub async fn add_submit(
     Ok(match result {
         Ok(s) => {
             crate::audit::record("template.add", &s.label());
+            apps.reload_templates();
             list_html(
                 &apps,
                 Some(format!(
-                    "Added {}. Restart Dockwren (sudo systemctl restart dockwren) to load it into the catalog.",
+                    "Added {}. It is in the catalog now.",
                     s.id
                 )),
                 None,
@@ -534,9 +535,10 @@ pub async fn remove_submit(
     Ok(match remove(&data_dir(&apps), &f.id) {
         Ok(()) => {
             crate::audit::record("template.remove", &f.id);
+            apps.reload_templates();
             list_html(
                 &apps,
-                Some("Removed. Installed apps keep running; restart Dockwren to drop it from the catalog.".into()),
+                Some("Removed. Installed apps keep running; it is gone from the catalog.".into()),
                 None,
             )
         }
@@ -678,6 +680,23 @@ mod tests {
         remove(&data, "ghost-x").unwrap();
         assert!(list(&data).is_empty() && load_all(&data).is_empty());
         assert!(remove(&data, "ghost-x").is_err());
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[test]
+    fn catalog_follows_add_and_remove_without_restart() {
+        let data = std::env::temp_dir().join(format!("dw-tp-live-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&data);
+        let apps = Apps::new(crate::template::catalog(None).unwrap(), data.join("instances"));
+        let has = |a: &Apps| a.templates().iter().any(|t| t.manifest.app.id == "ghost-live");
+        assert!(!has(&apps));
+        let m = MANIFEST.replace("id = \"ghost\"", "id = \"ghost-live\"");
+        add(&data, "https://example.com/r", &"a".repeat(40), &fetched(&m)).unwrap();
+        apps.reload_templates();
+        assert!(has(&apps));
+        remove(&data, "ghost-live").unwrap();
+        apps.reload_templates();
+        assert!(!has(&apps));
         let _ = std::fs::remove_dir_all(&data);
     }
 }

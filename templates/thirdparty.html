@@ -5,7 +5,7 @@
   {% if !sources.is_empty() %}
   <ul>
   {% for s in sources %}
-    <li><strong>{{ s.id }}</strong> <small>{{ s.url }} @ {{ s.sha }}{% if !loaded.contains(s.id) %} (loads after a restart){% endif %}</small>
+    <li><strong>{{ s.id }}</strong> <small>{{ s.url }} @ {{ s.sha }}{% if !loaded.contains(s.id) %} (not loaded yet: restart after a command-line add, or the id clashes with a built-in){% endif %}</small>
       <form hx-post="/settings/templates/remove" hx-target="#thirdparty" hx-swap="outerHTML"><input type="hidden" name="id" value="{{ s.id }}"><button type="submit" class="danger">Remove</button></form></li>
   {% endfor %}
   </ul>
