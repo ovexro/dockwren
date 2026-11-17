@@ -182,7 +182,20 @@ fn via_tunnel(headers: &HeaderMap) -> bool {
 }
 
 pub fn managed(project: Option<&str>) -> bool {
-    project.is_some_and(|p| p.len() > PROJECT_PREFIX.len() && p.starts_with(PROJECT_PREFIX))
+    project.is_some_and(|p| {
+        (p.len() > PROJECT_PREFIX.len() && p.starts_with(PROJECT_PREFIX))
+            || ADOPTED.read().is_ok_and(|a| a.contains(p))
+    })
+}
+
+/// Compose projects adopted from outside the panel (see [`crate::adopt`]); they count as managed.
+static ADOPTED: std::sync::LazyLock<std::sync::RwLock<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(Default::default);
+
+pub fn set_adopted(projects: std::collections::HashSet<String>) {
+    if let Ok(mut a) = ADOPTED.write() {
+        *a = projects;
+    }
 }
 
 async fn asset(kind: &'static str, body: &'static str) -> Response {

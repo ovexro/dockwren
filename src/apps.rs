@@ -37,6 +37,7 @@ pub struct Apps {
 
 impl Apps {
     pub fn new(templates: Vec<AppTemplate>, root: PathBuf) -> Self {
+        crate::terminal::set_adopted(runner::adopted_projects(&root));
         Self {
             templates: Arc::new(std::sync::RwLock::new(Box::leak(
                 templates.into_boxed_slice(),
@@ -937,6 +938,7 @@ pub async fn new_form(
 struct AdoptPage {
     items: Vec<crate::adopt::Candidate>,
     error: Option<String>,
+    note: Option<String>,
 }
 
 /// `GET /stacks/adopt`: read-only scan of Compose projects the panel does not manage.
@@ -947,15 +949,63 @@ pub async fn adopt_scan(State(state): State<crate::AppState>) -> Html<String> {
         .parent()
         .map(|d| d.to_path_buf())
         .unwrap_or_default();
+    render(adopt_page(&state, &data_dir).await)
+}
+
+/// `POST /stacks/adopt`: register one scanned project as an instance (re-checked from scratch).
+pub async fn adopt_submit(
+    State(state): State<crate::AppState>,
+    headers: HeaderMap,
+    Form(values): Form<HashMap<String, String>>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let apps = &state.apps;
+    let get = |k: &str| values.get(k).cloned().unwrap_or_default();
+    let (project, name) = (get("project"), get("name").trim().to_string());
+    let t = apps
+        .template(CUSTOM_ID)
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let data_dir = apps
+        .root
+        .parent()
+        .map(|d| d.to_path_buf())
+        .unwrap_or_default();
+    let result = {
+        let _guard = apps.lock.lock().await;
+        match state.docker.foreign_compose_containers().await {
+            Ok(list) => crate::adopt::adopt(&data_dir, &apps.root, t, list, &project, &name).await,
+            Err(e) => Err(e.to_string()),
+        }
+    };
+    if result.is_ok() {
+        crate::audit::record("stack.adopt", &name);
+    }
+    let error = result.err();
+    let note = if error.is_none() {
+        format!("Adopted {project} as {name}. Nothing was restarted.")
+    } else {
+        String::new()
+    };
+    let mut page = adopt_page(&state, &data_dir).await;
+    page.error = error;
+    page.note = (!note.is_empty()).then_some(note);
+    Ok(render(page))
+}
+
+async fn adopt_page(state: &crate::AppState, data_dir: &std::path::Path) -> AdoptPage {
     match state.docker.foreign_compose_containers().await {
-        Ok(list) => render(AdoptPage {
-            items: crate::adopt::scan(&data_dir, list).await,
+        Ok(list) => AdoptPage {
+            items: crate::adopt::scan(data_dir, list).await,
             error: None,
-        }),
-        Err(e) => render(AdoptPage {
+            note: None,
+        },
+        Err(e) => AdoptPage {
             items: Vec::new(),
             error: Some(e.to_string()),
-        }),
+            note: None,
+        },
     }
 }
 
@@ -1384,6 +1434,7 @@ pub async fn instance_remove(
         .err();
     if error.is_none() {
         crate::audit::record("app.remove", &removed);
+        crate::terminal::set_adopted(runner::adopted_projects(&apps.root));
     }
     Ok(render(InstancesPage {
         instances: instance_views(&apps).await,

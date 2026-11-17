@@ -357,6 +357,16 @@ pub fn write_env(dir: &Path, env: &BTreeMap<String, String>) -> std::io::Result<
     f.write_all(render_env(env).as_bytes())
 }
 
+/// Like [`write_env`] with ready-made text (an adopted project's own `.env`, kept verbatim).
+pub fn write_env_text(dir: &Path, text: &str) -> std::io::Result<()> {
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(dir.join(".env"))?;
+    f.write_all(text.as_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

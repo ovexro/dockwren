@@ -27,6 +27,40 @@ pub fn valid_name(n: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
+/// File in an adopted instance's directory holding the Compose project name the containers
+/// already run under. It is not part of `state.toml` on purpose: clones and restore tests
+/// copy that file, and a copy must never drive the original's containers.
+pub const PROJECT_FILE: &str = "project";
+
+/// Compose project names Docker accepts and that cannot smuggle anything into a command line.
+pub fn valid_project(p: &str) -> bool {
+    (1..=63).contains(&p.len())
+        && p.starts_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && p.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+}
+
+/// The Compose project of an instance: the adopted one, else `dockwren-<name>`.
+pub fn project_name(inst: &Instance) -> String {
+    std::fs::read_to_string(inst.dir.join(PROJECT_FILE))
+        .ok()
+        .map(|t| t.trim().to_string())
+        .filter(|p| valid_project(p))
+        .unwrap_or_else(|| format!("dockwren-{}", inst.name))
+}
+
+/// Projects of all adopted instances under `root`.
+pub fn adopted_projects(root: &Path) -> std::collections::HashSet<String> {
+    std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| std::fs::read_to_string(e.path().join(PROJECT_FILE)).ok())
+        .map(|t| t.trim().to_string())
+        .filter(|p| valid_project(p))
+        .collect()
+}
+
 /// JSON string literal (valid YAML scalar) for generated override files.
 fn json_str(s: &str) -> String {
     serde_json::to_string(s).expect("string serialises")
@@ -63,7 +97,7 @@ pub fn override_yaml(t: &Template) -> Option<String> {
     (!out.is_empty()).then_some(out)
 }
 
-fn write_private(path: &Path, content: &str) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &Path, content: &str) -> std::io::Result<()> {
     let mut f = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -196,7 +230,7 @@ pub async fn compose_with_stdin(
     }
     let out = cmd
         .arg("compose")
-        .args(["-p", &format!("dockwren-{}", inst.name)])
+        .args(["-p", &project_name(inst)])
         .arg("--project-directory")
         .arg(&inst.dir)
         .arg("--env-file")

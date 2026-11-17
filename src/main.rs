@@ -1,3 +1,4 @@
+mod adopt;
 mod alerts;
 mod apps;
 mod audit;
@@ -28,7 +29,6 @@ mod runner;
 mod schedule;
 mod selfupdate;
 mod stack;
-mod adopt;
 mod statusapi;
 mod template;
 mod terminal;
@@ -406,7 +406,10 @@ fn app(
         .route("/apps/check-host", get(apps::check_host))
         .route("/stacks/new", get(apps::stack_form))
         .route("/stacks/install", post(apps::stack_submit))
-        .route("/stacks/adopt", get(apps::adopt_scan))
+        .route(
+            "/stacks/adopt",
+            get(apps::adopt_scan).post(apps::adopt_submit),
+        )
         .route("/apps/{id}/new", get(apps::new_form))
         .route("/apps/{id}/install", post(apps::install_submit))
         .route("/jobs/{id}", get(apps::job))
@@ -2107,7 +2110,12 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
-        assert!(res.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/plain"));
+        assert!(
+            res.headers()[header::CONTENT_TYPE]
+                .to_str()
+                .unwrap()
+                .starts_with("text/plain")
+        );
         let body = res.into_body().collect().await.unwrap().to_bytes();
         assert!(String::from_utf8_lossy(&body).contains("dockwren_apps 0"));
         // the token does not open the panel
@@ -2433,6 +2441,7 @@ mod tests {
             ("GET", "/stacks/new"),
             ("POST", "/stacks/install"),
             ("GET", "/stacks/adopt"),
+            ("POST", "/stacks/adopt"),
             ("GET", "/jobs/x"),
             ("GET", "/instances/list"),
             ("POST", "/instances/gt/remove"),

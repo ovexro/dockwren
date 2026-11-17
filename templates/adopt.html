@@ -1,12 +1,21 @@
 <h3>Compose projects outside the panel</h3>
-<p><small>Read-only scan of Compose projects running on this server that Dockwren did not create. Nothing is changed. "Could be adopted" means the file passes the same safety checks as a pasted stack and keeps its data in named volumes; adopting itself is not available yet.</small></p>
+<p><small>Compose projects running on this server that Dockwren did not create. Adopting one registers it as an app (logs, start/stop, alerts, public hostname) <strong>without restarting or recreating anything</strong>: its compose file is copied into the panel and must give exactly the same configuration as the running containers. The original files are left untouched. Only projects that pass the same safety checks as a pasted stack and keep their data in named volumes can be adopted. Backups cover <code>./data</code> only, so named-volume data is not backed up yet. Removing an adopted app deletes its volumes.</small></p>
 {% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
+{% if let Some(msg) = note %}<p role="status">{{ msg }}</p>{% endif %}
 {% if items.is_empty() && error.is_none() %}<p>No other Compose projects found.</p>{% endif %}
 <ul class="cards">
 {% for c in items %}
   <li><strong>{{ c.project }}</strong> <small>{{ c.working_dir }}</small><br>
     <small>{% for s in c.containers %}{{ s }}{% if !loop.last %}, {% endif %}{% endfor %}</small><br>
-    {% match c.verdict %}{% when Ok with (_) %}<em>Could be adopted.</em>{% when Err with (why) %}<em>Not adoptable: {{ why }}</em>{% endmatch %}</li>
+    {% match c.verdict %}
+    {% when Ok with (_) %}
+    <form hx-post="/stacks/adopt" hx-target="#install" hx-swap="innerHTML">
+      <input type="hidden" name="project" value="{{ c.project }}">
+      <label>Name <input type="text" name="name" value="{{ c.suggested_name() }}" required pattern="[a-z][a-z0-9-]{1,30}"></label>
+      <button type="submit">Adopt</button>
+    </form>
+    {% when Err with (why) %}<em>Not adoptable: {{ why }}</em>
+    {% endmatch %}</li>
 {% endfor %}
 </ul>
 <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
