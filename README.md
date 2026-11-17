@@ -65,6 +65,7 @@ Release binaries and `SHA256SUMS` are on the
 - Disk usage: Settings → System → Disk usage lists each app's data folder, old restore copies, local snapshots and images (an upper bound; a "+" marks files owned by another user that could not be counted), with two explicit buttons to free space: keep only the newest 3 local snapshots of an app (off-host copies are untouched) and remove Docker images no container uses.
 - Off-host backups: Settings → System → Off-host backups uploads a copy after every backup to another server (SFTP) or an S3-compatible bucket (AWS, Backblaze B2, Wasabi, MinIO...), encrypted and deduplicated with [restic](https://restic.net) run in a throwaway container (nothing to install). The settings are tested before they are saved. Dockwren generates the repository password and shows it **once**: store it in your password manager, without it the copies cannot be read. Credentials stay in a private file in the data directory and are never shown again. Disk lost? The Restore page has a **Fetch snapshots from off-host** button, and on a new server you connect the same target with the same password, then `dockwren backup pull <app>` brings the snapshots back. Recreate the app with `dockwren import` (a snapshot holds its data, not its settings or passwords; see config export/import below) and run `dockwren restore <app>`; it replaces the fresh data with the backed-up data, so the app comes back with its original accounts and content. After every backup a config export (compose files, `.env` passwords, settings; no data) is uploaded to the same target, sealed with the repository password. **Whole server lost?** On the new server run `dockwren recover`: it asks for the off-host target (SFTP or S3 details and the repository password; or set `DOCKWREN_OFFSITE_KIND`, `_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY`, `_SECRET_KEY`, `_HOST`, `_PORT`, `_USER`, `_PATH`, `_PRIVATE_KEY_FILE`, `_PASSWORD`), downloads the export, recreates every app and restores its newest snapshot. Apps that fail are listed and the rest still finish. A failed upload raises a notification; the local snapshot is kept.
 - Cloudflare Tunnel publishing with DNS conflict handling and optional Cloudflare Access (see below).
+- Direct HTTPS without Cloudflare: a bundled Caddy container gets a Let's Encrypt certificate and serves the app on ports 80/443 (see below).
 - `dockwren set-password` to rotate the admin password.
 - Web terminal (optional, off by default): a shell inside the containers of apps Dockwren installed, from the Containers page. Turn it on in Settings (or force it with `DOCKWREN_TERMINAL=1`); it asks for your password (and 2FA code) each time, is logged and shown in Notifications. Not a host shell.
 - Audit log: Settings → Security lists the newest events (sign-ins, failed and locked-out attempts with the source address, app install/update/backup/restore/remove/publish, 2FA and terminal changes, Cloudflare and notification settings, OS and panel updates). It is stored as `audit.log` in the data directory (about the last 2000 lines) and never contains passwords, tokens or codes.
@@ -111,6 +112,16 @@ DOCKWREN_DATA=/path/to/data dockwren set-password
 
 Prints a new generated password once. A running server applies it immediately and signs every
 session out. If you lose the password, run the same command.
+
+## Direct HTTPS (Caddy, no Cloudflare)
+
+In an app's "Public URL" dialog, save a hostname, then press Check and Publish directly. Dockwren starts
+one Caddy container (`dockwren-caddy`, host networking) that listens on ports 80 and 443, requests a
+free Let's Encrypt certificate (HTTP-01) and proxies the hostname to the app. Requirements: an A record
+for the hostname pointing at this server's public IP (DNS only, not proxied), and ports 80/443 free on the
+server and forwarded to it. The Check button tests these first. A hostname uses either this or the
+Cloudflare Tunnel, never both. Certificates are kept in `caddy/data` in the data directory. Opening
+80/443 in `ufw` is still manual for now.
 
 ## Public hostnames (Cloudflare Tunnel)
 

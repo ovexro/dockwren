@@ -2576,6 +2576,10 @@ struct PublicPage {
     offer_replace: bool,
     /// The hostname is not under any domain the Cloudflare token covers.
     zone_warning: Option<String>,
+    /// Published directly through Caddy (no Cloudflare).
+    direct: bool,
+    /// Preflight lines for direct HTTPS: (ok, text).
+    checks: Vec<(bool, String)>,
 }
 
 fn public_page(
@@ -2615,6 +2619,8 @@ fn public_page(
         result: None,
         offer_replace: false,
         zone_warning: None,
+        direct: crate::direct::is_direct(&dir),
+        checks: Vec::new(),
     }
 }
 
@@ -2887,6 +2893,82 @@ pub async fn public_publish(
             (false, lines)
         }
     });
+    Ok(render(page))
+}
+
+/// `POST /instances/{name}/public/direct`: `action` is `check` (preflight only), `on`
+/// (publish through Caddy with a Let's Encrypt certificate) or `off` (take it down).
+pub async fn public_direct(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Form(values): Form<HashMap<String, String>>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let action = values.get("action").map(String::as_str).unwrap_or("check");
+    let dir = apps.root.join(&name);
+    let host = crate::public::read(&dir).unwrap_or_default();
+    let data_dir = apps.root.parent().unwrap_or(&apps.root).to_path_buf();
+    let mut lines: Vec<String> = Vec::new();
+    let mut checks: Vec<(bool, String)> = Vec::new();
+    let mut ok = true;
+    if !crate::public::valid_hostname(&host) {
+        ok = false;
+        lines.push("save a valid hostname first".to_string());
+    } else if action == "off" {
+        crate::audit::record("app.direct.off", &name);
+        let r = match crate::direct::set_direct(&dir, false) {
+            Ok(()) => crate::direct::reconcile(&data_dir, &apps.root).await,
+            Err(e) => Err(e),
+        };
+        match r {
+            Ok(()) => lines.push(format!("Direct HTTPS for {host} is off.")),
+            Err(e) => {
+                ok = false;
+                lines.push(e);
+            }
+        }
+    } else {
+        let port = crate::public::web_port(&dir);
+        let pre = crate::direct::preflight(&data_dir, &host, port).await;
+        let blocked = pre.iter().any(|(good, blocks, _)| !good && *blocks);
+        checks = pre.into_iter().map(|(g, _, t)| (g, t)).collect();
+        if action == "on" {
+            if blocked {
+                ok = false;
+                lines.push("Not published: fix the red items first.".to_string());
+            } else {
+                crate::audit::record("app.direct.on", &format!("{name} -> {host}"));
+                let r = match crate::direct::set_direct(&dir, true) {
+                    Ok(()) => crate::direct::reconcile(&data_dir, &apps.root).await,
+                    Err(e) => Err(e),
+                };
+                match r {
+                    Ok(()) => lines.push(format!(
+                        "Caddy now serves https://{host}. The first certificate can take a minute; see the Caddy container log if it does not appear."
+                    )),
+                    Err(e) => {
+                        ok = false;
+                        let _ = crate::direct::set_direct(&dir, false);
+                        lines.push(e);
+                    }
+                }
+            }
+        } else {
+            ok = !blocked;
+            lines.push(if blocked {
+                "Preflight found a blocking problem.".to_string()
+            } else {
+                "Preflight passed.".to_string()
+            });
+        }
+    }
+    let mut page = public_page(&apps, &name, host, None, false);
+    page.checks = checks;
+    page.result = Some((ok, lines));
     Ok(render(page))
 }
 

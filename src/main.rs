@@ -8,6 +8,7 @@ mod clone;
 mod config;
 mod configbundle;
 mod deliver;
+mod direct;
 mod diskusage;
 mod docker;
 mod hostupdates;
@@ -429,6 +430,7 @@ fn app(
             "/instances/{name}/public/publish",
             post(apps::public_publish),
         )
+        .route("/instances/{name}/public/direct", post(apps::public_direct))
         .route("/settings/notifications", get(notify::kinds_show))
         .route("/settings/notifications/{kind}", post(notify::kind_set))
         .route("/settings/channels", get(deliver::show).post(deliver::save))
@@ -2218,6 +2220,7 @@ mod tests {
             ("GET", "/instances/gt/public"),
             ("POST", "/instances/gt/public"),
             ("POST", "/instances/gt/public/publish"),
+            ("POST", "/instances/gt/public/direct"),
             ("GET", "/notifications"),
             ("GET", "/notifications/list"),
             ("GET", "/notifications/count"),
