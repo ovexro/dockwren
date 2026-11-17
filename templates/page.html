@@ -50,6 +50,9 @@
     {% else if tab == "security" %}
     <h2>Two-factor sign-in</h2>
     <div id="twofa" hx-get="/settings/2fa" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    <h2>Passkeys</h2>
+    <script src="/static/passkey.js?v={{ assets }}" defer></script>
+    <div id="passkeys" hx-get="/settings/passkeys" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>Web terminal</h2>
     <div id="terminal-setting" hx-get="/settings/terminal" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>Audit log</h2>

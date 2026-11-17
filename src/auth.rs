@@ -28,7 +28,12 @@ const SESSION_TTL_SECS: u64 = 12 * 60 * 60;
 const MAX_FAILURES: u32 = 5;
 const FAILURE_WINDOW: Duration = Duration::from_secs(5 * 60);
 const LOCKOUT: Duration = Duration::from_secs(60);
+mod passkey;
 mod twofa;
+pub use passkey::{
+    login_code, login_passkey, register as passkey_register, register_options as passkey_options,
+    remove as passkey_remove, show as passkeys_show,
+};
 pub use twofa::{
     disable as disable_two_factor, enable as twofa_enable, show as twofa_show,
     start as twofa_start, turn_off as twofa_disable,
@@ -72,6 +77,8 @@ pub struct Auth {
     last_step: Mutex<u64>,
     /// Secret shown during setup, not active until confirmed with a code.
     pending: Mutex<Option<Vec<u8>>>,
+    /// Passkey challenges in flight (registration, or a password-verified sign-in).
+    pk_pending: Mutex<HashMap<String, passkey::Pending>>,
 }
 
 pub type SharedAuth = Arc<Auth>;
@@ -184,6 +191,7 @@ impl Auth {
             dir: None,
             last_step: Mutex::default(),
             pending: Mutex::default(),
+            pk_pending: Mutex::default(),
         })
     }
 
@@ -210,6 +218,7 @@ impl Auth {
             dir: Some(data_dir.to_path_buf()),
             last_step: Mutex::default(),
             pending: Mutex::default(),
+            pk_pending: Mutex::default(),
         };
         Ok(auth)
     }
@@ -441,6 +450,15 @@ pub async fn login_submit(
     let ok = tokio::task::spawn_blocking(move || checker.verify(&form.password))
         .await
         .unwrap_or(false);
+    // A registered passkey stands in for the typed code: password right, no code given.
+    if ok
+        && code.trim().is_empty()
+        && let Some((rp, _)) = passkey::host_of(&headers)
+        && !auth.passkeys_for(&rp).is_empty()
+    {
+        let (pending, _) = auth.login_challenge(&rp);
+        return passkey::passkey_login_page(&auth, &pending, None);
+    }
     // One message for every failure, so it does not say which factor was wrong.
     if !ok || !auth.second_factor_ok(&code) {
         auth.record_failure();
@@ -566,6 +584,56 @@ mod tests {
         assert!(auth.second_factor_ok(&codes[0].to_uppercase()));
         assert!(!auth.second_factor_ok(&codes[0]));
         assert!(auth.second_factor_ok(&codes[1]));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn passkey_only_login_shows_the_passkey_step_and_recovery_codes_still_work() {
+        let dir = temp_dir();
+        load_or_create(&dir).unwrap();
+        let pw = set_password(&dir).unwrap();
+        let auth = Arc::new(Auth::open(&dir, false).unwrap());
+        write_private(
+            &dir.join("passkeys.json"),
+            r#"[{"id":"aWQ","key":"AA","rp":"panel.example.test","count":0,"name":"t"}]"#,
+        )
+        .unwrap();
+        // Passkeys alone make 2FA "on"; the typed fallback is a recovery code only.
+        assert!(auth.two_factor_enabled() && !auth.totp_enabled());
+        assert!(!auth.second_factor_ok("") && !auth.second_factor_ok("123456"));
+        let codes = auth.ensure_recovery().unwrap();
+        assert_eq!(codes.len(), 8);
+        assert!(auth.ensure_recovery().unwrap().is_empty());
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let login = |host: &'static str, code: String| {
+            let (a, pw) = (Arc::clone(&auth), pw.clone());
+            async move {
+                let mut h = header::HeaderMap::new();
+                h.insert(header::HOST, host.parse().unwrap());
+                login_submit(State(a), None, h, Form(LoginForm { password: pw, code })).await
+            }
+        };
+        rt.block_on(async {
+            // On the registered host the password leads to the passkey page, with no session yet.
+            let res = login("panel.example.test", String::new()).await;
+            assert_eq!(res.status(), StatusCode::OK);
+            assert!(res.headers().get(header::SET_COOKIE).is_none());
+            // Elsewhere there is no passkey for it: a recovery code is needed.
+            let res = login("other.example.test", String::new()).await;
+            assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+            let res = login("other.example.test", codes[0].clone()).await;
+            assert_eq!(res.status(), StatusCode::SEE_OTHER);
+            let res = login("other.example.test", codes[0].clone()).await;
+            assert_eq!(
+                res.status(),
+                StatusCode::UNAUTHORIZED,
+                "recovery code works once"
+            );
+        });
+        assert!(twofa::disable(&dir).unwrap());
+        assert!(!auth.two_factor_enabled());
         let _ = fs::remove_dir_all(dir);
     }
 

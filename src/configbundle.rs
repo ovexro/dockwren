@@ -34,6 +34,7 @@ const PANEL_FILES: &[&str] = &[
     "admin.hash",
     "totp.secret",
     "totp.recovery",
+    "passkeys.json",
     "notify-channels.json",
     "backup-schedule.toml",
     "osupdate.enabled",

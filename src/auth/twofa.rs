@@ -1,6 +1,6 @@
 //! Optional two-factor sign-in (TOTP). Off until the admin sets it up in Settings.
 //! State is two files in the data dir: `totp.secret` (base32) and `totp.recovery` (SHA-256
-//! of each unused recovery code). `dockwren disable-2fa` removes both.
+//! of each unused recovery code). `dockwren disable-2fa` removes both, and any passkeys.
 
 use super::*;
 use crate::totp;
@@ -12,7 +12,7 @@ const RECOVERY_COUNT: usize = 8;
 /// Turn 2FA off from the command line (lost phone and recovery codes).
 pub fn disable(data_dir: &Path) -> io::Result<bool> {
     let mut was_on = false;
-    for f in [SECRET_FILE, RECOVERY_FILE] {
+    for f in [SECRET_FILE, RECOVERY_FILE, "passkeys.json"] {
         match fs::remove_file(data_dir.join(f)) {
             Ok(()) => was_on = true,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
@@ -23,7 +23,7 @@ pub fn disable(data_dir: &Path) -> io::Result<bool> {
 }
 
 impl Auth {
-    fn file(&self, name: &str) -> Option<PathBuf> {
+    pub(super) fn file(&self, name: &str) -> Option<PathBuf> {
         self.dir.as_ref().map(|d| d.join(name))
     }
 
@@ -32,14 +32,20 @@ impl Auth {
         totp::from_base32(&text).filter(|s| !s.is_empty())
     }
 
-    pub fn two_factor_enabled(&self) -> bool {
+    pub fn totp_enabled(&self) -> bool {
         self.secret().is_some()
     }
 
+    /// A second step is required at sign-in: an authenticator app and/or a passkey.
+    pub fn two_factor_enabled(&self) -> bool {
+        self.totp_enabled() || self.has_passkeys()
+    }
+
     /// True when 2FA is off, or `input` is a valid current code or an unused recovery code.
+    /// With only passkeys set up, recovery codes are the typed fallback.
     pub(super) fn second_factor_ok(&self, input: &str) -> bool {
         let Some(secret) = self.secret() else {
-            return true;
+            return !self.has_passkeys() || self.use_recovery(input);
         };
         let mut last = self.last_step.lock().unwrap();
         if let Some(step) = totp::verify(&secret, input, now_unix(), *last) {
@@ -73,13 +79,42 @@ impl Auth {
         hit
     }
 
-    pub(super) fn turn_on(&self, secret: &[u8]) -> io::Result<Vec<String>> {
-        let (Some(sp), Some(rp)) = (self.file(SECRET_FILE), self.file(RECOVERY_FILE)) else {
-            return Err(io::Error::other("no data directory"));
-        };
+    fn new_recovery(&self) -> io::Result<Vec<String>> {
+        let rp = self
+            .file(RECOVERY_FILE)
+            .ok_or_else(|| io::Error::other("no data directory"))?;
         let codes: Vec<String> = (0..RECOVERY_COUNT).map(|_| totp::recovery_code()).collect();
         let hashes: String = codes.iter().map(|c| format!("{}\n", sha_hex(c))).collect();
         write_private(&rp, &hashes)?;
+        Ok(codes)
+    }
+
+    /// Recovery codes for a passkey-only setup: made once, when none exist yet (empty = kept).
+    pub(super) fn ensure_recovery(&self) -> io::Result<Vec<String>> {
+        let have = self
+            .file(RECOVERY_FILE)
+            .and_then(|p| fs::read_to_string(p).ok())
+            .is_some_and(|t| !t.trim().is_empty());
+        if have || self.totp_enabled() {
+            return Ok(Vec::new());
+        }
+        self.new_recovery()
+    }
+
+    /// Recovery codes only matter while some second factor exists.
+    pub(super) fn drop_recovery_if_unused(&self) {
+        if !self.two_factor_enabled()
+            && let Some(p) = self.file(RECOVERY_FILE)
+        {
+            let _ = fs::remove_file(p);
+        }
+    }
+
+    pub(super) fn turn_on(&self, secret: &[u8]) -> io::Result<Vec<String>> {
+        let Some(sp) = self.file(SECRET_FILE) else {
+            return Err(io::Error::other("no data directory"));
+        };
+        let codes = self.new_recovery()?;
         write_private(&sp, &totp::base32(secret))?;
         Ok(codes)
     }
@@ -108,7 +143,7 @@ fn render(
 ) -> Html<String> {
     Html(
         TwofaTemplate {
-            enabled: auth.two_factor_enabled(),
+            enabled: auth.totp_enabled(),
             setup,
             recovery,
             error,
@@ -132,7 +167,7 @@ pub async fn show(State(auth): State<SharedAuth>) -> Html<String> {
 }
 
 pub async fn start(State(auth): State<SharedAuth>) -> Html<String> {
-    if auth.two_factor_enabled() || auth.dir.is_none() {
+    if auth.totp_enabled() || auth.dir.is_none() {
         return render(&auth, None, Vec::new(), None);
     }
     let secret = totp::new_secret();
@@ -174,7 +209,7 @@ pub async fn enable(State(auth): State<SharedAuth>, Form(f): Form<CodeForm>) -> 
 }
 
 pub async fn turn_off(State(auth): State<SharedAuth>, Form(f): Form<CodeForm>) -> Html<String> {
-    if !auth.two_factor_enabled() {
+    if !auth.totp_enabled() {
         return render(&auth, None, Vec::new(), None);
     }
     // Needs a current code or a recovery code, so a stolen session alone cannot remove it.
@@ -182,9 +217,10 @@ pub async fn turn_off(State(auth): State<SharedAuth>, Form(f): Form<CodeForm>) -
         auth.record_failure();
         return render(&auth, None, Vec::new(), Some("That code is not right."));
     }
-    if let Some(dir) = &auth.dir {
-        let _ = disable(dir);
+    if let Some(path) = auth.file(SECRET_FILE) {
+        let _ = fs::remove_file(path);
     }
+    auth.drop_recovery_if_unused();
     crate::audit::record("2fa.disable", "");
     render(&auth, None, Vec::new(), None)
 }

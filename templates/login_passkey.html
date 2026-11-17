@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · Dockwren</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/dockwren.css?v={{ assets }}">
+  <script src="/static/passkey.js?v={{ assets }}" defer></script>
+</head>
+<body>
+  <main>
+    <h1 class="login-brand"><img src="/favicon.svg" alt="" width="40" height="40">Dockwren</h1>
+    <div id="pk-login" data-options="{{ options }}">
+      <p>Password accepted. Confirm with your passkey.</p>
+      <p role="status" data-pk-msg></p>
+      <button class="primary" type="button" data-pk-login>Use passkey</button>
+    </div>
+    <form method="post" action="/login/code">
+      {% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
+      <input type="hidden" name="pending" value="{{ pending }}">
+      <label>Or a code <small>(authenticator or recovery code)</small> <input name="code" autocomplete="one-time-code" required></label>
+      <button type="submit">Sign in</button>
+    </form>
+    <p><small><a href="/login">Start over</a></small></p>
+  </main>
+</body>
+</html>

@@ -183,6 +183,7 @@ async fn container_action(
 
 const HTMX: &str = include_str!("../static/htmx.min.js");
 const CSS: &str = include_str!("../static/dockwren.css");
+const PASSKEY_JS: &str = include_str!("../static/passkey.js");
 const FAVICON: &str = include_str!("../static/favicon.svg");
 
 /// Short content hash of the bundled assets, appended to their URLs so a new build is never served from a stale cache.
@@ -191,6 +192,7 @@ pub fn asset_version() -> String {
     for b in CSS
         .bytes()
         .chain(HTMX.bytes())
+        .chain(PASSKEY_JS.bytes())
         .chain(terminal::TERMINAL_JS.bytes())
     {
         h = (h ^ u64::from(b)).wrapping_mul(0x100000001b3);
@@ -215,6 +217,16 @@ async fn favicon() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=86400"),
         ],
         FAVICON,
+    )
+}
+
+async fn passkey_js() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        PASSKEY_JS,
     )
 }
 
@@ -452,6 +464,10 @@ fn app(
         .route("/settings/2fa/start", post(auth::twofa_start))
         .route("/settings/2fa/enable", post(auth::twofa_enable))
         .route("/settings/2fa/disable", post(auth::twofa_disable))
+        .route("/settings/passkeys", get(auth::passkeys_show))
+        .route("/settings/passkeys/options", post(auth::passkey_options))
+        .route("/settings/passkeys/register", post(auth::passkey_register))
+        .route("/settings/passkeys/remove", post(auth::passkey_remove))
         .route("/settings/cloudflare", get(apps::cloudflare_show))
         .route(
             "/settings/cloudflare/connect",
@@ -498,6 +514,9 @@ fn app(
         .route("/favicon.svg", get(favicon))
         .route("/favicon.ico", get(favicon))
         .route("/login", get(auth::login_form).post(auth::login_submit))
+        .route("/login/passkey", post(auth::login_passkey))
+        .route("/login/code", post(auth::login_code))
+        .route("/static/passkey.js", get(passkey_js))
         .merge(protected)
         .with_state(AppState {
             auth,
