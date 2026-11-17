@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 const LOG_FILE: &str = "notifications.log";
 const PREFS_FILE: &str = "notify-settings.json";
 /// Every kind a producer raises: (kind, label, what it does). Settings lists exactly these.
-pub const KINDS: [(&str, &str, &str); 15] = [
+pub const KINDS: [(&str, &str, &str); 16] = [
     (
         "terminal.opened",
         "Web terminal opened",
@@ -91,6 +91,11 @@ pub const KINDS: [(&str, &str, &str); 15] = [
         "container.port_open",
         "Container port open on every interface",
         "A running container publishes a port on 0.0.0.0 or ::. Docker bypasses the ufw firewall for these, so they may be reachable from the internet. Checked every minute; clears when the port is closed or bound to 127.0.0.1 or a specific address.",
+    ),
+    (
+        "host.listener",
+        "Unexpected host listener",
+        "A socket on this server listens on every network interface (0.0.0.0 or ::) and is not explained by Docker, ssh or the Caddy container (add ports with DOCKWREN_LISTEN_ALLOW). Catches host-network containers and stray services. Checked every minute; clears when the port closes.",
     ),
     (
         "container.problem",

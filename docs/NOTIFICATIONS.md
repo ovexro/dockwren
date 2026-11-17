@@ -94,6 +94,9 @@ container list. Thresholds are fixed (no settings); each kind has its on/off swi
   ones only) exited with an error other than 0, 137 or 143, or was killed for running out of memory
   (Docker's OOM flag, so a manual kill with 137 stays quiet). It must be seen on two polls in a row, so
   an update that recreates containers does not raise it. Key `container.problem:<name>`.
+- `host.listener`: a host socket listens on every interface (`0.0.0.0`/`::`) and is not explained by Docker
+  (published ports), ssh (22), Caddy (80/443 while its container runs) or `DOCKWREN_LISTEN_ALLOW`. Read from
+  `/proc/net/tcp{,6}`. Key `host.listener:<port>`, closes when the port closes.
 
 ## Public address checks
 
