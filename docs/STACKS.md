@@ -36,3 +36,7 @@ Rules that trip people up:
 - **Updates**: Dockwren does not update a pasted stack (it has no idea which tag is newer). Edit the
   image tag in the stack's `compose.yaml` and run `docker compose up -d` from its folder, or remove and re-add it.
 - The stack lives in `<data>/instances/<name>/`, like catalog apps, and shows as app `custom`.
+
+## Adopting a project that is already running
+
+Instead of pasting a file you can adopt a Compose project that already runs on the server (Apps → Add an app → Scan for other Compose projects). The same checks apply, plus: one compose file, named volumes only (no host bind mounts), and the copy must produce exactly the same `docker compose config --hash` as the running project, so adopting never restarts or recreates containers. Backups cover `./data` only, so named-volume data is not backed up, and removing an adopted app deletes its volumes. The panel cannot read compose files under `/home`.
