@@ -15,6 +15,13 @@ health of the host they run on.
 
 License: Apache-2.0.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/apps-dark.png">
+    <img src="docs/screenshots/apps-light.png" alt="Dockwren app catalog: AdGuard Home, Ghost, Gitea, Grafana, Homepage, Immich, Jellyfin, Memos and more, each with an Install button" width="900">
+  </picture>
+</p>
+
 ## Quick start
 
 On a fresh Debian or Ubuntu server, as root (installs Docker if it is missing):
@@ -75,7 +82,7 @@ Release binaries and `SHA256SUMS` are on the
 - OS updates (optional, off by default): the panel always tells you when the server has pending package updates or needs a reboot. To install them from Settings too, run `sudo dockwren setup-osupdate --data-dir <your data dir>` once, then turn it on in Settings. Each start asks for your password (and 2FA code); it runs `apt-get update` and `apt-get full-upgrade` as root through a small systemd helper, shows the log live, and never reboots. Debian and Ubuntu only. See SECURITY.md.
 - Two-factor sign-in (optional): turn it on in Settings with any authenticator app (Google Authenticator works). Locked out? `dockwren disable-2fa` turns it off.
 
-CLI: `dockwren [serve | set-password | disable-2fa | setup-osupdate | self-update | install | backup [pull] | update | restore | verify | restore-test | scan | doctor | cleanup | expose | unexpose | remove]`.
+CLI: `dockwren [serve | set-password | disable-2fa | setup-osupdate | self-update | install | export | import | recover | backup [pull] | update | restore | verify | restore-test | scan | doctor | template add/list/remove | cleanup | expose | unexpose | remove]`.
 
 ## Requirements
 

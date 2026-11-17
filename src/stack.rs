@@ -424,7 +424,7 @@ mod tests {
         };
         assert!(p(None).unwrap_err().contains("127.0.0.1:8080:80"));
         assert!(p(Some("0.0.0.0")).is_err());
-        assert!(p(Some("192.168.1.5")).is_err());
+        assert!(p(Some("203.0.113.5")).is_err());
         assert_eq!(p(Some("127.0.0.1")), Ok(()));
     }
 

@@ -332,7 +332,7 @@ mod tests {
         web.ports = vec![
             p("127.0.0.1", 8100),
             p("0.0.0.0", 8080),
-            p("100.64.0.1", 9000),
+            p("203.0.113.5", 9000),
         ];
         let mut off = container("off", "exited", "Exited (0)", true);
         off.ports = vec![p("::", 81)];
