@@ -5,8 +5,8 @@ Open items only, one line each, with the date it was last verified open. Deliver
 
 ## Open
 - More catalog templates (open-ended; ~15 done, see `templates/`). Verified open 2026-11-17.
-- Security: PHP advisory recheck after 2026-11-19 (PHP2Shell fixed in 8.5.12/8.4.27/8.3.36/8.2.35; Nextcloud, WordPress, SnappyMail, Roundcube pinned versions patched as of 2026-11-16; 8.5.13/8.4.28 RCs seen).
-- Security: WordPress template has 2 fixable criticals needing upstream rebuilds (checked 2026-11-17): apache2 2.4.69 (fix 2.4.71) in wordpress:7.1.4-php8.x-apache; Go stdlib 1.24.6 (fix 1.24.13) in mariadb:11.8.9. Recheck both tags at each release.
+- Security: PHP advisory recheck after 2026-11-19 (PHP2Shell fixed in 8.5.12/8.4.27/8.3.36/8.2.35; Nextcloud, WordPress, SnappyMail, Roundcube pinned versions patched as of 2026-11-16; Rechecked 2026-11-17: 8.5.13/8.4.28/8.3.37/8.2.36 not yet on Docker Hub; pinned images still on patched versions).
+- Security: WordPress template has 2 fixable criticals needing upstream rebuilds (rechecked 2026-11-17, images unchanged since 2026-11-11, no wordpress 7.1.5 / mariadb 11.8.10 yet): apache2 2.4.69 (fix 2.4.71) in wordpress:7.1.4-php8.x-apache; Go stdlib 1.24.6 (fix 1.24.13) in mariadb:11.8.9. Recheck both tags at each release.
 - Off-host: not tested on AWS (B2 tested). Low value, keep unless asked.
 - Ideas queue (proposed and verified not built/not excluded 2026-11-17; user approved all, order = recommendation):
   1. Adopt running containers / existing Compose projects as managed stacks: phases 1 (scan) + 2 (adopt, named volumes only) built; open: host bind mounts (data relocation), backups of named volumes, ports claimed in .env, ProtectHome files, passkeys next.
