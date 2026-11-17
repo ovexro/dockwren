@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 const LOG_FILE: &str = "notifications.log";
 const PREFS_FILE: &str = "notify-settings.json";
 /// Every kind a producer raises: (kind, label, what it does). Settings lists exactly these.
-pub const KINDS: [(&str, &str, &str); 14] = [
+pub const KINDS: [(&str, &str, &str); 15] = [
     (
         "terminal.opened",
         "Web terminal opened",
@@ -86,6 +86,11 @@ pub const KINDS: [(&str, &str, &str); 14] = [
         "app.vulnerable",
         "Critical vulnerabilities in an app's images",
         "Once a day, scans each app's images with Trivy (run in a throwaway container; image names go to their registries and Trivy's public vulnerability database is downloaded). Raised when an app has a critical finding that already has a fixed version, and again when a new one appears. Findings without a fix are only counted on the Apps page. Nothing is changed.",
+    ),
+    (
+        "container.port_open",
+        "Container port open on every interface",
+        "A running container publishes a port on 0.0.0.0 or ::. Docker bypasses the ufw firewall for these, so they may be reachable from the internet. Checked every minute; clears when the port is closed or bound to 127.0.0.1 or a specific address.",
     ),
     (
         "container.problem",

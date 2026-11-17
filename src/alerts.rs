@@ -19,6 +19,7 @@ pub const DISK_KIND: &str = "host.disk_full";
 pub const MEM_KIND: &str = "host.memory_high";
 pub const CPU_KIND: &str = "host.cpu_high";
 pub const CONTAINER_KIND: &str = "container.problem";
+pub const PORT_KIND: &str = "container.port_open";
 
 const DISK_CRIT_PCT: f64 = 95.0;
 const DISK_CLEAR_PCT: f64 = 80.0;
@@ -231,6 +232,46 @@ pub fn check_containers(
     now
 }
 
+/// Running containers with a port published on every network interface: `(key, container,
+/// "8080/tcp")`. Docker opens these in its own firewall chain, so ufw does not block them.
+pub fn open_ports(list: &[ContainerInfo]) -> Vec<(String, String, String)> {
+    let mut v = Vec::new();
+    for c in list.iter().filter(|c| c.state == "running") {
+        for p in &c.ports {
+            if p.exposure() == crate::docker::Exposure::Everywhere {
+                let what = format!("{}/{}", p.port, p.proto);
+                v.push((
+                    format!("{PORT_KIND}:{}:{what}", c.name),
+                    c.name.clone(),
+                    what,
+                ));
+            }
+        }
+    }
+    v
+}
+
+/// Raise for each newly open port, close the events of ports that are closed or rebound.
+pub fn check_ports(shared: &Shared, list: &[ContainerInfo]) {
+    let mut keep = HashSet::new();
+    for (key, name, what) in open_ports(list) {
+        notify::raise(
+            shared,
+            NewEvent::new(
+                "docker",
+                PORT_KIND,
+                Severity::Warning,
+                &format!("Container {name} listens on port {what} on every network interface"),
+            )
+            .body("Docker bypasses the ufw firewall for published ports, so this may be reachable from the internet. Publish it on 127.0.0.1 (or a Tailscale/LAN address) unless that is intended.")
+            .link("/containers")
+            .key(key.clone()),
+        );
+        keep.insert(key);
+    }
+    resolve_stale(shared, &format!("{PORT_KIND}:"), &keep);
+}
+
 pub fn spawn(shared: Shared, metrics: metrics::Shared, docker: DockerClient) {
     tokio::spawn(async move {
         let mut previous = HashSet::new();
@@ -241,6 +282,7 @@ pub fn spawn(shared: Shared, metrics: metrics::Shared, docker: DockerClient) {
                 check_host(&shared, &m);
             }
             if let Ok(list) = docker.containers().await {
+                check_ports(&shared, &list);
                 previous = check_containers(&shared, &list, &previous);
             }
         }
@@ -274,7 +316,29 @@ mod tests {
             status: status.into(),
             managed,
             oom_killed: false,
+            ports: vec![],
         }
+    }
+
+    #[test]
+    fn only_wildcard_bindings_of_running_containers_count() {
+        use crate::docker::PublishedPort;
+        let p = |ip: &str, port| PublishedPort {
+            ip: ip.into(),
+            port,
+            proto: "tcp".into(),
+        };
+        let mut web = container("web", "running", "Up", true);
+        web.ports = vec![
+            p("127.0.0.1", 8100),
+            p("0.0.0.0", 8080),
+            p("100.64.0.1", 9000),
+        ];
+        let mut off = container("off", "exited", "Exited (0)", true);
+        off.ports = vec![p("::", 81)];
+        let got = open_ports(&[web, off]);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, "container.port_open:web:8080/tcp");
     }
 
     #[test]

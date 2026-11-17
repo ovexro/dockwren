@@ -1878,6 +1878,7 @@ mod tests {
                 status: "Up 3 hours".into(),
                 managed: true,
                 oom_killed: false,
+                ports: vec![],
             }]),
             true,
         );

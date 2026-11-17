@@ -4,7 +4,6 @@ Open items only, one line each, with the date it was last verified open. Deliver
 (delete the line in the SAME commit that delivers it; grep this file for the feature's keywords first).
 
 ## Open
-- Exposed-ports audit: listening ports per app (Docker bypasses ufw), LAN vs internet, notify on a newly opened port. Verified open 2026-11-17.
 - Release notes in the update preview (upstream changelog / GitHub release notes). Verified open 2026-11-17.
 - Read-only status API token: JSON with app health, last backup, scan counts (/metrics redirects to login today). Verified open 2026-11-17.
 - Caddy image pin check in vulnscan. Verified open 2026-11-17.

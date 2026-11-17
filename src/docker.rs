@@ -28,6 +28,40 @@ pub struct ContainerInfo {
     /// The kernel killed it for running out of memory (only looked up for managed containers
     /// that exited with 137; `false` otherwise).
     pub oom_killed: bool,
+    /// Ports published on the host (Docker's own port mappings; host-network containers have none).
+    pub ports: Vec<PublishedPort>,
+}
+
+/// One host port that Docker forwards into a container.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublishedPort {
+    /// Host address it is bound to: `127.0.0.1`, `0.0.0.0`, `::` or a specific address.
+    pub ip: String,
+    pub port: u16,
+    pub proto: String,
+}
+
+/// Who can reach a published port. Docker adds its own firewall rules, so ufw does not
+/// restrict these: the bind address is the only thing that does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exposure {
+    /// Only this machine (`127.0.0.1`, `::1`).
+    Local,
+    /// Every network the host is on, the internet included if it is routed here (`0.0.0.0`, `::`).
+    Everywhere,
+    /// One specific address, such as a LAN or Tailscale IP.
+    Address,
+}
+
+impl PublishedPort {
+    pub fn exposure(&self) -> Exposure {
+        match self.ip.as_str() {
+            "127.0.0.1" | "::1" => Exposure::Local,
+            "0.0.0.0" | "::" | "" => Exposure::Everywhere,
+            ip if ip.starts_with("127.") => Exposure::Local,
+            _ => Exposure::Address,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -288,6 +322,19 @@ impl From<ContainerSummary> for ContainerInfo {
             .as_ref()
             .and_then(|l| l.get("com.docker.compose.project"))
             .is_some_and(|p| crate::terminal::managed(Some(p)));
+        // Docker lists IPv4 and IPv6 mappings separately; keep one entry per address and port.
+        let mut ports: Vec<PublishedPort> = Vec::new();
+        for p in c.ports.unwrap_or_default() {
+            let Some(port) = p.public_port else { continue };
+            let n = PublishedPort {
+                ip: p.ip.unwrap_or_default(),
+                port,
+                proto: p.typ.map(|t| t.to_string()).unwrap_or_else(|| "tcp".into()),
+            };
+            if !ports.contains(&n) {
+                ports.push(n);
+            }
+        }
         Self {
             id: id.chars().take(12).collect(),
             name,
@@ -296,6 +343,7 @@ impl From<ContainerSummary> for ContainerInfo {
             status: c.status.unwrap_or_default(),
             managed,
             oom_killed: false,
+            ports,
         }
     }
 }
@@ -339,6 +387,7 @@ mod tests {
                 status: "Up 3 hours".into(),
                 managed: false,
                 oom_killed: false,
+                ports: vec![],
             }
         );
         let labelled = ContainerSummary {

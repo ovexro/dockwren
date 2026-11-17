@@ -313,6 +313,26 @@ fn tunnel_check(v: &mut Vec<Item>) {
 }
 
 /// Every check, in display order. Takes a few seconds at most (each probe has a timeout).
+/// Docker-published ports that listen on every interface (ufw does not guard those).
+async fn ports_check(v: &mut Vec<Item>) {
+    let list = match crate::docker::DockerClient::connect() {
+        Ok(d) => d.containers().await.ok(),
+        Err(_) => None,
+    };
+    let Some(list) = list else { return };
+    let open = crate::alerts::open_ports(&list);
+    v.push(if open.is_empty() {
+        item("Open ports", Level::Ok, "No container publishes a port on every network interface.")
+    } else {
+        let names: Vec<String> = open.iter().map(|o| format!("{} ({})", o.1, o.2)).collect();
+        item(
+            "Open ports",
+            Level::Warn,
+            format!("Reachable on every interface, and Docker bypasses ufw: {}. Publish on 127.0.0.1 unless that is intended.", names.join(", ")),
+        )
+    });
+}
+
 pub async fn run(data_dir: &Path) -> Vec<Item> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -325,6 +345,7 @@ pub async fn run(data_dir: &Path) -> Vec<Item> {
     v.push(memory_check());
     v.push(clock_check().await);
     network_checks(&mut v).await;
+    ports_check(&mut v).await;
     backup_checks(data_dir, now, &mut v);
     tunnel_check(&mut v);
     v
