@@ -28,6 +28,7 @@ mod runner;
 mod schedule;
 mod selfupdate;
 mod stack;
+mod adopt;
 mod statusapi;
 mod template;
 mod terminal;
@@ -405,6 +406,7 @@ fn app(
         .route("/apps/check-host", get(apps::check_host))
         .route("/stacks/new", get(apps::stack_form))
         .route("/stacks/install", post(apps::stack_submit))
+        .route("/stacks/adopt", get(apps::adopt_scan))
         .route("/apps/{id}/new", get(apps::new_form))
         .route("/apps/{id}/install", post(apps::install_submit))
         .route("/jobs/{id}", get(apps::job))
@@ -2430,6 +2432,7 @@ mod tests {
             ("POST", "/apps/gitea/install"),
             ("GET", "/stacks/new"),
             ("POST", "/stacks/install"),
+            ("GET", "/stacks/adopt"),
             ("GET", "/jobs/x"),
             ("GET", "/instances/list"),
             ("POST", "/instances/gt/remove"),

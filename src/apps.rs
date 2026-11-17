@@ -932,6 +932,33 @@ pub async fn new_form(
     Ok(render(form_view(t, &HashMap::new(), None)))
 }
 
+#[derive(Template)]
+#[template(path = "adopt.html")]
+struct AdoptPage {
+    items: Vec<crate::adopt::Candidate>,
+    error: Option<String>,
+}
+
+/// `GET /stacks/adopt`: read-only scan of Compose projects the panel does not manage.
+pub async fn adopt_scan(State(state): State<crate::AppState>) -> Html<String> {
+    let data_dir = state
+        .apps
+        .root
+        .parent()
+        .map(|d| d.to_path_buf())
+        .unwrap_or_default();
+    match state.docker.foreign_compose_containers().await {
+        Ok(list) => render(AdoptPage {
+            items: crate::adopt::scan(&data_dir, list).await,
+            error: None,
+        }),
+        Err(e) => render(AdoptPage {
+            items: Vec::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
 pub async fn stack_form() -> Html<String> {
     render(StackForm {
         name: String::new(),

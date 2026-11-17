@@ -1,0 +1,12 @@
+<h3>Compose projects outside the panel</h3>
+<p><small>Read-only scan of Compose projects running on this server that Dockwren did not create. Nothing is changed. "Could be adopted" means the file passes the same safety checks as a pasted stack and keeps its data in named volumes; adopting itself is not available yet.</small></p>
+{% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
+{% if items.is_empty() && error.is_none() %}<p>No other Compose projects found.</p>{% endif %}
+<ul class="cards">
+{% for c in items %}
+  <li><strong>{{ c.project }}</strong> <small>{{ c.working_dir }}</small><br>
+    <small>{% for s in c.containers %}{{ s }}{% if !loop.last %}, {% endif %}{% endfor %}</small><br>
+    {% match c.verdict %}{% when Ok with (_) %}<em>Could be adopted.</em>{% when Err with (why) %}<em>Not adoptable: {{ why }}</em>{% endmatch %}</li>
+{% endfor %}
+</ul>
+<button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>

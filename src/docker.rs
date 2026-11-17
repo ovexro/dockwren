@@ -34,6 +34,18 @@ pub struct ContainerInfo {
     pub host_network: bool,
 }
 
+/// A container of a Compose project that is not managed by the panel, with the labels
+/// Compose stamped on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeignContainer {
+    pub project: String,
+    pub service: String,
+    pub working_dir: String,
+    /// Comma-separated list of compose files, as Compose recorded it.
+    pub config_files: String,
+    pub state: String,
+}
+
 /// One host port that Docker forwards into a container.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublishedPort {
@@ -176,6 +188,42 @@ impl DockerClient {
             Ok(i) => i.state.and_then(|st| st.oom_killed).unwrap_or(false),
             Err(_) => false,
         }
+    }
+
+    /// Containers that belong to a Compose project the panel did not create (no
+    /// `dockwren-` prefix). Read-only: used to offer adoption.
+    pub async fn foreign_compose_containers(
+        &self,
+    ) -> Result<Vec<ForeignContainer>, bollard::errors::Error> {
+        let options = ListContainersOptionsBuilder::default().all(true).build();
+        let list = self.inner.list_containers(Some(options)).await?;
+        let mut out = Vec::new();
+        for c in list {
+            let l = c.labels.unwrap_or_default();
+            let Some(project) = l.get("com.docker.compose.project") else {
+                continue;
+            };
+            if crate::terminal::managed(Some(project)) {
+                continue;
+            }
+            out.push(ForeignContainer {
+                project: project.clone(),
+                service: l
+                    .get("com.docker.compose.service")
+                    .cloned()
+                    .unwrap_or_default(),
+                working_dir: l
+                    .get("com.docker.compose.project.working_dir")
+                    .cloned()
+                    .unwrap_or_default(),
+                config_files: l
+                    .get("com.docker.compose.project.config_files")
+                    .cloned()
+                    .unwrap_or_default(),
+                state: c.state.map(|s| s.to_string()).unwrap_or_default(),
+            });
+        }
+        Ok(out)
     }
 
     /// Lists all containers, running or not, sorted by name.
