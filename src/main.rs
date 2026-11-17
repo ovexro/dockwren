@@ -1910,6 +1910,7 @@ mod tests {
                 managed: true,
                 oom_killed: false,
                 ports: vec![],
+                host_network: false,
             }]),
             true,
         );

@@ -344,7 +344,7 @@ async fn listeners_check(v: &mut Vec<Item>) {
     v.push(if odd.is_empty() {
         item("Host listeners", Level::Ok, "Only expected ports (ssh, Caddy) listen on every interface.")
     } else {
-        let ports: Vec<String> = odd.iter().map(|p| p.to_string()).collect();
+        let ports: Vec<String> = odd.iter().map(|(p, who)| format!("{p} ({who})")).collect();
         item(
             "Host listeners",
             Level::Warn,

@@ -96,7 +96,8 @@ container list. Thresholds are fixed (no settings); each kind has its on/off swi
   an update that recreates containers does not raise it. Key `container.problem:<name>`.
 - `host.listener`: a host socket listens on every interface (`0.0.0.0`/`::`) and is not explained by Docker
   (published ports), ssh (22), Caddy (80/443 while its container runs) or `DOCKWREN_LISTEN_ALLOW`. Read from
-  `/proc/net/tcp{,6}`. Key `host.listener:<port>`, closes when the port closes.
+  `/proc/net/tcp{,6}`; the body names the likely owner (a process of the panel's own user, else the running
+  host-network containers). Key `host.listener:<port>`, closes when the port closes.
 
 ## Public address checks
 

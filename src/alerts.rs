@@ -275,7 +275,7 @@ pub fn check_ports(shared: &Shared, list: &[ContainerInfo]) {
 
 /// Host sockets listening on every interface that neither Docker nor the allowlist (ssh, Caddy
 /// while it runs, `DOCKWREN_LISTEN_ALLOW`) explains.
-pub fn host_listeners(list: &[ContainerInfo]) -> Vec<u16> {
+pub fn host_listeners(list: &[ContainerInfo]) -> Vec<(u16, String)> {
     let mut allow: Vec<u16> = crate::listeners::BASE_ALLOW.to_vec();
     if list.iter().any(|c| c.name == "dockwren-caddy" && c.state == "running") {
         allow.extend([80, 443]);
@@ -284,13 +284,29 @@ pub fn host_listeners(list: &[ContainerInfo]) -> Vec<u16> {
         allow.extend(crate::listeners::parse_allow(&extra));
     }
     let docker: std::collections::BTreeSet<u16> = list.iter().flat_map(|c| c.ports.iter().map(|p| p.port)).collect();
-    crate::listeners::unexpected(&crate::listeners::scan(), &allow, &docker)
+    let found = crate::listeners::scan();
+    let ports: std::collections::BTreeSet<u16> = found.keys().copied().collect();
+    let hosts: Vec<String> = list
+        .iter()
+        .filter(|c| c.state == "running" && c.host_network)
+        .map(|c| c.name.clone())
+        .collect();
+    crate::listeners::unexpected(&ports, &allow, &docker)
+        .into_iter()
+        .map(|p| {
+            let who = crate::listeners::describe_owner(
+                found.get(&p).and_then(|i| crate::listeners::owner_of(*i)),
+                &hosts,
+            );
+            (p, who)
+        })
+        .collect()
 }
 
 /// Raise for each unexplained wildcard listener, close the events of ports that went away.
 pub fn check_listeners(shared: &Shared, list: &[ContainerInfo]) {
     let mut keep = HashSet::new();
-    for port in host_listeners(list) {
+    for (port, who) in host_listeners(list) {
         let key = format!("{LISTEN_KIND}:{port}");
         notify::raise(
             shared,
@@ -300,7 +316,7 @@ pub fn check_listeners(shared: &Shared, list: &[ContainerInfo]) {
                 Severity::Warning,
                 &format!("Something on this host listens on port {port} on every network interface"),
             )
-            .body("Not explained by Docker, ssh or Caddy, so it may be reachable from the internet. Bind it to 127.0.0.1, or set DOCKWREN_LISTEN_ALLOW if it is intended.")
+            .body(format!("Likely owner: {who}. Not explained by Docker, ssh or Caddy, so it may be reachable from the internet. Bind it to 127.0.0.1, or set DOCKWREN_LISTEN_ALLOW if it is intended."))
             .link("/settings")
             .key(key.clone()),
         );
@@ -355,6 +371,7 @@ mod tests {
             managed,
             oom_killed: false,
             ports: vec![],
+            host_network: false,
         }
     }
 

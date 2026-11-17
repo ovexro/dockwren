@@ -17,13 +17,10 @@ Open items only, one line each, with the date it was last verified open. Deliver
 - Notifications: ntfy/webhook only; no further channels planned (2026-11-14).
 - Home Assistant template: DROPPED (2026-11-16): needs host networking, which Dockwren refuses.
 - Multi-user / roles: not wanted (2026-11-14). Single admin stays.
+- Idea: notifications by e-mail (SMTP) next to bell, ntfy, webhook. Added 2026-11-17.
+- Idea: per-app uptime history (30-day graph), not just reachable/unreachable. Verify what webcheck keeps first. Added 2026-11-17.
+- Idea: one-step server migration (export config + snapshots, import on a new server); configbundle exists, check what it lacks. Added 2026-11-17.
 
 ## Standing
 - BEFORE EVERY TAG run `scripts/docs-check.sh` (README versions/apps/CLI/install options/env vars/links, no private IPs or hostnames, GitHub description/topics/license); fix what it flags. Screenshots: regenerate with `tools/shots.py` (the `apps-*-view.png` frames) into `docs/screenshots/` when the UI changes; never use Overview (shows the real hostname).
 - At every tag/wrapup with new features re-check README, GitHub description/topics, SECURITY.md, docs/TEMPLATES.md (memory public-repo-freshness).
-- Ports audit: attribute each unexplained host listener to a process (ss -p needs root; /proc/<pid>/fd scan). Optional. Added 2026-11-17.
-- Idea (next session, start here): prune old Docker images from the panel, with preview and confirmation (disk fills after updates; sits next to Settings → Disk usage). Added 2026-11-17.
-- Idea: notifications by e-mail (SMTP) next to bell, ntfy, webhook. Added 2026-11-17.
-- Idea: per-app uptime history (30-day graph), not just reachable/unreachable. Verify what webcheck keeps first. Added 2026-11-17.
-- Idea: one-step server migration (export config + snapshots, import on a new server); configbundle exists, check what it lacks. Added 2026-11-17.
-- Idea: users with roles (e.g. read-only viewer). Added 2026-11-17.

@@ -30,6 +30,8 @@ pub struct ContainerInfo {
     pub oom_killed: bool,
     /// Ports published on the host (Docker's own port mappings; host-network containers have none).
     pub ports: Vec<PublishedPort>,
+    /// Runs in the host's network namespace (`network_mode: host`): its listeners are host sockets.
+    pub host_network: bool,
 }
 
 /// One host port that Docker forwards into a container.
@@ -335,6 +337,11 @@ impl From<ContainerSummary> for ContainerInfo {
                 ports.push(n);
             }
         }
+        let host_network = c
+            .host_config
+            .as_ref()
+            .and_then(|h| h.network_mode.as_deref())
+            == Some("host");
         Self {
             id: id.chars().take(12).collect(),
             name,
@@ -344,6 +351,7 @@ impl From<ContainerSummary> for ContainerInfo {
             managed,
             oom_killed: false,
             ports,
+            host_network,
         }
     }
 }
@@ -388,6 +396,7 @@ mod tests {
                 managed: false,
                 oom_killed: false,
                 ports: vec![],
+                host_network: false,
             }
         );
         let labelled = ContainerSummary {
@@ -501,5 +510,21 @@ mod tests {
             .output();
         let text = result.expect("shell session");
         assert!(text.contains("hi-3"), "output was: {text:?}");
+    }
+
+    #[test]
+    fn host_network_mode_is_detected() {
+        let mk = |mode: &str| {
+            ContainerInfo::from(ContainerSummary {
+                host_config: Some(bollard::models::ContainerSummaryHostConfig {
+                    network_mode: Some(mode.into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+        };
+        assert!(mk("host").host_network);
+        assert!(!mk("bridge").host_network);
+        assert!(!ContainerInfo::from(ContainerSummary::default()).host_network);
     }
 }
