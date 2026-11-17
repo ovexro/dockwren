@@ -106,7 +106,8 @@ container list. Thresholds are fixed (no settings); each kind has its on/off swi
   error or an HTTP status of 500 or more is a failed check; 200, redirects (a login page), 401, 403 and
   404 count as reachable. Three failed checks in a row (about 10 minutes) raise a warning, the first good
   one closes it. An app is watched only after its first successful check, so a hostname that was saved but
-  never published stays quiet. The Apps page shows "reachable" or "unreachable" next to the address.
+  never published stays quiet. The Apps page shows "reachable" or "unreachable" next to the address and, below it, the share of reachable
+  checks over the last 30 days (kept in `uptime.log` in the app folder; also `uptime` in `/api/status`).
   Key `app.unreachable:<app name>`.
 
 ## Image vulnerabilities
