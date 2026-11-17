@@ -3,6 +3,7 @@ id = "paperless-ngx"
 name = "Paperless-ngx"
 description = "Document archive with OCR and full-text search"
 homepage = "https://docs.paperless-ngx.com/"
+changelog = "https://github.com/paperless-ngx/paperless-ngx/releases"
 version = 1
 note = "Scans and archives documents. First start takes about a minute. Drop files into the consume folder of the instance to import them."
 public_url_field = "PUBLIC_URL"

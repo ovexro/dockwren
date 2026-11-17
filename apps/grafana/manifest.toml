@@ -3,6 +3,7 @@ id = "grafana"
 name = "Grafana"
 description = "Dashboards and charts for metrics, logs and databases"
 homepage = "https://grafana.com/"
+changelog = "https://github.com/grafana/grafana/releases"
 version = 1
 note = "Dashboards for your data. Sign in with the admin user and the password shown once after the install, then add a data source."
 public_url_field = "PUBLIC_URL"

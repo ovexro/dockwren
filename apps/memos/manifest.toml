@@ -2,6 +2,7 @@
 id = "memos"
 name = "Memos"
 description = "Self-hosted notes and micro-blogging, Markdown first"
+changelog = "https://github.com/usememos/memos/releases"
 version = 1
 note = "Quick notes. Create your account on first visit; the first one becomes the owner."
 needs_public_https = false

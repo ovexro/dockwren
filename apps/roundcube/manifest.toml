@@ -3,6 +3,7 @@ id = "roundcube"
 name = "Roundcube"
 description = "A classic webmail client for your own mailbox (IMAP/SMTP)"
 homepage = "https://roundcube.net/"
+changelog = "https://github.com/roundcube/roundcubemail/releases"
 version = 1
 note = "A webmail client, not a mail server: it connects to a mailbox you already have at a provider (IMAP to read, SMTP to send). Fill in your provider's server names below (the defaults are for Purelymail), then sign in with your full address and the mailbox password. Publish it over HTTPS, because you type your mail password into it."
 accepts_public_host = true

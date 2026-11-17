@@ -7,6 +7,7 @@
   {% for a in p.added %}<li>New image: <code>{{ a }}</code></li>{% endfor %}
   {% for r in p.removed %}<li>Image no longer used: <code>{{ r }}</code></li>{% endfor %}
   {% if p.changes.is_empty() && p.added.is_empty() && p.removed.is_empty() %}<li>No image changes; only the app's configuration files are updated.</li>{% endif %}
+  {% if let Some(u) = p.changelog %}<li>Release notes (opens upstream): <a href="{{ u }}" target="_blank" rel="noopener noreferrer">{{ u }}</a>. Dockwren may have moved the image by several upstream versions.</li>{% endif %}
   {% for m in p.migrations %}<li>Runs after start: {{ m }}</li>{% endfor %}
   <li>{% if p.snapshot %}A snapshot is taken first.{% else %}No snapshot is taken first.{% endif %} If the update fails, the old version is started again (data is not rolled back).</li>
   </ul>

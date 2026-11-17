@@ -3,6 +3,7 @@ id = "snappymail"
 name = "SnappyMail"
 description = "A light, fast webmail client for your own mailbox (IMAP/SMTP)"
 homepage = "https://snappymail.eu/"
+changelog = "https://github.com/the-djmaze/snappymail/releases"
 version = 2
 note = "A webmail client, not a mail server: it connects to a mailbox you already have at a provider (IMAP to read, SMTP to send). Sign in with your full address and the provider's mailbox password; if the provider is not detected, add its IMAP/SMTP servers in the admin panel. The admin panel is at /?admin; its generated password is in the file data/_data_/_default_/admin_password.txt inside this app's folder: read it, log in, then change it right away. Publish it over HTTPS, because you type your mail password into it."
 accepts_public_host = true

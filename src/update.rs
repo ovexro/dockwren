@@ -122,6 +122,8 @@ pub struct Preview {
     pub migrations: Vec<String>,
     /// Set when the update would be refused (e.g. a database major jump).
     pub blocked: Option<String>,
+    /// Upstream release notes page (from the manifest), if the template names one.
+    pub changelog: Option<String>,
 }
 
 /// Work out what updating from `old_compose` / version `from` to template `t` would do.
@@ -157,6 +159,7 @@ pub fn preview(old_compose: &str, t: &Template, from: u32) -> Preview {
         snapshot: t.manifest.update.pre_update.iter().any(|s| s == "backup"),
         migrations: migrations.iter().map(|g| g.name.clone()).collect(),
         blocked,
+        changelog: t.manifest.app.changelog.clone(),
     }
 }
 

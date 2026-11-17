@@ -3,6 +3,7 @@ id = "stirling-pdf"
 name = "Stirling-PDF"
 description = "Merge, split, compress, convert and OCR PDFs on your own server"
 homepage = "https://www.stirlingpdf.com/"
+changelog = "https://github.com/Stirling-Tools/Stirling-PDF/releases"
 version = 1
 note = "A toolbox for PDF files; your documents never leave your server. IMPORTANT: the first login is admin / stirling and you must change the password right away, before you publish the app on the internet. Needs about 1.5 GB of RAM."
 accepts_public_host = true

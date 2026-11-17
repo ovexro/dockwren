@@ -4,7 +4,6 @@ Open items only, one line each, with the date it was last verified open. Deliver
 (delete the line in the SAME commit that delivers it; grep this file for the feature's keywords first).
 
 ## Open
-- Release notes in the update preview (upstream changelog / GitHub release notes). Verified open 2026-11-17.
 - Caddy image pin check in vulnscan. Verified open 2026-11-17.
 - More catalog templates (open-ended; ~15 done, see `templates/`). Verified open 2026-11-17.
 - Security: PHP advisory recheck after 2026-11-19 (PHP2Shell fixed in 8.5.12/8.4.27/8.3.36/8.2.35; Nextcloud, WordPress, SnappyMail, Roundcube pinned versions patched as of 2026-11-16; 8.5.13/8.4.28 RCs seen).

@@ -2,6 +2,7 @@
 id = "uptime-kuma"
 name = "Uptime Kuma"
 description = "Self-hosted uptime monitoring with status pages and alerts"
+changelog = "https://github.com/louislam/uptime-kuma/releases"
 version = 1
 note = "Monitors sites and services. Create the admin account on first visit."
 needs_public_https = false

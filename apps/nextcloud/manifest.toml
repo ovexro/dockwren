@@ -3,6 +3,7 @@ id = "nextcloud"
 name = "Nextcloud"
 description = "Your own cloud: files, calendar, contacts and more"
 homepage = "https://nextcloud.com/"
+changelog = "https://github.com/nextcloud/server/releases"
 version = 1
 note = "Files, calendar and contacts, synced to your devices. First start takes a few minutes while the database is prepared. After it is up, sign in with the admin user and the password shown once after the install."
 public_url_field = "PUBLIC_URL"

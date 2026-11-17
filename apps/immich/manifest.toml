@@ -3,6 +3,7 @@ id = "immich"
 name = "Immich"
 description = "Self-hosted photo and video library with face and object search, a Google Photos alternative"
 homepage = "https://immich.app/"
+changelog = "https://github.com/immich-app/immich/releases"
 version = 1
 note = "Four containers (server, machine learning, database, cache); plan on about 4 GB of RAM and a first start of a few minutes. The FIRST account you register becomes the administrator: open the app right after installing and create it before anyone else can. Your photos live in the library folder below and are NOT part of Dockwren backups (only the database is): back that folder up separately."
 needs_public_https = false

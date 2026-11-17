@@ -3,6 +3,7 @@ id = "wordpress"
 name = "WordPress"
 description = "Website and blog platform"
 homepage = "https://wordpress.org/"
+changelog = "https://wordpress.org/news/category/releases/"
 version = 1
 note = "A complete site: database, passwords and keys are created for you. Enter a public hostname to get https://your-name with no port."
 public_url_field = "SITE_URL"

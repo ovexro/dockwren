@@ -2,6 +2,7 @@
 id = "gitea"
 name = "Gitea"
 description = "Self-hosted Git service"
+changelog = "https://github.com/go-gitea/gitea/releases"
 version = 1
 note = "Git hosting with issues and pull requests. Data and database are backed up together."
 public_url_field = "PUBLIC_URL"

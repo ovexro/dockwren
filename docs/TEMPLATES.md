@@ -72,7 +72,7 @@ services:
 
 ## Manifest reference
 
-**`[app]`**: `id`, `name`, `version` are required. Bump `version` only when the compose file, an image tag or a migration changes: a bump makes `dockwren update` back up and recreate every installed copy, so do not bump for UI-only edits (labels, help, notes). Optional: `description`, `homepage`, `needs_public_https`.
+**`[app]`**: `id`, `name`, `version` are required. Bump `version` only when the compose file, an image tag or a migration changes: a bump makes `dockwren update` back up and recreate every installed copy, so do not bump for UI-only edits (labels, help, notes). Optional: `description`, `homepage`, `changelog` (a plain `https://` URL to the upstream release notes, linked from the update preview), `needs_public_https`.
 
 **`[[fields]]`** are the install form, in order. Keys are `UPPER_SNAKE_CASE`.
 - `type`: `string`, `password`, `int`, `bool`, `port`, `url`, `email`, `select`.

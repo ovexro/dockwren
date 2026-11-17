@@ -2,6 +2,7 @@
 id = "miniflux"
 name = "Miniflux"
 description = "Minimalist self-hosted RSS reader"
+changelog = "https://github.com/miniflux/v2/releases"
 version = 1
 note = "Feed reader with its own database. The admin password is generated and shown once."
 public_url_field = "PUBLIC_URL"

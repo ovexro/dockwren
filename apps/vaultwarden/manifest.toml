@@ -2,6 +2,7 @@
 id = "vaultwarden"
 name = "Vaultwarden"
 description = "Self-hosted password manager (Bitwarden compatible)"
+changelog = "https://github.com/dani-garcia/vaultwarden/releases"
 version = 1
 note = "Password manager (Bitwarden compatible). Browsers need HTTPS to use it away from this server, so give it a public hostname."
 public_url_field = "PUBLIC_URL"

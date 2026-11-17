@@ -3,6 +3,7 @@ id = "homepage"
 name = "Homepage"
 description = "A fast start page with links and status widgets for your services"
 homepage = "https://gethomepage.dev/"
+changelog = "https://github.com/gethomepage/homepage/releases"
 version = 1
 note = "Your own start page. Edit the YAML files in the config folder (services.yaml, bookmarks.yaml, settings.yaml) to add links and widgets. There is no login: publish it only behind Cloudflare Access or keep it private."
 accepts_public_host = true

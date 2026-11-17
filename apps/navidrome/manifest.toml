@@ -3,6 +3,7 @@ id = "navidrome"
 name = "Navidrome"
 description = "Stream your own music collection, with Subsonic app support"
 homepage = "https://www.navidrome.org/"
+changelog = "https://github.com/navidrome/navidrome/releases"
 version = 1
 note = "Your music server. On first visit create the admin account; the library is scanned from the folder /music. Works with Subsonic-compatible phone apps."
 accepts_public_host = true

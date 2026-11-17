@@ -3,6 +3,7 @@ id = "syncthing"
 name = "Syncthing"
 description = "Continuous file synchronisation between your own devices, no cloud"
 homepage = "https://syncthing.net/"
+changelog = "https://github.com/syncthing/syncthing/releases"
 version = 1
 note = "Keeps folders in sync between your devices. IMPORTANT: on first visit set a GUI password (Actions > Settings > GUI), the web interface has none by default. Devices connect through Syncthing relays; direct LAN discovery is not available in this template."
 needs_public_https = false

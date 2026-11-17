@@ -3,6 +3,7 @@ id = "pi-hole"
 name = "Pi-hole"
 description = "Network-wide ad and tracker blocking: a DNS server for your whole home network"
 homepage = "https://pi-hole.net/"
+changelog = "https://github.com/pi-hole/docker-pi-hole/releases"
 version = 1
 note = "Becomes the DNS server of your network: point your router's DNS (or single devices) at this server's address. It opens port 53 to your network. Admin page: /admin, log in with the password shown after install. The built-in DHCP server is not available in this template (it needs extra Docker permissions); keep DHCP on your router. If port 53 is already in use (systemd-resolved), the install tells you; free it first."
 needs_public_https = false

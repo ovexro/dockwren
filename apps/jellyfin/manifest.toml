@@ -3,6 +3,7 @@ id = "jellyfin"
 name = "Jellyfin"
 description = "Media server for your movies, shows, music and photos"
 homepage = "https://jellyfin.org/"
+changelog = "https://github.com/jellyfin/jellyfin/releases"
 version = 1
 note = "Streams your own media library. On first visit a short wizard creates the admin account; add your library from the folder /media."
 public_url_field = "PUBLIC_URL"

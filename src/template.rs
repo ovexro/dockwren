@@ -55,6 +55,9 @@ pub struct App {
     pub version: u32,
     #[serde(default)]
     pub homepage: Option<String>,
+    /// https page with the upstream release notes; linked from the update preview.
+    #[serde(default)]
+    pub changelog: Option<String>,
     #[serde(default)]
     pub needs_public_https: bool,
     /// Key of the field that holds the app's address. When the installer gives a public
@@ -447,6 +450,15 @@ pub fn validate(m: &Manifest, compose: &str) -> Result<(), String> {
         return Err(format!("app.id {id:?} must match [a-z0-9-]+"));
     }
 
+    if let Some(u) = &m.app.changelog
+        && (!u.starts_with("https://")
+            || u.len() > 200
+            || u.chars()
+                .any(|c| c.is_whitespace() || c.is_control() || "\"'<>`".contains(c)))
+    {
+        return Err(format!("app.changelog {u:?} must be a plain https:// URL"));
+    }
+
     if let Some(k) = &m.app.public_url_field
         && !m
             .fields
@@ -791,6 +803,24 @@ mod tests {
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
         assert_eq!(c.len(), 23);
+    }
+
+    #[test]
+    fn bundled_templates_link_their_release_notes() {
+        for t in catalog(None).unwrap() {
+            let id = &t.manifest.app.id;
+            match &t.manifest.app.changelog {
+                Some(u) => assert!(u.starts_with("https://"), "{id}: {u}"),
+                None => assert_eq!(id, "custom", "{id} has no changelog"),
+            }
+        }
+        let mut t = catalog(None).unwrap().remove(2);
+        t.manifest.app.changelog = Some("http://example.org/x".into());
+        assert!(validate(&t.manifest, &t.compose).is_err());
+        t.manifest.app.changelog = Some("https://example.org/x\" onclick=\"y".into());
+        assert!(validate(&t.manifest, &t.compose).is_err());
+        t.manifest.app.changelog = Some("https://example.org/releases".into());
+        assert!(validate(&t.manifest, &t.compose).is_ok());
     }
 
     #[test]
