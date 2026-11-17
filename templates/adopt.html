@@ -9,7 +9,7 @@
     <small>{% for s in c.containers %}{{ s }}{% if !loop.last %}, {% endif %}{% endfor %}</small><br>
     {% match c.verdict %}
     {% when Ok with (_) %}
-    <form hx-post="/stacks/adopt" hx-target="#install" hx-swap="innerHTML">
+    <form hx-post="/stacks/adopt" hx-target="#install" hx-swap="innerHTML show:#install:top">
       <input type="hidden" name="project" value="{{ c.project }}">
       <label>Name <input type="text" name="name" value="{{ c.suggested_name() }}" required pattern="[a-z][a-z0-9-]{1,30}"></label>
       <button type="submit">Adopt</button>

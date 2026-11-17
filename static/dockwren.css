@@ -228,7 +228,7 @@ ul.kinds small { display: block; margin: .25rem 0 0 1.6rem; }
 pre.codes { padding: .75rem 1rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); user-select: all; }
 
 /* A button straight after a field gets room (setup/disable forms, install forms) */
-form > label:has(+ button) { padding-bottom: .75rem; }
+form > label:has(+ button), #passkeys > label:has(+ button) { padding-bottom: .75rem; }
 
 /* Step-by-step help inside <details> is prose, not a row of cards */
 main details ol { list-style: decimal; padding-left: 1.4rem; margin: .5rem 0; }

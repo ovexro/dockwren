@@ -1,7 +1,7 @@
 <h3>Add a stack</h3>
 <p><small>Paste a Docker Compose file and Dockwren runs it like any other app: logs, start/stop, backups of <code>./data</code>, alerts. For safety it must be a self-contained file with ready-made images, ports on <code>127.0.0.1</code> and data in named volumes or under <code>./data</code>. Anything else is refused with the reason.</small></p>
 {% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
-<form hx-post="/stacks/install" hx-target="#install" hx-swap="innerHTML">
+<form hx-post="/stacks/install" hx-target="#install" hx-swap="innerHTML show:#install:top">
   <p><label>Name
   <input type="text" name="name" value="{{ name }}" placeholder="my-stack" required pattern="[a-z][a-z0-9-]{1,30}"></label><br>
   <small>Names the folder and the containers on this server. Lower-case letters, digits and hyphens.</small></p>

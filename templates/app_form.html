@@ -5,7 +5,7 @@
 <ul>{% for l in lan_ports %}<li>{{ l }}</li>{% endfor %}</ul>
 <small>Anyone who can reach this server (your LAN, or the internet if the server has a public address or the router forwards these ports) can connect. Docker bypasses the server firewall (ufw) for published ports; restrict them at your router if needed.</small></div>{% endif %}
 {% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
-<form hx-post="/apps/{{ id }}/install" hx-target="#install" hx-swap="innerHTML">
+<form hx-post="/apps/{{ id }}/install" hx-target="#install" hx-swap="innerHTML show:#install:top">
 {% for f in fields %}
   <p><label>{{ f.label }}
   {% if f.input == "select" %}

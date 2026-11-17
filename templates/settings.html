@@ -2,7 +2,7 @@
   <h3>Settings of {{ instance }}</h3>
   <p><small>Saving restarts the app with the new values. If it does not come back healthy, the old values are put back. Passwords, ports and the public address are not changed here.</small></p>
   {% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
-  <form hx-post="/instances/{{ instance }}/settings" hx-target="#install" hx-swap="innerHTML"
+  <form hx-post="/instances/{{ instance }}/settings" hx-target="#install" hx-swap="innerHTML show:#install:top"
         hx-confirm="Save and restart {{ instance }} with these settings?">
   {% for f in fields %}
     <p><label>{{ f.label }}

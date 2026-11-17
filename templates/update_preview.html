@@ -12,7 +12,7 @@
   <li>{% if p.snapshot %}A snapshot is taken first.{% else %}No snapshot is taken first.{% endif %} If the update fails, the old version is started again (data is not rolled back).</li>
   </ul>
   {% if p.blocked.is_none() %}
-  <button class="primary" hx-post="/instances/{{ instance }}/update" hx-target="#install" hx-swap="innerHTML">Update now</button>
+  <button class="primary" hx-post="/instances/{{ instance }}/update" hx-target="#install" hx-swap="innerHTML show:#install:top">Update now</button>
   {% endif %}
   {% if skipped %}
   <button hx-post="/instances/{{ instance }}/unskip-update" hx-target="#update-preview" hx-swap="innerHTML">Stop skipping this version</button>
