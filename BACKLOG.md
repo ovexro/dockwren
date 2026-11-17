@@ -13,7 +13,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
   2. Rotate generated app passwords from the Passwords page (change in the app/DB too, only for templates with a migration step); medium, delicate.
   Non-code: list Dockwren in awesome-selfhosted + public announcement (outward action: ask the user first).
 - Test hygiene: `adopt::tests::adopted_project_is_not_recreated` uses fixed port 45873 and leaves its containers when it fails; a stale one makes every later run fail. Use a free port and clean up on failure.
-- Passkeys (built 2026-11-17, unreleased): reauth prompts (Passwords, terminal, updates) still take a typed code (TOTP/recovery), not a passkey tap; passkeys work only on the hostname they were added on.
+- Passkeys (released v0.1.59, tested on a real device 2026-11-17): reauth prompts (Passwords, terminal, updates) still take a typed code (TOTP/recovery), not a passkey tap; passkeys work only on the hostname they were added on.
 
 ## Decisions (do not re-propose)
 - Multi-server over SSH: DROPPED by the user (2026-11-15).
