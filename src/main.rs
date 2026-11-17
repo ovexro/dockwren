@@ -15,6 +15,7 @@ mod doctor;
 mod hostupdates;
 mod install;
 mod limits;
+mod listeners;
 mod logcap;
 mod metrics;
 mod notify;

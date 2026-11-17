@@ -333,6 +333,35 @@ async fn ports_check(v: &mut Vec<Item>) {
     });
 }
 
+/// Host sockets that listen on every interface and that nothing explains (host-network
+/// containers and plain host services, which the Docker check cannot see).
+async fn listeners_check(v: &mut Vec<Item>) {
+    let list = match crate::docker::DockerClient::connect() {
+        Ok(d) => d.containers().await.unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    let mut allow: Vec<u16> = crate::listeners::BASE_ALLOW.to_vec();
+    if list.iter().any(|c| c.name == "dockwren-caddy" && c.state == "running") {
+        allow.extend([80, 443]);
+    }
+    if let Ok(extra) = std::env::var("DOCKWREN_LISTEN_ALLOW") {
+        allow.extend(crate::listeners::parse_allow(&extra));
+    }
+    let docker: std::collections::BTreeSet<u16> =
+        list.iter().flat_map(|c| c.ports.iter().map(|p| p.port)).collect();
+    let odd = crate::listeners::unexpected(&crate::listeners::scan(), &allow, &docker);
+    v.push(if odd.is_empty() {
+        item("Host listeners", Level::Ok, "Only expected ports (ssh, Caddy) listen on every interface.")
+    } else {
+        let ports: Vec<String> = odd.iter().map(|p| p.to_string()).collect();
+        item(
+            "Host listeners",
+            Level::Warn,
+            format!("Listening on every interface and not explained by Docker or Caddy: {}. Bind to 127.0.0.1 or allow with DOCKWREN_LISTEN_ALLOW if intended.", ports.join(", ")),
+        )
+    });
+}
+
 pub async fn run(data_dir: &Path) -> Vec<Item> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -346,6 +375,7 @@ pub async fn run(data_dir: &Path) -> Vec<Item> {
     v.push(clock_check().await);
     network_checks(&mut v).await;
     ports_check(&mut v).await;
+    listeners_check(&mut v).await;
     backup_checks(data_dir, now, &mut v);
     tunnel_check(&mut v);
     v
