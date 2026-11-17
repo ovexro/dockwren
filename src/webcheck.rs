@@ -19,6 +19,10 @@ const KIND: &str = "app.unreachable";
 const POLL: Duration = Duration::from_secs(300);
 const FAILS_TO_RAISE: u32 = 3;
 const MARKER: &str = "public.ok";
+const HISTORY: &str = "uptime.log";
+const HISTORY_DAYS: u64 = 30;
+/// Rewrite the log without old lines once it grows past this many bytes (about 30 days is 100 KB).
+const HISTORY_COMPACT_AT: u64 = 150_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
@@ -85,6 +89,71 @@ fn step(t: &mut Track, ok: bool, armed: bool) -> Option<bool> {
     (armed && t.fails == FAILS_TO_RAISE).then_some(true)
 }
 
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Append one probe result ("epoch 1" reachable, "epoch 0" failed) to the app's history file.
+fn record(dir: &std::path::Path, ok: bool) {
+    use std::io::Write;
+    let path = dir.join(HISTORY);
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = writeln!(f, "{} {}", now(), u8::from(ok));
+    }
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > HISTORY_COMPACT_AT) {
+        let cutoff = now().saturating_sub(HISTORY_DAYS * 86400);
+        let kept: String = std::fs::read_to_string(&path)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| parse_line(l).is_some_and(|(t, _)| t >= cutoff))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        let tmp = dir.join(format!("{HISTORY}.tmp"));
+        if std::fs::write(&tmp, kept).is_ok() {
+            let _ = std::fs::rename(&tmp, &path);
+        }
+    }
+}
+
+fn parse_line(l: &str) -> Option<(u64, bool)> {
+    let (t, v) = l.split_once(' ')?;
+    Some((t.parse().ok()?, v == "1"))
+}
+
+/// Share of reachable probes in the last 30 days, in percent, and how many probes that is.
+fn uptime_from(text: &str, now: u64) -> Option<(f64, usize)> {
+    let cutoff = now.saturating_sub(HISTORY_DAYS * 86400);
+    let (mut up, mut all) = (0usize, 0usize);
+    for (t, ok) in text.lines().filter_map(parse_line) {
+        if t >= cutoff {
+            all += 1;
+            up += usize::from(ok);
+        }
+    }
+    (all > 0).then(|| (up as f64 * 100.0 / all as f64, all))
+}
+
+/// "99.9% reachable over 30 days" for the app folder; None before any probe was recorded.
+pub fn uptime_line(dir: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(dir.join(HISTORY)).ok()?;
+    let (pct, n) = uptime_from(&text, now())?;
+    // Truncate (never round up): 99.96% must not read as 100%.
+    let pct = (pct * 10.0).floor() / 10.0;
+    let days = (n * (POLL.as_secs() as usize)) as f64 / 86400.0;
+    Some(if days >= HISTORY_DAYS as f64 - 0.5 {
+        format!("{pct:.1}% reachable over 30 days")
+    } else {
+        format!("{pct:.1}% reachable over {days:.1} days")
+    })
+}
+
 fn event_key(name: &str) -> String {
     format!("{KIND}:{name}")
 }
@@ -110,6 +179,9 @@ async fn run_once(apps: &Apps, shared: &Shared, tracks: &mut HashMap<String, Tra
         let armed = dir.join(MARKER).exists();
         if ok && !armed {
             let _ = std::fs::write(dir.join(MARKER), "");
+        }
+        if armed || ok {
+            record(dir, ok);
         }
         let t = tracks.entry(name.clone()).or_default();
         let verdict = step(t, ok, armed || ok);
@@ -186,6 +258,22 @@ mod tests {
         assert_eq!(step(&mut t, false, true), None);
         assert_eq!(step(&mut t, true, true), Some(false));
         assert_eq!(step(&mut t, false, true), None);
+    }
+
+    #[test]
+    fn uptime_counts_only_last_30_days() {
+        let now = 100 * 86400;
+        let text = format!(
+            "{} 0\n{} 1\n{} 1\n{} 0\nbad\n",
+            1,
+            now - 86400,
+            now - 60,
+            now - 30
+        );
+        let (pct, n) = uptime_from(&text, now).unwrap();
+        assert_eq!(n, 3);
+        assert!((pct - 66.666).abs() < 0.1);
+        assert!(uptime_from("", now).is_none());
     }
 
     #[test]

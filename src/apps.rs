@@ -766,6 +766,8 @@ struct InstanceView {
     hostname: Option<String>,
     /// Last external check of the public URL: Some(true) reachable, Some(false) down.
     public_up: Option<bool>,
+    /// "99.9% reachable over 30 days" from the history of external checks.
+    uptime: Option<String>,
     /// Last image scan: "2 critical, 5 high" (None when clean or not scanned yet).
     vulns: Option<String>,
     /// The template has settings that can be changed after install.
@@ -1253,6 +1255,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             hostname: crate::public::read(&dir),
             public_up: crate::webcheck::status(&name_for_upstream)
                 .map(|s| s == crate::webcheck::Status::Up),
+            uptime: crate::webcheck::uptime_line(&dir),
             vulns: crate::vulnscan::summary(&name_for_upstream).and_then(|v| v.line()),
             editable,
             limitable,
@@ -1284,6 +1287,7 @@ pub async fn status_json(apps: &Apps) -> Vec<serde_json::Value> {
                 "status": v.status,
                 "healthy": v.status == "healthy",
                 "public_up": v.public_up,
+                "uptime": v.uptime,
                 "update_available": v.update.is_some(),
                 "backup": {"snapshots": v.snapshots, "last_at": v.last_backup_at},
                 "scan": scan,
