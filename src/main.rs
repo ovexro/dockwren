@@ -766,7 +766,15 @@ async fn cli_recover(cfg: &config::Config) -> Result<(), String> {
             println!("  {n}: {e}");
             failed.push(n.clone());
         } else if let Some(h) = r.hosts.get(n) {
-            println!("  was public at {h}: publish again with `dockwren expose {n} {h}`");
+            if empty.contains(n) {
+                // A fresh app without its data must not be opened to the internet by itself.
+                println!(
+                    "  was public at {h}: publish again with `dockwren expose {n} {h} --yes` once it is set up"
+                );
+            } else {
+                public::publish_after_install(&root.join(n), n, h, &mut |s| println!("  {s}"))
+                    .await;
+            }
         }
     }
     println!(
