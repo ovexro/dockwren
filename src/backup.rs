@@ -76,6 +76,208 @@ async fn first_image(inst: &Instance) -> Result<String, String> {
         .ok_or_else(|| "instance has no images".into())
 }
 
+/// Snapshot file holding one named volume of an adopted stack: `vol-<compose key>.tar.gz`.
+const VOL_PREFIX: &str = "vol-";
+const VOL_SUFFIX: &str = ".tar.gz";
+
+/// Adopted stacks keep their data in named volumes, which `backup.paths` cannot reach.
+fn is_adopted(inst: &Instance) -> bool {
+    inst.dir.join(runner::PROJECT_FILE).is_file()
+}
+
+/// Compose volume keys are letters, digits, `.`, `_`, `-`; anything else never reaches a file name.
+fn valid_volume_key(k: &str) -> bool {
+    !k.is_empty()
+        && k.len() <= 64
+        && k.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// Volume keys stored in a snapshot (sorted).
+fn snapshot_volumes(snap: &Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(snap)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter_map(|n| {
+            n.strip_prefix(VOL_PREFIX)
+                .and_then(|r| r.strip_suffix(VOL_SUFFIX))
+                .filter(|k| valid_volume_key(k))
+                .map(String::from)
+        })
+        .collect();
+    v.sort();
+    v
+}
+
+/// Pulls `(compose key, Docker volume name)` of every non-external named volume out of the
+/// JSON of `docker compose config`.
+fn parse_volumes(config_json: &str) -> Result<Vec<(String, String)>, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(config_json).map_err(|e| format!("compose config: {e}"))?;
+    let mut out = Vec::new();
+    if let Some(map) = v.get("volumes").and_then(|m| m.as_object()) {
+        for (key, def) in map {
+            if def
+                .get("external")
+                .is_some_and(|e| e.as_bool() != Some(false) && !e.is_null())
+            {
+                continue;
+            }
+            let Some(name) = def.get("name").and_then(|n| n.as_str()) else {
+                continue;
+            };
+            if !valid_volume_key(key) {
+                return Err(format!("volume name {key} is not supported for backups"));
+            }
+            out.push((key.clone(), name.to_string()));
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
+async fn compose_volumes(inst: &Instance) -> Result<Vec<(String, String)>, String> {
+    parse_volumes(&runner::compose(inst, &["config", "--format", "json"]).await?)
+}
+
+async fn volume_exists(inst: &Instance, name: &str) -> bool {
+    docker_cmd(inst)
+        .args(["volume", "inspect", name])
+        .output()
+        .await
+        .is_ok_and(|o| o.status.success())
+}
+
+/// Archives one volume into `dest` through a throwaway root container (read-only mount).
+async fn archive_volume(
+    inst: &Instance,
+    image: &str,
+    volume: &str,
+    dest: &Path,
+) -> Result<(), String> {
+    let archive = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(dest)
+        .map_err(|e| format!("{}: {e}", dest.display()))?;
+    let out = docker_cmd(inst)
+        .args([
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--user",
+            "0",
+            "--entrypoint",
+            "tar",
+        ])
+        .arg("-v")
+        .arg(format!("{volume}:/src:ro"))
+        .args(["-w", "/src", image, "--numeric-owner", "-czf", "-", "."])
+        .stdout(std::process::Stdio::from(archive))
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot run docker: {e}"))?
+        .wait_with_output()
+        .await
+        .map_err(|e| format!("docker: {e}"))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let tail: Vec<&str> = err.lines().take(5).collect();
+        return Err(format!(
+            "archiving volume {volume} failed: {}",
+            tail.join("; ")
+        ));
+    }
+    if std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0) == 0 {
+        return Err(format!("archive of volume {volume} is empty"));
+    }
+    Ok(())
+}
+
+/// Archives every named volume of an adopted stack. The stack is stopped for the copy (a
+/// running database would give an inconsistent file) and started again whatever happens.
+async fn snapshot_volumes_into(
+    inst: &Instance,
+    tmp: &Path,
+    log: &mut (dyn FnMut(&str) + Send),
+) -> Result<(), String> {
+    let mut vols = Vec::new();
+    for (key, name) in compose_volumes(inst).await? {
+        if volume_exists(inst, &name).await {
+            vols.push((key, name));
+        }
+    }
+    if vols.is_empty() {
+        return Ok(());
+    }
+    let image = first_image(inst).await?;
+    log("stopping the stack for a consistent copy of its volumes");
+    runner::compose(inst, &["stop"]).await?;
+    let mut result = Ok(());
+    for (key, name) in &vols {
+        log(&format!("archiving volume {key}"));
+        let dest = tmp.join(format!("{VOL_PREFIX}{key}{VOL_SUFFIX}"));
+        if let Err(e) = archive_volume(inst, &image, name, &dest).await {
+            result = Err(e);
+            break;
+        }
+    }
+    log("starting the stack again");
+    let started = runner::compose(inst, &["start"]).await;
+    result?;
+    started.map(|_| ())
+}
+
+/// Empties volume `name` (it is removed and created again by Compose) and unpacks `archive`.
+async fn restore_volume(
+    inst: &Instance,
+    image: &str,
+    name: &str,
+    archive: &Path,
+) -> Result<(), String> {
+    let file = std::fs::File::open(archive).map_err(|e| format!("{}: {e}", archive.display()))?;
+    // Not present yet in a throwaway copy; that is fine.
+    let _ = docker_cmd(inst).args(["volume", "rm", name]).output().await;
+    // Lets Compose create the volume with its own labels.
+    runner::compose(inst, &["up", "--no-start"]).await?;
+    let out = docker_cmd(inst)
+        .args([
+            "run",
+            "--rm",
+            "-i",
+            "--network",
+            "none",
+            "--user",
+            "0",
+            "--entrypoint",
+            "tar",
+        ])
+        .arg("-v")
+        .arg(format!("{name}:/dst"))
+        .args([image, "--numeric-owner", "-xzf", "-", "-C", "/dst"])
+        .stdin(std::process::Stdio::from(file))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot run docker: {e}"))?
+        .wait_with_output()
+        .await
+        .map_err(|e| format!("docker: {e}"))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let tail: Vec<&str> = err.lines().take(5).collect();
+        return Err(format!(
+            "extracting volume {name} failed (restore from the safety snapshot): {}",
+            tail.join("; ")
+        ));
+    }
+    Ok(())
+}
+
 /// Take one snapshot of `inst` described by `t`. Returns the snapshot directory.
 pub async fn snapshot(
     backups_root: &Path,
@@ -209,6 +411,9 @@ pub async fn snapshot_keep(
             ));
         }
     }
+    if is_adopted(inst) {
+        snapshot_volumes_into(inst, &tmp, log).await?;
+    }
     std::fs::rename(&tmp, &fin).map_err(|e| format!("finalise snapshot: {e}"))?;
     let pruned = prune(backups_root, &inst.name, keep)?;
     if pruned > 0 {
@@ -307,6 +512,20 @@ pub async fn restore(
     if !b.paths.is_empty() && !snap.join("files.tar.gz").is_file() {
         return Err("snapshot is missing files.tar.gz".into());
     }
+    let vols = snapshot_volumes(&snap);
+    let vol_names: Vec<(String, String)> = if vols.is_empty() {
+        Vec::new()
+    } else {
+        let all = compose_volumes(inst).await?;
+        let mut v = Vec::new();
+        for k in &vols {
+            let (_, n) = all.iter().find(|(key, _)| key == k).ok_or_else(|| {
+                format!("the snapshot holds volume {k}, which the compose file no longer declares")
+            })?;
+            v.push((k.clone(), n.clone()));
+        }
+        v
+    };
     if safety {
         log("safety snapshot of the current state");
         // keep = existing + 1, so this cannot prune the snapshot being restored
@@ -383,6 +602,19 @@ pub async fn restore(
                 "extracting failed, previous files put back: {}",
                 tail.join("; ")
             ));
+        }
+    }
+    if !vol_names.is_empty() {
+        for (key, name) in &vol_names {
+            log(&format!("restoring volume {key}"));
+            restore_volume(
+                inst,
+                &image,
+                name,
+                &snap.join(format!("{VOL_PREFIX}{key}{VOL_SUFFIX}")),
+            )
+            .await
+            .inspect_err(|_| undo(&moved))?;
         }
     }
     log("starting");
@@ -506,6 +738,38 @@ pub async fn verify(
             return Err(format!("files.tar.gz does not contain {p}"));
         }
         log(&format!("files.tar.gz ok ({count} entries)"));
+    }
+    for key in snapshot_volumes(&snap) {
+        let file = format!("{VOL_PREFIX}{key}{VOL_SUFFIX}");
+        log(&format!("reading {file} end to end"));
+        let archive = std::fs::File::open(snap.join(&file)).map_err(|e| format!("{file}: {e}"))?;
+        let image = first_image(inst).await?;
+        let out = docker_cmd(inst)
+            .args([
+                "run",
+                "--rm",
+                "-i",
+                "--network",
+                "none",
+                "--entrypoint",
+                "tar",
+                image.as_str(),
+                "-tzf",
+                "-",
+            ])
+            .stdin(std::process::Stdio::from(archive))
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("cannot run docker: {e}"))?;
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr);
+            let tail: Vec<&str> = err.lines().take(3).collect();
+            return Err(format!("{file} is damaged: {}", tail.join("; ")));
+        }
+        let count = out.stdout.iter().filter(|&&b| b == b'\n').count();
+        log(&format!("{file} ok ({count} entries)"));
     }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -769,6 +1033,106 @@ mod tests {
         assert!(err.contains("does not exist"), "{err}");
         assert!(!backups.exists());
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn volumes_come_from_compose_config() {
+        let j = r#"{"volumes":{"pg":{"name":"proj_pg"},"ext":{"name":"shared","external":true},"b-1.x":{"name":"proj_b"}}}"#;
+        assert_eq!(
+            parse_volumes(j).unwrap(),
+            [
+                ("b-1.x".into(), "proj_b".into()),
+                ("pg".into(), "proj_pg".into())
+            ]
+        );
+        assert!(parse_volumes(r#"{"services":{}}"#).unwrap().is_empty());
+        assert!(parse_volumes(r#"{"volumes":{"a b":{"name":"x"}}}"#).is_err());
+        assert!(parse_volumes("nope").is_err());
+    }
+
+    #[test]
+    fn snapshot_volume_files_are_found_by_name() {
+        let d = tmp();
+        std::fs::create_dir_all(&d).unwrap();
+        for n in [
+            "vol-pg.tar.gz",
+            "vol-a.b.tar.gz",
+            "vol-.tar.gz",
+            "vol-x y.tar.gz",
+            "files.tar.gz",
+            "vol-pg.tar",
+        ] {
+            std::fs::write(d.join(n), b"x").unwrap();
+        }
+        assert_eq!(snapshot_volumes(&d), ["a.b", "pg"]);
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// Real Docker: an adopted-style project with a named volume is snapshotted (stopped and
+    /// started again), the volume is changed, then restored and verified.
+    #[tokio::test]
+    async fn adopted_volume_round_trip() {
+        let root = tmp();
+        let name = format!("vt{}", std::process::id());
+        let inst = Instance {
+            name: name.clone(),
+            dir: root.join("instances").join(&name),
+        };
+        std::fs::create_dir_all(inst.dir.join("data")).unwrap();
+        std::fs::write(
+            inst.dir.join("compose.yaml"),
+            "services:\n  app:\n    image: alpine:3\n    command: [\"sleep\", \"600\"]\n    volumes: [\"vol:/v\"]\nvolumes:\n  vol:\n",
+        )
+        .unwrap();
+        std::fs::write(inst.dir.join(".env"), "").unwrap();
+        std::fs::write(
+            inst.dir.join(runner::PROJECT_FILE),
+            format!("dwvt-{name}\n"),
+        )
+        .unwrap();
+        let t = crate::template::load(&Path::new(env!("CARGO_MANIFEST_DIR")).join("apps/custom"))
+            .unwrap();
+        let backups = root.join("backups");
+        let mut l = |_: &str| {};
+        let run = async {
+            runner::compose(&inst, &["up", "-d"]).await?;
+            runner::compose(
+                &inst,
+                &["exec", "-T", "app", "sh", "-c", "echo before > /v/f"],
+            )
+            .await?;
+            let snap = snapshot(&backups, &inst, &t, &mut l).await?;
+            assert!(snap.join("vol-vol.tar.gz").is_file());
+            let state = runner::compose(&inst, &["ps", "--status", "running", "-q"]).await?;
+            assert!(!state.trim().is_empty(), "stack must be running again");
+            runner::compose(
+                &inst,
+                &[
+                    "exec",
+                    "-T",
+                    "app",
+                    "sh",
+                    "-c",
+                    "echo after > /v/f; echo x > /v/g",
+                ],
+            )
+            .await?;
+            verify(&backups, &inst, &t, None, &mut l).await?;
+            restore(&backups, &inst, &t, None, false, &mut l).await?;
+            let f = runner::compose(&inst, &["exec", "-T", "app", "sh", "-c", "cat /v/f; ls /v"])
+                .await?;
+            assert!(f.contains("before") && !f.contains('g'), "{f}");
+            Ok::<(), String>(())
+        }
+        .await;
+        let _ = runner::compose(&inst, &["down", "-v"]).await;
+        let _ = std::process::Command::new("docker")
+            .args(["run", "--rm", "-v"])
+            .arg(format!("{}:/d", root.display()))
+            .args(["alpine:3", "rm", "-rf", "/d/instances", "/d/backups"])
+            .output();
+        let _ = std::fs::remove_dir_all(&root);
+        run.unwrap();
     }
 
     #[test]
