@@ -263,6 +263,98 @@ impl Apps {
         Ok(job_id)
     }
 
+    /// One job that backs up or updates several apps one after the other (never in parallel: a
+    /// small host would choke). Each app runs as its own ordinary job, so failures raise the usual
+    /// events and rollbacks; this job only reports who was done, failed or skipped.
+    fn spawn_bulk(&self, update: bool, names: Vec<String>) -> Result<String, StatusCode> {
+        let mut seen = std::collections::HashSet::new();
+        let names: Vec<String> = names
+            .into_iter()
+            .filter(|n| {
+                runner::valid_name(n)
+                    && self.root.join(n).join("state.toml").is_file()
+                    && seen.insert(n.clone())
+            })
+            .collect();
+        if names.is_empty() {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        let verb = if update { "Updating" } else { "Backing up" };
+        let job_id = new_job(self, "selected apps", verb)?;
+        let apps = self.clone();
+        let id = job_id.clone();
+        tokio::spawn(async move {
+            let pending: std::collections::HashSet<String> = apps
+                .pending_updates()
+                .into_iter()
+                .map(|(n, _, _)| n)
+                .collect();
+            let keep = apps.schedule.get().keep;
+            let (mut ok, mut bad) = (0usize, 0usize);
+            for name in &names {
+                let line = |apps: &Apps, t: String| apps.with_job(&id, |j| j.log.push(t));
+                if update && !pending.contains(name) {
+                    line(
+                        &apps,
+                        format!("{name}: no update to apply (or skipped), left alone"),
+                    );
+                    continue;
+                }
+                if update && !apps.is_healthy(name).await {
+                    line(&apps, format!("{name}: not healthy, left alone"));
+                    continue;
+                }
+                line(&apps, format!("{name}: started"));
+                let sub = if update {
+                    apps.spawn_update(name)
+                } else {
+                    apps.spawn_backup(name, keep)
+                };
+                let Ok(sub) = sub else {
+                    bad += 1;
+                    line(
+                        &apps,
+                        format!("{name}: could not start (another job is running for it?)"),
+                    );
+                    continue;
+                };
+                while apps.job_running(&sub) {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+                match apps.with_job(&sub, |j| j.state.clone()) {
+                    Some(JobState::Done) => {
+                        ok += 1;
+                        line(&apps, format!("{name}: done"));
+                    }
+                    Some(JobState::Failed(e)) => {
+                        bad += 1;
+                        let first = e
+                            .lines()
+                            .next()
+                            .unwrap_or("")
+                            .chars()
+                            .take(200)
+                            .collect::<String>();
+                        line(&apps, format!("{name}: FAILED: {first}"));
+                    }
+                    _ => {
+                        bad += 1;
+                        line(&apps, format!("{name}: result unknown"));
+                    }
+                }
+            }
+            apps.with_job(&id, |j| {
+                j.log.push(format!("{ok} done, {bad} failed"));
+                j.state = if bad == 0 {
+                    JobState::Done
+                } else {
+                    JobState::Failed(format!("{bad} of {} did not finish", names.len()))
+                };
+            });
+        });
+        Ok(job_id)
+    }
+
     /// Start a backup job for `name`, keeping `keep` snapshots. CONFLICT when a job for it runs.
     fn spawn_backup(&self, name: &str, keep: usize) -> Result<String, StatusCode> {
         let dir = self.root.join(name);
@@ -1570,6 +1662,42 @@ pub async fn instance_update(
     let job_id = apps.spawn_update(&name)?;
     crate::audit::record("app.update", &name);
     job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// `POST /instances/bulk/{action}` (`backup` or `update`): the ticked apps (form field `name`,
+/// repeated), or every app when none is ticked.
+pub async fn instances_bulk(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(action): Path<String>,
+    Form(values): Form<Vec<(String, String)>>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let update = match action.as_str() {
+        "backup" => false,
+        "update" => true,
+        _ => return Err(StatusCode::NOT_FOUND),
+    };
+    let mut names: Vec<String> = values
+        .into_iter()
+        .filter(|(k, _)| k == "name")
+        .map(|(_, v)| v)
+        .collect();
+    if names.is_empty() {
+        names = apps.instance_names();
+    }
+    let id = apps.spawn_bulk(update, names.clone())?;
+    crate::audit::record(
+        if update {
+            "app.bulk_update"
+        } else {
+            "app.bulk_backup"
+        },
+        &names.join(","),
+    );
+    job_fragment(&apps, &id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 /// `POST /instances/{name}/backup`: take a snapshot now.

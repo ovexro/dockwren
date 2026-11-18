@@ -557,6 +557,7 @@ fn app(
             "/instances/{name}/update",
             get(apps::update_preview).post(apps::instance_update),
         )
+        .route("/instances-bulk/{action}", post(apps::instances_bulk))
         .route("/instances/{name}/backup", post(apps::instance_backup))
         .route("/instances/{name}/skip-update", post(apps::instance_skip))
         .route(
@@ -2629,6 +2630,8 @@ mod tests {
             ("GET", "/instances/list"),
             ("POST", "/instances/gt/remove"),
             ("POST", "/instances/gt/update"),
+            ("POST", "/instances-bulk/backup"),
+            ("POST", "/instances-bulk/update"),
             ("GET", "/instances/gt/public"),
             ("POST", "/instances/gt/public"),
             ("POST", "/instances/gt/public/publish"),
