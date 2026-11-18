@@ -481,6 +481,9 @@ mod tests {
                 dir: root.join("rt-adopted-x"),
             };
             proj_of_copy = runner::project_name(&copy);
+            // Other tests build `Apps`, which resets this process-wide set: refresh it right
+            // before checking so the check does not depend on their timing.
+            crate::terminal::set_adopted(runner::adopted_projects(&root));
             assert!(crate::terminal::managed(Some(&project)));
         }
         let inst = res.unwrap();

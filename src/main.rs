@@ -21,6 +21,7 @@ mod logcap;
 mod metrics;
 mod notify;
 mod offsite;
+mod orphans;
 mod osupdate;
 mod public;
 mod release;
@@ -517,6 +518,7 @@ fn app(
         .route("/settings/doctor", get(doctor::show))
         .route("/settings/disk", get(apps::disk_show))
         .route("/settings/disk/prune-images", post(apps::prune_images))
+        .route("/settings/disk/remove-orphans", post(apps::remove_orphans))
         .route(
             "/instances/{name}/trim-snapshots",
             post(apps::trim_snapshots),

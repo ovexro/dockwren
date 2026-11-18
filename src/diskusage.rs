@@ -99,7 +99,7 @@ pub fn measure(inst: &Instance, backups_root: &Path) -> AppUsage {
     u
 }
 
-fn docker(data_dir: &Path) -> Command {
+pub(crate) fn docker(data_dir: &Path) -> Command {
     let mut c = Command::new("docker");
     if std::env::var_os("DOCKER_CONFIG").is_none() {
         c.env("DOCKER_CONFIG", data_dir.join("docker-config"));

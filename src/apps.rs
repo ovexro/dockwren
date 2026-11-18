@@ -1661,8 +1661,31 @@ struct DiskPage {
     rows: Vec<DiskRow>,
     keep: usize,
     images: Option<(String, String)>,
+    orphans: crate::orphans::Orphans,
+    orphan_size: String,
     note: Option<String>,
     error: Option<String>,
+}
+
+/// Everything the installed apps own (adopted ones keep their own project names).
+async fn protected_projects(apps: &Apps) -> crate::orphans::Protected {
+    let mut p = crate::orphans::Protected {
+        complete: true,
+        ..Default::default()
+    };
+    for name in apps.instance_names() {
+        let inst = runner::Instance {
+            dir: apps.root.join(&name),
+            name,
+        };
+        p.projects.insert(runner::project_name(&inst));
+        let ok = match runner::compose(&inst, &["config", "--format", "json"]).await {
+            Ok(j) => p.add_config(&j),
+            Err(_) => false,
+        };
+        p.complete &= ok;
+    }
+    p
 }
 
 async fn disk_html(apps: &Apps, note: Option<String>, error: Option<String>) -> Html<String> {
@@ -1698,10 +1721,13 @@ async fn disk_html(apps: &Apps, note: Option<String>, error: Option<String>) -> 
             name: u.name,
         });
     }
+    let orphans = crate::orphans::scan(&data, &protected_projects(apps).await).await;
     render(DiskPage {
         rows,
         keep: crate::diskusage::KEEP_AFTER_TRIM,
         images: crate::diskusage::docker_images_line(&data).await,
+        orphan_size: fb(orphans.volume_bytes() as f64),
+        orphans,
         note,
         error,
     })
@@ -1761,6 +1787,41 @@ pub async fn prune_images(
         Ok(s) => (Some(s), None),
         Err(e) => (None, Some(e)),
     };
+    Ok(disk_html(&apps, note, error).await)
+}
+
+#[derive(Deserialize)]
+pub struct OrphanForm {
+    /// `volumes` or `networks`.
+    what: String,
+}
+
+/// `POST /settings/disk/remove-orphans`: remove unused Docker volumes or networks. Apps' own
+/// volumes and networks are never touched (see `orphans.rs`).
+pub async fn remove_orphans(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Form(f): Form<OrphanForm>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let volumes = match f.what.as_str() {
+        "volumes" => true,
+        "networks" => false,
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
+    let data = apps
+        .backups_root()
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_default();
+    crate::audit::record("docker.remove-orphans", &f.what);
+    let (note, error) =
+        match crate::orphans::remove(&data, &protected_projects(&apps).await, volumes).await {
+            Ok(s) => (Some(s), None),
+            Err(e) => (None, Some(e)),
+        };
     Ok(disk_html(&apps, note, error).await)
 }
 

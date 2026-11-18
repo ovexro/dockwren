@@ -27,5 +27,29 @@
   <button hx-post="/settings/disk/prune-images" hx-target="#disk" hx-swap="outerHTML"
           hx-confirm="Remove every Docker image that no container uses? Stopped apps will download their image again when started. Running apps are not affected.">Remove unused images</button>
   {% endif %}
+  {% if !orphans.volumes.is_empty() %}
+  <h3>Unused Docker volumes</h3>
+  <p>{{ orphans.volumes.len() }} volume{% if orphans.volumes.len() != 1 %}s{% endif %} ({{ orphan_size }}) that no container uses, usually left behind by removed or test apps. Anything an installed app owns is kept{% if orphans.kept_volumes > 0 %} ({{ orphans.kept_volumes }} kept){% endif %}.</p>
+  <details><summary>Show the list</summary>
+    <table><thead><tr><th style="text-align:left">Volume</th><th>Size</th></tr></thead><tbody>
+    {% for v in orphans.volumes.iter().take(50) %}<tr><td style="text-align:left"><code>{% if v.anonymous %}{{ v.name|truncate(12) }} (anonymous){% else %}{{ v.name }}{% endif %}</code></td><td>{{ v.size }}</td></tr>
+    {% endfor %}</tbody></table>
+    {% if orphans.volumes.len() > 50 %}<p><small>Biggest 50 shown.</small></p>{% endif %}
+  </details>
+  <form hx-post="/settings/disk/remove-orphans" hx-target="#disk" hx-swap="outerHTML"
+        hx-confirm="Delete these {{ orphans.volumes.len() }} unused volumes ({{ orphan_size }}) for good? Their contents cannot be recovered. Volumes of installed apps are not touched.">
+    <input type="hidden" name="what" value="volumes">
+    <button type="submit">Delete unused volumes</button>
+  </form>
+  {% endif %}
+  {% if !orphans.networks.is_empty() %}
+  <h3>Unused Docker networks</h3>
+  <p>{{ orphans.networks.len() }} network{% if orphans.networks.len() != 1 %}s{% endif %} with no container: {% for n in orphans.networks.iter().take(10) %}<code>{{ n }}</code>{% if !loop.last %}, {% endif %}{% endfor %}{% if orphans.networks.len() > 10 %} …{% endif %}.</p>
+  <form hx-post="/settings/disk/remove-orphans" hx-target="#disk" hx-swap="outerHTML"
+        hx-confirm="Delete these {{ orphans.networks.len() }} unused networks? Nothing is using them; apps create their own again when they start.">
+    <input type="hidden" name="what" value="networks">
+    <button type="submit">Delete unused networks</button>
+  </form>
+  {% endif %}
   <p><small>Old restore copies are deleted from the app's Restore page ("Delete old copies").</small></p>
 </div>

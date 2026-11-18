@@ -15,7 +15,6 @@ Open items only, one line each, with the date it was last verified open. Deliver
   1. Edit pasted/adopted stacks after install (same strict validation, snapshot before applying).
   2. Installable panel (PWA): web manifest + icon.
 - Ideas queue 3 (proposed and verified not built/not excluded 2026-11-18; user approved; order = recommendation):
-  3. Orphan Docker volumes and networks: list with sizes and remove on explicit confirmation (Disk usage handles images and snapshots only).
   4. Notification maintenance mode: "silence for 30 min" that defers delivery during updates/restarts without losing events.
   5. Bulk actions on the Apps page: back up / restart / check updates for several apps at once.
 - Passkeys (released v0.1.59, tested on a real device 2026-11-17): reauth prompts (Passwords, terminal, updates) still take a typed code (TOTP/recovery), not a passkey tap; passkeys work only on the hostname they were added on.
