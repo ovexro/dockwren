@@ -577,6 +577,7 @@ fn app(
         .route("/jobs/{id}", get(apps::job))
         .route("/instances/list", get(apps::instances))
         .route("/instances/{name}/remove", post(apps::instance_remove))
+        .route("/instances/{name}/delete", post(apps::instance_delete))
         .route(
             "/instances/{name}/update",
             get(apps::update_preview).post(apps::instance_update),
@@ -2678,6 +2679,7 @@ mod tests {
             ("GET", "/jobs/x"),
             ("GET", "/instances/list"),
             ("POST", "/instances/gt/remove"),
+            ("POST", "/instances/gt/delete"),
             ("POST", "/instances/gt/update"),
             ("POST", "/instances-bulk/backup"),
             ("POST", "/instances-bulk/update"),

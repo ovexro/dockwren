@@ -875,6 +875,8 @@ struct InstanceView {
     editable: bool,
     /// A pasted stack: its Compose file can be edited here.
     stack_editable: bool,
+    /// Stopped (no containers) and not published: the whole app can be deleted.
+    deletable: bool,
     /// The template is known, so the main service can be limited.
     limitable: bool,
     /// The template has generated passwords that can be shown again.
@@ -890,6 +892,7 @@ struct InstancesPage {
     /// Apps ticked for a bulk action; the list refreshes itself, so the ticks travel with it.
     picked: Vec<String>,
     error: Option<String>,
+    note: Option<String>,
 }
 
 fn form_view(t: &AppTemplate, values: &HashMap<String, String>, error: Option<String>) -> FormPage {
@@ -1630,6 +1633,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             },
             Err(_) => "unknown".to_string(),
         };
+        let status_is_stopped = status == "stopped";
         let newer = apps
             .template(&state.template)
             .map(|t| t.manifest.app.version)
@@ -1674,6 +1678,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             vulns: crate::vulnscan::summary(&name_for_upstream).and_then(|v| v.line()),
             editable,
             stack_editable,
+            deletable: status_is_stopped && crate::public::read(&dir).is_none(),
             limitable,
             has_passwords,
             uncapped: !crate::logcap::enabled(&dir),
@@ -1749,6 +1754,7 @@ pub async fn instances(
             .map(|(_, v)| v)
             .collect(),
         error: None,
+        note: None,
     })
 }
 
@@ -1775,10 +1781,70 @@ pub async fn instance_remove(
         crate::audit::record("app.remove", &removed);
         crate::terminal::set_adopted(runner::adopted_projects(&apps.root));
     }
+    let note = error
+        .is_none()
+        .then(|| format!("{removed}: containers removed, data kept. It stays in the list as stopped; Delete app removes it completely."));
     Ok(render(InstancesPage {
         instances: instance_views(&apps).await,
         picked: Vec::new(),
         error,
+        note,
+    }))
+}
+
+/// `POST /instances/{name}/delete`: remove a stopped, unpublished app completely: its
+/// containers' leftovers (volumes, network) and its folder with all data. Backups are kept.
+pub async fn instance_delete(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let dir = apps.root.join(&name);
+    let inst = runner::Instance {
+        name: name.clone(),
+        dir: dir.clone(),
+    };
+    let refuse = if crate::public::read(&dir).is_some() {
+        Some("Remove its Public URL first.".to_string())
+    } else {
+        match runner::compose(&inst, &["ps", "-a", "--format", "json"]).await {
+            Ok(ps) => match runner::judge(&ps) {
+                runner::Status::Waiting(w) if w == "no containers yet" => None,
+                _ => Some("Stop & remove its containers first.".to_string()),
+            },
+            Err(e) => Some(e),
+        }
+    };
+    let mut error = refuse.map(|r| format!("{name} was not deleted: {r}"));
+    let mut note = None;
+    if error.is_none() {
+        let done = runner::compose(&inst, &["down", "-v"])
+            .await
+            .map(|_| ())
+            .and_then(|()| {
+                // `dir` is `apps.root/<name>` with a validated name that has a state.toml.
+                std::fs::remove_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))
+            });
+        match done {
+            Ok(()) => {
+                crate::audit::record("app.delete", &name);
+                crate::terminal::set_adopted(runner::adopted_projects(&apps.root));
+                note = Some(format!(
+                    "{name} deleted: containers, volumes and data are gone. Its backups are kept."
+                ));
+            }
+            Err(e) => error = Some(format!("{name} was not fully deleted: {e}")),
+        }
+    }
+    Ok(render(InstancesPage {
+        instances: instance_views(&apps).await,
+        picked: Vec::new(),
+        error,
+        note,
     }))
 }
 
