@@ -309,6 +309,10 @@ const HTMX: &str = include_str!("../static/htmx.min.js");
 const CSS: &str = include_str!("../static/dockwren.css");
 const PASSKEY_JS: &str = include_str!("../static/passkey.js");
 const FAVICON: &str = include_str!("../static/favicon.svg");
+const MANIFEST: &str = include_str!("../static/manifest.webmanifest");
+const ICON_192: &[u8] = include_bytes!("../static/icon-192.png");
+const ICON_512: &[u8] = include_bytes!("../static/icon-512.png");
+const APPLE_ICON: &[u8] = include_bytes!("../static/apple-touch-icon.png");
 
 /// Short content hash of the bundled assets, appended to their URLs so a new build is never served from a stale cache.
 pub fn asset_version() -> String {
@@ -341,6 +345,26 @@ async fn favicon() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=86400"),
         ],
         FAVICON,
+    )
+}
+
+async fn manifest() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/manifest+json"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        MANIFEST,
+    )
+}
+
+async fn png_icon(bytes: &'static [u8]) -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        bytes,
     )
 }
 
@@ -642,6 +666,10 @@ fn app(
         .route("/static/dockwren.css", get(stylesheet))
         .route("/favicon.svg", get(favicon))
         .route("/favicon.ico", get(favicon))
+        .route("/manifest.webmanifest", get(manifest))
+        .route("/static/icon-192.png", get(|| png_icon(ICON_192)))
+        .route("/static/icon-512.png", get(|| png_icon(ICON_512)))
+        .route("/apple-touch-icon.png", get(|| png_icon(APPLE_ICON)))
         .route("/login", get(auth::login_form).post(auth::login_submit))
         .route("/login/passkey", post(auth::login_passkey))
         .route("/login/code", post(auth::login_code))
@@ -1993,6 +2021,23 @@ mod tests {
                 .unwrap();
             assert_eq!(res.status(), StatusCode::OK, "{path}");
             assert_eq!(res.headers()[header::CONTENT_TYPE], "image/svg+xml");
+        }
+    }
+
+    #[tokio::test]
+    async fn pwa_files_are_public() {
+        for (path, ct) in [
+            ("/manifest.webmanifest", "application/manifest+json"),
+            ("/static/icon-192.png", "image/png"),
+            ("/static/icon-512.png", "image/png"),
+            ("/apple-touch-icon.png", "image/png"),
+        ] {
+            let res = test_app()
+                .oneshot(Request::get(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::OK, "{path}");
+            assert_eq!(res.headers()[header::CONTENT_TYPE], ct, "{path}");
         }
     }
 
