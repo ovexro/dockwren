@@ -82,6 +82,17 @@ run, one line, containing the word `FAIL` when it failed (`2026-11-14 03:30:20 b
 `FAIL` or the file has not been touched for 36 hours. The next good run resolves it. Without the
 variable, or while the file does not exist, nothing happens.
 
+## Disk health (SMART)
+
+`src/smart.rs`. A root systemd timer (`dockwren-smart.timer`, installed by `sudo dockwren
+setup-smart`) runs `dockwren smart-collect` hourly, which asks `smartctl` about each disk and writes
+`smart.json` into the data folder. The panel reads that file every 15 minutes and raises `host.smart`
+(one event per disk, warning or critical) for: failed health test or NVMe critical warning
+(critical), spare capacity at its threshold (critical), pending or uncorrectable sectors, NVMe
+media errors, 90 % of rated endurance used, or 65 °C and up (warning). Reallocated sectors alone are
+shown in Health but not alarmed on. Health also warns when the file is older than 3 hours. Closes
+when the disk reports healthy. Without `smart.json`, nothing happens.
+
 ## Resource alerts
 
 `src/alerts.rs` checks every minute, from the metrics the sampler already keeps and the Docker

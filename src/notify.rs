@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 const LOG_FILE: &str = "notifications.log";
 const PREFS_FILE: &str = "notify-settings.json";
 /// Every kind a producer raises: (kind, label, what it does). Settings lists exactly these.
-pub const KINDS: [(&str, &str, &str); 17] = [
+pub const KINDS: [(&str, &str, &str); 18] = [
     (
         "terminal.opened",
         "Web terminal opened",
@@ -66,6 +66,11 @@ pub const KINDS: [(&str, &str, &str); 17] = [
         "backup.failed",
         "Scheduled backup failed or overdue",
         "Reads the status file of your host backup job (set DOCKWREN_BACKUP_STATUS). Raised when the last run failed or no run was recorded for 36 hours.",
+    ),
+    (
+        "host.smart",
+        "Disk health (SMART) problem",
+        "A disk reports trouble: failed health test, sectors waiting for reallocation, uncorrectable sectors, NVMe critical warning, spare capacity at its threshold, 90% of rated write endurance used, or over 65 °C. Needs the optional SMART helper (sudo dockwren setup-smart), which reads smartctl every hour. Clears when the disk reports healthy again.",
     ),
     (
         "host.disk_full",

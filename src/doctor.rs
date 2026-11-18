@@ -301,6 +301,33 @@ fn backup_checks(data_dir: &Path, now: u64, v: &mut Vec<Item>) {
     });
 }
 
+/// Disk health from the hourly SMART collector; silent when the helper was never set up
+/// (virtual servers have no SMART data).
+fn smart_checks(data_dir: &Path, now: u64, v: &mut Vec<Item>) {
+    use crate::smart::{self, Grade};
+    let Some(r) = smart::read(data_dir) else {
+        return;
+    };
+    if smart::is_stale(&r, now) {
+        v.push(item(
+            "Disk health (SMART)",
+            Level::Warn,
+            format!(
+                "last reading {} ago; check `systemctl status dockwren-smart.timer`",
+                crate::metrics::short_span(now.saturating_sub(r.updated))
+            ),
+        ));
+    }
+    for d in &r.disks {
+        let level = match d.grade() {
+            Grade::Ok => Level::Ok,
+            Grade::Warn => Level::Warn,
+            Grade::Bad => Level::Fail,
+        };
+        v.push(item("Disk health (SMART)", level, d.summary()));
+    }
+}
+
 fn tunnel_check(v: &mut Vec<Item>) {
     v.push(match crate::public::Settings::from_env() {
         Some(_) => item(
@@ -367,6 +394,7 @@ pub async fn run(data_dir: &Path) -> Vec<Item> {
     network_checks(&mut v).await;
     ports_check(&mut v).await;
     listeners_check(&mut v).await;
+    smart_checks(data_dir, now, &mut v);
     backup_checks(data_dir, now, &mut v);
     tunnel_check(&mut v);
     v

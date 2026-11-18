@@ -54,6 +54,19 @@ is start a package update. It never reboots. The log is written by root to
 - To remove it: `systemctl disable --now dockwren-osupdate.path`, then delete the two unit files in
   `/etc/systemd/system/` and `/usr/local/lib/dockwren/`.
 
+## Disk health (SMART)
+
+Optional: running `sudo dockwren setup-smart` once installs `dockwren-smart.timer` and
+`dockwren-smart.service`. The service runs as root, hardened (`ProtectSystem=strict`, `ProtectHome`,
+`NoNewPrivileges`, `PrivateTmp`, write access only to the data folder), and runs the fixed command
+`dockwren smart-collect --data-dir <data dir>` once an hour. That executes only `smartctl` (read-only
+queries; never a self-test or a setting change) and writes `smart.json` with model, health verdict,
+temperature, power-on hours and error counters (no serial numbers), owned by the panel user. The panel
+gets no device access and no new privilege; it only reads the file, and a compromised panel can
+at worst write a false `smart.json` that nothing privileged reads.
+- To remove it: `systemctl disable --now dockwren-smart.timer`, delete the two unit files in
+  `/etc/systemd/system/`, and delete `smart.json` from the data folder.
+
 ## Web terminal
 
 Off by default. It is turned on either in Settings (password and 2FA code required; stored as a flag file `terminal.enabled` in the data directory, and the change is logged and raises a notification) or forced on with `DOCKWREN_TERMINAL=1`. While off, every terminal route answers 404. Turning it off does not close sessions already open. When on, a logged-in admin

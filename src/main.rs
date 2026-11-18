@@ -28,6 +28,7 @@ mod restoretest;
 mod runner;
 mod schedule;
 mod selfupdate;
+mod smart;
 mod stack;
 mod statusapi;
 mod template;
@@ -991,7 +992,7 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     Ok(())
 }
 
-const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | status-token [--revoke] | install <app> [KEY=VALUE...] | export FILE | import FILE | recover | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | restore-test <instance> | scan <instance> | doctor | template add <https-url> <commit> [--yes] | template list | template remove <id> | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | self-update | --version]";
+const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | status-token [--revoke] | install <app> [KEY=VALUE...] | export FILE | import FILE | recover | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | restore-test <instance> | scan <instance> | doctor | template add <https-url> <commit> [--yes] | template list | template remove <id> | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | setup-smart [--data-dir DIR] | self-update | --version]";
 
 /// CLI commands work on the panel's data directory; explain the usual permission mistake
 /// instead of failing later with a bare "Permission denied".
@@ -1028,6 +1029,8 @@ async fn main() {
         | Some("disable-2fa")
         | Some("status-token")
         | Some("setup-osupdate")
+        | Some("setup-smart")
+        | Some("smart-collect")
         | Some("self-update") => {}
         Some(
             "install" | "export" | "import" | "recover" | "backup" | "update" | "restore"
@@ -1043,6 +1046,30 @@ async fn main() {
             if let Err(e) = selfupdate::cli(&cfg.data_dir, on_start).await {
                 eprintln!("self-update failed: {e}");
                 std::process::exit(1);
+            }
+            return;
+        }
+        Some(c @ ("setup-smart" | "smart-collect")) => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            let dir = match args.as_slice() {
+                [] => cfg.data_dir.clone(),
+                [flag, d] if flag == "--data-dir" => std::path::PathBuf::from(d),
+                _ => {
+                    eprintln!("usage: dockwren {c} [--data-dir DIR]");
+                    std::process::exit(2);
+                }
+            };
+            let res = if c == "setup-smart" {
+                smart::setup(&dir)
+            } else {
+                smart::collect(&dir)
+            };
+            match res {
+                Ok(n) => println!("SMART: {n} disk(s) read into {}/smart.json.", dir.display()),
+                Err(e) => {
+                    eprintln!("{c} failed: {e}");
+                    std::process::exit(1);
+                }
             }
             return;
         }
@@ -1560,6 +1587,7 @@ async fn main() {
     }
     vulnscan::spawn_checker(apps.clone(), notify.clone(), cfg.data_dir.clone());
     backupwatch::spawn_checker(notify.clone());
+    smart::spawn_checker(notify.clone(), cfg.data_dir.clone());
     let os_control = Arc::new(osupdate::Control::new(Some(&cfg.data_dir)));
     osupdate::spawn_watcher(os_control.clone(), notify.clone());
     deliver::spawn(notify.clone());
