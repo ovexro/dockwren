@@ -423,7 +423,8 @@ pub async fn run_post_start(
     Ok(shown)
 }
 
-/// Install steps 3-5 of the spec: validate, pull, start, wait healthy.
+/// Install steps 3-5 of the spec: validate, pull, start, wait healthy (and still healthy after a pause,
+/// so a container that exits right after `up -d` is not reported as installed).
 /// `log` receives one line per step.
 pub async fn bring_up(inst: &Instance, log: &mut (dyn FnMut(&str) + Send)) -> Result<(), String> {
     log("capping container logs");
@@ -435,7 +436,7 @@ pub async fn bring_up(inst: &Instance, log: &mut (dyn FnMut(&str) + Send)) -> Re
     log("starting");
     compose(inst, &["up", "-d"]).await?;
     log("waiting for healthy");
-    wait_healthy(inst, Duration::from_secs(240)).await
+    wait_stable(inst, Duration::from_secs(240)).await
 }
 
 /// Stop and remove containers; data directories are kept.
