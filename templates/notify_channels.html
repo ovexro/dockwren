@@ -3,6 +3,17 @@
   {% if let Some((ok, text)) = message %}
   <p role="status"><strong>{% if *ok %}Done:{% else %}Failed:{% endif %}</strong> {{ text }}</p>
   {% endif %}
+  {% if configured %}
+  <div class="actions">
+  {% if silence_min > 0 %}
+  <p><strong>Maintenance mode:</strong> pushes are on hold for about {{ silence_min }} more min. Events still appear here and are sent afterwards if they are still open.</p>
+  <form hx-post="/settings/channels/resume" hx-target="#channels" hx-swap="outerHTML"><button type="submit">Resume now</button></form>
+  {% else %}
+  <form hx-post="/settings/channels/silence" hx-target="#channels" hx-swap="outerHTML"><input type="hidden" name="minutes" value="30"><button type="submit" title="Hold phone/webhook pushes while you update or restart things">Silence pushes for 30 min</button></form>
+  <form hx-post="/settings/channels/silence" hx-target="#channels" hx-swap="outerHTML"><input type="hidden" name="minutes" value="120"><button type="submit">2 h</button></form>
+  {% endif %}
+  </div>
+  {% endif %}
   <form hx-post="/settings/channels" hx-target="#channels" hx-swap="outerHTML" autocomplete="off">
     <p><label>ntfy server
       <input type="text" name="ntfy_server" value="{{ ntfy_server }}" placeholder="https://ntfy.sh" spellcheck="false"></label></p>

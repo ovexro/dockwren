@@ -20,6 +20,9 @@ use std::sync::{Arc, Mutex};
 
 const LOG_FILE: &str = "notifications.log";
 const PREFS_FILE: &str = "notify-settings.json";
+const SILENCE_FILE: &str = "notify-silence.txt";
+/// Longest "silence" the admin can ask for (a forgotten one must not hide alerts for days).
+pub const MAX_SILENCE_MIN: u64 = 240;
 /// Every kind a producer raises: (kind, label, what it does). Settings lists exactly these.
 pub const KINDS: [(&str, &str, &str); 22] = [
     (
@@ -232,6 +235,10 @@ pub struct Store {
     /// Where events are sent besides the panel (ntfy, webhook).
     pub channels: crate::deliver::Config,
     channels_path: Option<PathBuf>,
+    /// Maintenance mode: until this unix time nothing is pushed to the channels. Events are still
+    /// raised and shown in the panel, and are delivered afterwards if still open.
+    silenced_until: u64,
+    silence_path: Option<PathBuf>,
 }
 
 pub type Shared = Arc<Mutex<Store>>;
@@ -283,8 +290,31 @@ impl Store {
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_default();
         s.channels_path = Some(chan);
+        let sil = data_dir.join(SILENCE_FILE);
+        s.silenced_until = std::fs::read_to_string(&sil)
+            .ok()
+            .and_then(|t| t.trim().parse().ok())
+            .unwrap_or(0);
+        s.silence_path = Some(sil);
         s.rewrite();
         s
+    }
+
+    /// Seconds of maintenance mode left (0 = not silenced).
+    pub fn silence_left(&self) -> u64 {
+        self.silenced_until.saturating_sub(now_unix())
+    }
+
+    /// Silence the channels for `minutes` (capped); 0 ends it. Remembered across restarts,
+    /// because an update restarts the panel.
+    pub fn silence_for(&mut self, minutes: u64) {
+        let m = minutes.min(MAX_SILENCE_MIN);
+        self.silenced_until = if m == 0 { 0 } else { now_unix() + m * 60 };
+        if let Some(p) = &self.silence_path
+            && let Ok(mut f) = Self::open_file(p, true)
+        {
+            let _ = f.write_all(self.silenced_until.to_string().as_bytes());
+        }
     }
 
     pub fn is_enabled(&self, kind: &str) -> bool {
@@ -413,6 +443,8 @@ impl Store {
             prefs_path: None,
             channels: Default::default(),
             channels_path: None,
+            silenced_until: 0,
+            silence_path: None,
         };
         s.retain(now);
         s
@@ -881,6 +913,22 @@ mod tests {
         s.set_muted(Vec::new());
         s.raise_at(ev("k:b", Severity::Info), 300);
         assert_eq!(s.open_events().len(), 1);
+    }
+
+    #[test]
+    fn silence_persists_is_capped_and_ends() {
+        let d = tmpdir("silence");
+        let mut s = Store::open(&d);
+        assert_eq!(s.silence_left(), 0);
+        s.silence_for(30);
+        assert!(s.silence_left() > 29 * 60 && s.silence_left() <= 30 * 60);
+        let s2 = Store::open(&d);
+        assert!(s2.silence_left() > 29 * 60);
+        let mut s3 = s2;
+        s3.silence_for(100_000);
+        assert!(s3.silence_left() <= MAX_SILENCE_MIN * 60);
+        s3.silence_for(0);
+        assert_eq!(Store::open(&d).silence_left(), 0);
     }
 
     #[test]

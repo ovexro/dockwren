@@ -584,6 +584,8 @@ fn app(
         .route("/settings/notifications/{kind}", post(notify::kind_set))
         .route("/settings/channels", get(deliver::show).post(deliver::save))
         .route("/settings/channels/test", post(deliver::test))
+        .route("/settings/channels/silence", post(deliver::silence))
+        .route("/settings/channels/resume", post(deliver::resume))
         .route("/settings/channels/{which}/remove", post(deliver::remove))
         .route("/settings/config-export", post(apps::config_download))
         .route("/settings/2fa", get(auth::twofa_show))

@@ -61,6 +61,7 @@ Each event remembers the highest severity sent (`notified`). A failed send is re
   Addresses and tokens live in `notify-channels.json` (0600), go to curl on stdin and are never shown again.
 - Turning the first channel on marks the events already open as sent, so it is not flooded.
 - When a condition clears by itself after it was sent, one low-priority "Resolved: ..." message follows (`clear_pending`, `Store::pending_resolved`). Dismissing an event by hand sends nothing; e-mail is not built.
+- Maintenance mode: "Silence pushes" (30 min or 2 h, at most 4 h) holds all channel delivery. Events are still raised and shown in the panel; when it ends (or on "Resume now") whatever is still open is sent, and events that cleared meanwhile are never sent. The end time lives in `notify-silence.txt`, so an update restart does not cancel it.
 - Event text goes to a third party: keep secrets out of titles and bodies (already the rule above).
 
 ## OS updates

@@ -254,6 +254,9 @@ pub fn spawn(shared: Shared) {
                     attempts.clear();
                     continue;
                 }
+                if s.silence_left() > 0 {
+                    continue; // maintenance mode: hold everything, send it afterwards
+                }
                 (
                     s.channels.clone(),
                     s.pending_delivery(s.channels.min),
@@ -296,9 +299,11 @@ struct ChannelsTemplate {
     webhook_host: String,
     configured: bool,
     min: &'static str,
+    silence_min: u64,
 }
 
-fn render(c: &Config, message: Option<(bool, String)>) -> Html<String> {
+fn render(s: &crate::notify::Store, message: Option<(bool, String)>) -> Html<String> {
+    let c = &s.channels;
     Html(
         ChannelsTemplate {
             message,
@@ -310,6 +315,7 @@ fn render(c: &Config, message: Option<(bool, String)>) -> Html<String> {
             webhook_host: host_of(&c.webhook_url),
             configured: c.any(),
             min: c.min.slug(),
+            silence_min: s.silence_left().div_ceil(60),
         }
         .render()
         .expect("channels template renders"),
@@ -317,8 +323,7 @@ fn render(c: &Config, message: Option<(bool, String)>) -> Html<String> {
 }
 
 pub async fn show(AxState(shared): AxState<Shared>) -> Html<String> {
-    let c = shared.lock().unwrap().channels.clone();
-    render(&c, None)
+    render(&shared.lock().unwrap(), None)
 }
 
 #[derive(Deserialize)]
@@ -385,13 +390,9 @@ pub async fn save(
         Ok(c) => {
             s.set_channels(c);
             crate::audit::record("settings.channels", "saved");
-            let c = s.channels.clone();
-            render(&c, Some((true, "Saved.".into())))
+            render(&s, Some((true, "Saved.".into())))
         }
-        Err(m) => {
-            let c = s.channels.clone();
-            render(&c, Some((false, m)))
-        }
+        Err(m) => render(&s, Some((false, m))),
     }
 }
 
@@ -412,8 +413,36 @@ pub async fn remove(
     }
     s.set_channels(c);
     crate::audit::record("settings.channels", &format!("{which} removed"));
-    let c = s.channels.clone();
-    render(&c, Some((true, "Removed.".into())))
+    render(&s, Some((true, "Removed.".into())))
+}
+
+#[derive(Deserialize)]
+pub struct SilenceForm {
+    #[serde(default)]
+    minutes: u64,
+}
+
+/// Maintenance mode on: hold pushes for a while (events stay in the panel and go out afterwards).
+pub async fn silence(
+    AxState(shared): AxState<Shared>,
+    axum::Form(f): axum::Form<SilenceForm>,
+) -> Html<String> {
+    let mut s = shared.lock().unwrap();
+    let m = f.minutes.clamp(1, crate::notify::MAX_SILENCE_MIN);
+    s.silence_for(m);
+    crate::audit::record("settings.silence", &format!("{m} min"));
+    render(
+        &s,
+        Some((true, format!("Notifications on hold for {m} min."))),
+    )
+}
+
+/// Maintenance mode off: whatever is still open is sent within a minute.
+pub async fn resume(AxState(shared): AxState<Shared>) -> Html<String> {
+    let mut s = shared.lock().unwrap();
+    s.silence_for(0);
+    crate::audit::record("settings.silence", "ended");
+    render(&s, Some((true, "Notifications resumed.".into())))
 }
 
 pub async fn test(AxState(shared): AxState<Shared>) -> Html<String> {
@@ -441,7 +470,7 @@ pub async fn test(AxState(shared): AxState<Shared>) -> Html<String> {
     } else {
         (false, errors.join("; "))
     };
-    render(&cfg, Some(msg))
+    render(&shared.lock().unwrap(), Some(msg))
 }
 
 #[cfg(test)]
