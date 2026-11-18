@@ -305,10 +305,18 @@ pub async fn check(
     compose: &str,
     env: &BTreeMap<String, String>,
 ) -> Result<Value, String> {
+    check_raw(data_dir, compose, &crate::install::render_env(env)).await
+}
+
+/// [`check`] with the `.env` text as it is (an adopted stack keeps its own file verbatim).
+pub async fn check_raw(data_dir: &Path, compose: &str, env_text: &str) -> Result<Value, String> {
     precheck(compose)?;
+    if env_text.len() > MAX_COMPOSE_BYTES {
+        return Err("the environment is larger than 64 KiB".into());
+    }
     let dir = data_dir.join(format!("stack-check-{}", crate::auth::generate_password()));
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let result = check_in(&dir, data_dir, compose, env).await;
+    let result = check_in(&dir, data_dir, compose, env_text).await;
     // `dir` was created just above and holds only the two files written there.
     let _ = std::fs::remove_dir_all(&dir);
     result
@@ -318,10 +326,10 @@ async fn check_in(
     dir: &Path,
     data_dir: &Path,
     compose: &str,
-    env: &BTreeMap<String, String>,
+    env_text: &str,
 ) -> Result<Value, String> {
     std::fs::write(dir.join("compose.yaml"), compose).map_err(|e| e.to_string())?;
-    crate::install::write_env(dir, env).map_err(|e| e.to_string())?;
+    crate::install::write_env_text(dir, env_text).map_err(|e| e.to_string())?;
     let out = tokio::process::Command::new("docker")
         .env_clear()
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())

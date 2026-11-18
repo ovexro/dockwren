@@ -6,7 +6,8 @@
         hx-confirm="Back up {{ name }}, then restart it with this file?">
   <p><label>docker-compose.yml
   <textarea name="compose" rows="18" spellcheck="false" required style="font-family:monospace;width:100%">{{ compose }}</textarea></label></p>
-  <p><label>Environment (optional)
+  {% if adopted %}<p><small>This stack was adopted: the file and <code>.env</code> are the copies Dockwren keeps, and the containers keep their original Compose project. Data must stay in named volumes.</small></p>
+  {% endif %}<p><label>Environment (optional)
   <textarea name="env" rows="4" spellcheck="false" placeholder="KEY=value, one per line" style="font-family:monospace;width:100%">{{ env }}</textarea></label></p>
   <button class="primary" type="submit">Check, back up and apply</button>
   <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>

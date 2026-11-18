@@ -258,6 +258,11 @@ pub fn apply_edits(
 
 /// Atomically replace `<dir>/.env` (temp file + rename, mode 0600).
 pub fn replace_env(dir: &Path, env: &BTreeMap<String, String>) -> std::io::Result<()> {
+    replace_env_text(dir, &render_env(env))
+}
+
+/// [`replace_env`] with ready-made text (an adopted project's own `.env`, kept verbatim).
+pub fn replace_env_text(dir: &Path, text: &str) -> std::io::Result<()> {
     let tmp = dir.join(".env.tmp");
     let _ = std::fs::remove_file(&tmp);
     let mut f = std::fs::OpenOptions::new()
@@ -265,7 +270,7 @@ pub fn replace_env(dir: &Path, env: &BTreeMap<String, String>) -> std::io::Resul
         .create_new(true)
         .mode(0o600)
         .open(&tmp)?;
-    f.write_all(render_env(env).as_bytes())?;
+    f.write_all(text.as_bytes())?;
     f.sync_all()?;
     std::fs::rename(&tmp, dir.join(".env"))
 }

@@ -39,7 +39,7 @@ Rules that trip people up:
 
 ## Editing a stack later
 
-Apps → **Edit stack** (pasted stacks only, not adopted ones) shows the saved file and environment. Saving runs the same checks as adding a stack, takes a backup of `./data`, then pulls the images and recreates the containers. If a service exits or is unhealthy, the old file and environment are put back and started again. A published port may change to another free port; Dockwren-owned variables (`INSTANCE_NAME`, `WEB_PORT`) are not editable.
+Apps → **Edit stack** (pasted and adopted stacks) shows the saved file and environment. Saving runs the same checks as adding a stack, takes a backup of `./data`, then pulls the images and recreates the containers. If a service exits or is unhealthy, the old file and environment are put back and started again. A published port may change to another free port; For pasted stacks the Dockwren-owned variables (`INSTANCE_NAME`, `WEB_PORT`) are not editable. An adopted stack keeps its own `.env` exactly as written, its original Compose project, and the adoption rule (named volumes only, no host bind mounts).
 
 ## Adopting a project that is already running
 
