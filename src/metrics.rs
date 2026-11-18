@@ -61,7 +61,42 @@ pub struct Metrics {
     pub containers: Vec<ContainerUsage>,
 }
 
+/// Fit window for the disk forecast, and the history it needs before it says anything.
+const FORECAST_WINDOW_SECS: u64 = 7 * 24 * 3600;
+pub const FORECAST_SHOW_SECS: u64 = 24 * 3600;
+pub const FORECAST_ALERT_SECS: u64 = 3 * 24 * 3600;
+
 impl DiskSeries {
+    /// Days until this disk is 100 % full if the last week's trend continues (least-squares
+    /// line through the newest 7 days). `None` while there is less than `min_span` seconds of
+    /// history, or when usage is flat or falling. Snapshot pruning makes usage jump around, so a
+    /// short history is not trusted for alerts.
+    pub fn days_until_full(&self, min_span: u64) -> Option<f64> {
+        let &(t_end, last) = self.pct.back()?;
+        let from = t_end.saturating_sub(FORECAST_WINDOW_SECS);
+        let pts: Vec<(f64, f64)> = self
+            .pct
+            .iter()
+            .filter(|(t, _)| *t >= from)
+            .map(|&(t, p)| ((t - from) as f64 / 86400.0, p))
+            .collect();
+        let first_t = self.pct.iter().find(|(t, _)| *t >= from)?.0;
+        if pts.len() < 2 || t_end - first_t < min_span {
+            return None;
+        }
+        let n = pts.len() as f64;
+        let (sx, sy) = pts.iter().fold((0.0, 0.0), |a, p| (a.0 + p.0, a.1 + p.1));
+        let (mx, my) = (sx / n, sy / n);
+        let sxx: f64 = pts.iter().map(|p| (p.0 - mx).powi(2)).sum();
+        let sxy: f64 = pts.iter().map(|p| (p.0 - mx) * (p.1 - my)).sum();
+        if sxx <= 0.0 {
+            return None;
+        }
+        let slope = sxy / sxx; // percentage points per day
+        // Below 0.05 points/day it would take years; not worth a line on the page.
+        (slope > 0.05).then(|| ((100.0 - last) / slope).max(0.0))
+    }
+
     #[cfg(test)]
     pub fn for_test(label: &str, total: u64, used: u64, pct: f64) -> Self {
         Self {
@@ -831,15 +866,20 @@ pub fn tiles(m: &Metrics) -> Vec<Tile> {
         .map(|d| (d, d.used as f64 / d.total as f64 * 100.0))
         .max_by(|a, b| a.1.total_cmp(&b.1));
     if let Some((d, pct)) = worst {
+        let days = d.days_until_full(FORECAST_SHOW_SECS).filter(|x| *x < 60.0);
+        let mut detail = format!(
+            "{} · {} free",
+            d.label,
+            fmt_bytes((d.total - d.used) as f64)
+        );
+        if let Some(x) = days {
+            detail.push_str(&format!(" · full in ~{} days", x.round().max(1.0)));
+        }
         out.push(Tile {
             title: "Disk",
             value: format!("{pct:.0}%"),
-            detail: format!(
-                "{} · {} free",
-                d.label,
-                fmt_bytes((d.total - d.used) as f64)
-            ),
-            warn: pct >= DISK_WARN_PCT,
+            detail,
+            warn: pct >= DISK_WARN_PCT || days.is_some_and(|x| x < 14.0),
         });
     }
     out
@@ -1035,6 +1075,46 @@ pub async fn page(State(shared): State<Shared>, Query(q): Query<RangeQuery>) -> 
         q.live.is_none(),
     );
     Html(page.render().expect("metrics template renders"))
+}
+
+#[cfg(test)]
+mod forecast_tests {
+    use super::*;
+
+    fn series(points: &[(u64, f64)]) -> DiskSeries {
+        let mut d = DiskSeries::for_test("/", 100, 50, 50.0);
+        d.pct = points.iter().copied().collect();
+        d
+    }
+
+    #[test]
+    fn linear_growth_gives_days_left() {
+        // 1 point per day, from 50 % to 56 % over 6 days: 44 points left = 44 days.
+        let pts: Vec<_> = (0..=6).map(|i| (i * 86400, 50.0 + i as f64)).collect();
+        let d = series(&pts).days_until_full(FORECAST_ALERT_SECS).unwrap();
+        assert!((d - 44.0).abs() < 0.5, "{d}");
+    }
+
+    #[test]
+    fn short_flat_or_falling_history_says_nothing() {
+        let short = series(&[(0, 50.0), (3600, 51.0)]);
+        assert!(short.days_until_full(FORECAST_SHOW_SECS).is_none());
+        let flat: Vec<_> = (0..=6).map(|i| (i * 86400, 50.0)).collect();
+        assert!(series(&flat).days_until_full(FORECAST_ALERT_SECS).is_none());
+        let down: Vec<_> = (0..=6).map(|i| (i * 86400, 60.0 - i as f64)).collect();
+        assert!(series(&down).days_until_full(FORECAST_ALERT_SECS).is_none());
+        assert!(series(&[]).days_until_full(0).is_none());
+    }
+
+    #[test]
+    fn only_the_last_week_counts() {
+        // Fast growth long ago, flat since: no forecast.
+        let mut pts: Vec<_> = (0..10)
+            .map(|i| (i * 86400, 10.0 + i as f64 * 5.0))
+            .collect();
+        pts.extend((10..=20).map(|i| (i * 86400, 55.0)));
+        assert!(series(&pts).days_until_full(FORECAST_ALERT_SECS).is_none());
+    }
 }
 
 #[cfg(test)]

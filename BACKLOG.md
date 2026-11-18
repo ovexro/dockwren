@@ -12,11 +12,10 @@ Open items only, one line each, with the date it was last verified open. Deliver
   1. Adopt running containers / existing Compose projects as managed stacks: phases 1 (scan) + 2 (adopt, named volumes only) built; open: host bind mounts (data relocation), ports (backups of named volumes built 2026-11-18, real-Docker test passes; verified with a real adopted Postgres project 2026-11-18: backup, verify, restore, restore-test) claimed in .env, ProtectHome files.
   Non-code: list Dockwren in awesome-selfhosted + public announcement (outward action: ask the user first).
 - Ideas queue 2 (proposed and verified not built/not excluded 2026-11-18; user approved; order = recommendation):
-  1. Disk-full forecast: from the 30-day disk history show "full in ~N days" on Overview and alert under 14 days.
-  2. Log search/filter in the log viewer (text, time range, level) plus download; today only the last 200 lines.
-  3. SMART disk health in Health check and notifications (read-only `smartctl`).
-  4. Edit pasted/adopted stacks after install (same strict validation, snapshot before applying).
-  5. Installable panel (PWA): web manifest + icon.
+  1. Log search/filter in the log viewer (text, time range, level) plus download; today only the last 200 lines.
+  2. SMART disk health in Health check and notifications (read-only `smartctl`).
+  3. Edit pasted/adopted stacks after install (same strict validation, snapshot before applying).
+  4. Installable panel (PWA): web manifest + icon.
 - Passkeys (released v0.1.59, tested on a real device 2026-11-17): reauth prompts (Passwords, terminal, updates) still take a typed code (TOTP/recovery), not a passkey tap; passkeys work only on the hostname they were added on.
 
 ## Decisions (do not re-propose)

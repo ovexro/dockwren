@@ -16,6 +16,7 @@ use crate::notify::{self, NewEvent, Severity, Shared};
 const POLL: Duration = Duration::from_secs(60);
 
 pub const DISK_KIND: &str = "host.disk_full";
+pub const DISK_FORECAST_KIND: &str = "host.disk_forecast";
 pub const MEM_KIND: &str = "host.memory_high";
 pub const CPU_KIND: &str = "host.cpu_high";
 pub const CONTAINER_KIND: &str = "container.problem";
@@ -24,6 +25,9 @@ pub const LISTEN_KIND: &str = "host.listener";
 
 const DISK_CRIT_PCT: f64 = 95.0;
 const DISK_CLEAR_PCT: f64 = 80.0;
+/// Warn when the weekly trend fills a disk within this many days; clear above the second value.
+const FORECAST_WARN_DAYS: f64 = 14.0;
+const FORECAST_CLEAR_DAYS: f64 = 21.0;
 const MEM_PCT: f64 = 90.0;
 const MEM_CLEAR_PCT: f64 = 85.0;
 /// Samples are 10 s apart.
@@ -132,6 +136,39 @@ pub fn check_host(shared: &Shared, m: &Metrics) {
         );
     }
     resolve_stale(shared, &format!("{DISK_KIND}:"), &open);
+
+    // Early warning: the disk is still under the fixed warning level but is filling fast.
+    let mut open_f = HashSet::new();
+    for d in &m.disks {
+        let Some(&(_, pct)) = d.pct.back() else {
+            continue;
+        };
+        let key = format!("{DISK_FORECAST_KIND}:{}", d.label);
+        let Some(days) = d.days_until_full(metrics::FORECAST_ALERT_SECS) else {
+            continue;
+        };
+        let on = days < FORECAST_WARN_DAYS || (is_open(shared, &key) && days < FORECAST_CLEAR_DAYS);
+        if !on || pct >= metrics::DISK_WARN_PCT {
+            continue; // at 85 % the regular alert above takes over
+        }
+        open_f.insert(key.clone());
+        notify::raise(
+            shared,
+            NewEvent::new(
+                "host",
+                DISK_FORECAST_KIND,
+                Severity::Warning,
+                &format!("Disk {} will be full in about {} days", d.label, days.round().max(1.0)),
+            )
+            .body(format!(
+                "At the pace of the last week, {} ({pct:.0}% used now) fills up soon. Free space or old snapshots, or add disk.",
+                d.label
+            ))
+            .link("/metrics")
+            .key(key),
+        );
+    }
+    resolve_stale(shared, &format!("{DISK_FORECAST_KIND}:"), &open_f);
 
     let mem: Vec<f64> = m.samples.iter().map(|s| s.mem).collect();
     let cpu: Vec<f64> = m.samples.iter().map(|s| s.cpu).collect();
@@ -277,13 +314,19 @@ pub fn check_ports(shared: &Shared, list: &[ContainerInfo]) {
 /// while it runs, `DOCKWREN_LISTEN_ALLOW`) explains.
 pub fn host_listeners(list: &[ContainerInfo]) -> Vec<(u16, String)> {
     let mut allow: Vec<u16> = crate::listeners::BASE_ALLOW.to_vec();
-    if list.iter().any(|c| c.name == "dockwren-caddy" && c.state == "running") {
+    if list
+        .iter()
+        .any(|c| c.name == "dockwren-caddy" && c.state == "running")
+    {
         allow.extend([80, 443]);
     }
     if let Ok(extra) = std::env::var("DOCKWREN_LISTEN_ALLOW") {
         allow.extend(crate::listeners::parse_allow(&extra));
     }
-    let docker: std::collections::BTreeSet<u16> = list.iter().flat_map(|c| c.ports.iter().map(|p| p.port)).collect();
+    let docker: std::collections::BTreeSet<u16> = list
+        .iter()
+        .flat_map(|c| c.ports.iter().map(|p| p.port))
+        .collect();
     let found = crate::listeners::scan();
     let ports: std::collections::BTreeSet<u16> = found.keys().copied().collect();
     let hosts: Vec<String> = list
@@ -482,6 +525,27 @@ mod tests {
         check_host(&s, &metrics_with(82.0, 10.0, 10.0, 0));
         assert_eq!(open(&s).len(), 1, "between the levels it stays open");
         check_host(&s, &metrics_with(70.0, 10.0, 10.0, 0));
+        assert!(open(&s).is_empty());
+    }
+
+    #[test]
+    fn disk_forecast_warns_early_and_clears() {
+        let s = store();
+        let day = 86400;
+        let mk = |step: f64| {
+            let mut m = metrics_with(40.0, 10.0, 10.0, 0);
+            let d = &mut m.disks[0];
+            d.pct = (0..=6).map(|i| (i * day, 40.0 + i as f64 * step)).collect();
+            m
+        };
+        check_host(&s, &mk(4.0)); // last 64 %, 36/4 = 9 days
+        assert_eq!(
+            open(&s),
+            vec![("host.disk_forecast:/data".into(), Severity::Warning)]
+        );
+        check_host(&s, &mk(3.0)); // last 58 %, 42/3 = 14 days: still open (hysteresis)
+        assert_eq!(open(&s).len(), 1);
+        check_host(&s, &mk(0.5)); // last 43 %, 114 days: clears
         assert!(open(&s).is_empty());
     }
 
