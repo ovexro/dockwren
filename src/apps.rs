@@ -873,6 +873,8 @@ struct InstanceView {
     vulns: Option<String>,
     /// The template has settings that can be changed after install.
     editable: bool,
+    /// A pasted stack: its Compose file can be edited here.
+    stack_editable: bool,
     /// The template is known, so the main service can be limited.
     limitable: bool,
     /// The template has generated passwords that can be shown again.
@@ -1208,6 +1210,195 @@ pub async fn stack_submit(
     job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+#[derive(Template)]
+#[template(path = "stack_edit.html")]
+struct StackEdit {
+    name: String,
+    compose: String,
+    env: String,
+    error: Option<String>,
+}
+
+/// Variables Dockwren sets itself; they are not shown in the edit form and are rebuilt on save.
+const STACK_OWN_KEYS: &[&str] = &["INSTANCE_NAME", "WEB_PORT"];
+
+/// Directory of a stack the user pasted (not a catalog app, not an adopted project).
+fn pasted_stack_dir(apps: &Apps, name: &str) -> Result<std::path::PathBuf, StatusCode> {
+    known_instance(apps, name)?;
+    let dir = apps.root.join(name);
+    let state: InstanceState = std::fs::read_to_string(dir.join("state.toml"))
+        .ok()
+        .and_then(|s| toml::from_str(&s).ok())
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    if state.template != CUSTOM_ID || dir.join(runner::PROJECT_FILE).exists() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    Ok(dir)
+}
+
+fn stack_edit_view(
+    name: &str,
+    dir: &std::path::Path,
+    entered: Option<(String, String)>,
+    error: Option<String>,
+) -> Result<StackEdit, StatusCode> {
+    let (compose, env) = match entered {
+        Some(e) => e,
+        None => {
+            let compose = std::fs::read_to_string(dir.join("compose.yaml"))
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let env = runner::read_env(dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let env = env
+                .iter()
+                .filter(|(k, _)| !STACK_OWN_KEYS.contains(&k.as_str()))
+                .map(|(k, v)| format!("{k}={v}\n"))
+                .collect();
+            (compose, env)
+        }
+    };
+    Ok(StackEdit {
+        name: name.to_string(),
+        compose,
+        env,
+        error,
+    })
+}
+
+/// `GET /instances/{name}/stack`: the pasted Compose file and environment, ready to edit.
+pub async fn stack_edit_form(
+    State(apps): State<Apps>,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    let dir = pasted_stack_dir(&apps, &name)?;
+    Ok(render(stack_edit_view(&name, &dir, None, None)?))
+}
+
+/// `POST /instances/{name}/stack`: check the new file like a fresh paste, back the stack up,
+/// then recreate it. When it does not come back healthy the old files are put back.
+pub async fn stack_edit_submit(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Form(values): Form<HashMap<String, String>>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let dir = pasted_stack_dir(&apps, &name)?;
+    let get = |k: &str| values.get(k).cloned().unwrap_or_default();
+    let (compose, env_text) = (get("compose"), get("env"));
+    let again = |error: String| {
+        Ok(render(stack_edit_view(
+            &name,
+            &dir,
+            Some((compose.clone(), env_text.clone())),
+            Some(error),
+        )?))
+    };
+    let t = apps
+        .template(CUSTOM_ID)
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut env = match crate::stack::parse_env(&env_text) {
+        Ok(e) => e,
+        Err(e) => return again(e),
+    };
+    if let Some(k) = STACK_OWN_KEYS.iter().find(|k| env.contains_key(**k)) {
+        return again(format!("environment: {k} is set by Dockwren"));
+    }
+    env.insert("INSTANCE_NAME".into(), name.clone());
+    let data_dir = apps
+        .root
+        .parent()
+        .map(|d| d.to_path_buf())
+        .unwrap_or_default();
+    let model = match crate::stack::check(&data_dir, &compose, &env).await {
+        Ok(m) => m,
+        Err(e) => return again(e),
+    };
+    let old_env = runner::read_env(&dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let old_compose = std::fs::read_to_string(dir.join("compose.yaml"))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let old_port = old_env.get("WEB_PORT").and_then(|p| p.parse::<u16>().ok());
+    let port = crate::stack::first_published_port(&model);
+    if let Some(p) = port {
+        env.insert("WEB_PORT".into(), p.to_string());
+    }
+    if old_compose == compose && old_env == env {
+        return again("Nothing changed.".into());
+    }
+    // A port the stack already holds is fine; a new one must be free and unclaimed.
+    if let Some(p) = port.filter(|p| Some(*p) != old_port) {
+        let _guard = apps.lock.lock().await;
+        if runner::claimed_ports(&apps.root).contains(&p) || !install::port_is_free(p) {
+            return again(format!(
+                "port {p} is already in use on this server; pick another"
+            ));
+        }
+    }
+    let job_id = new_job(&apps, &name, "Updating stack")?;
+    crate::audit::record("stack.edit", &name);
+    let keep = apps.schedule.get().keep;
+    let apps2 = apps.clone();
+    let id = job_id.clone();
+    tokio::spawn(async move {
+        let inst = runner::Instance {
+            name: name.clone(),
+            dir,
+        };
+        let log = |s: &str| {
+            apps2.with_job(&id, |j| j.log.push(s.to_string()));
+        };
+        let result = async {
+            log("backing up first");
+            crate::backup::snapshot_keep(&apps2.backups_root(), &inst, t, &mut |s| log(s), keep)
+                .await
+                .map_err(|e| format!("backup failed, stack left unchanged: {e}"))?;
+            log("writing the new file");
+            runner::replace_private(&inst.dir.join("compose.yaml"), &compose)
+                .map_err(|e| format!("compose.yaml: {e}"))?;
+            crate::install::replace_env(&inst.dir, &env).map_err(|e| format!(".env: {e}"))?;
+            let up = async {
+                log("checking compose file");
+                runner::compose(&inst, &["config", "-q"]).await?;
+                log("pulling images");
+                runner::compose(&inst, &["pull"]).await?;
+                log("recreating containers");
+                runner::compose(&inst, &["up", "-d", "--remove-orphans"]).await?;
+                log("waiting for healthy");
+                runner::wait_stable(&inst, std::time::Duration::from_secs(240)).await
+            }
+            .await;
+            if let Err(e) = up {
+                log("failed: putting the old file back");
+                runner::replace_private(&inst.dir.join("compose.yaml"), &old_compose)
+                    .map_err(|e| format!("compose.yaml: {e}"))?;
+                crate::install::replace_env(&inst.dir, &old_env)
+                    .map_err(|e| format!(".env: {e}"))?;
+                let back = runner::compose(&inst, &["up", "-d", "--remove-orphans"]).await;
+                return Err(match back {
+                    Ok(_) => format!("{e} (old file restored)"),
+                    Err(b) => format!("{e} (restoring the old file also failed: {b})"),
+                });
+            }
+            Ok::<(), String>(())
+        }
+        .await;
+        apps2.note_job(
+            "Updating stack",
+            &name,
+            result.as_ref().err().map(|e| e.as_str()),
+        );
+        apps2.with_job(&id, |j| match result {
+            Ok(()) => {
+                j.log.push("stack updated".into());
+                j.state = JobState::Done;
+            }
+            Err(e) => j.state = JobState::Failed(e),
+        });
+    });
+    job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 pub async fn install_submit(
     State(apps): State<Apps>,
     headers: HeaderMap,
@@ -1411,6 +1602,8 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
         let editable = apps
             .template(&state.template)
             .is_some_and(|t| t.manifest.fields.iter().any(|f| f.editable));
+        let stack_editable =
+            state.template == CUSTOM_ID && !dir.join(runner::PROJECT_FILE).exists();
         let limitable = apps.template(&state.template).is_some();
         let has_passwords = apps
             .template(&state.template)
@@ -1437,6 +1630,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             uptime: crate::webcheck::uptime_line(&dir),
             vulns: crate::vulnscan::summary(&name_for_upstream).and_then(|v| v.line()),
             editable,
+            stack_editable,
             limitable,
             has_passwords,
             uncapped: !crate::logcap::enabled(&dir),

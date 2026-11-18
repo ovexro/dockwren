@@ -647,6 +647,10 @@ fn app(
             "/instances/{name}/limits",
             get(apps::limits_form).post(apps::limits_submit),
         )
+        .route(
+            "/instances/{name}/stack",
+            get(apps::stack_edit_form).post(apps::stack_edit_submit),
+        )
         .route("/instances/{name}/logcap", post(apps::logcap_submit))
         .route("/instances/{name}/pull", post(apps::pull_submit))
         .route("/instances/{name}/verify", post(apps::verify_submit))

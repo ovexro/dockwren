@@ -37,6 +37,10 @@ Rules that trip people up:
   image tag in the stack's `compose.yaml` and run `docker compose up -d` from its folder, or remove and re-add it.
 - The stack lives in `<data>/instances/<name>/`, like catalog apps, and shows as app `custom`.
 
+## Editing a stack later
+
+Apps → **Edit stack** (pasted stacks only, not adopted ones) shows the saved file and environment. Saving runs the same checks as adding a stack, takes a backup of `./data`, then pulls the images and recreates the containers. If a service exits or is unhealthy, the old file and environment are put back and started again. A published port may change to another free port; Dockwren-owned variables (`INSTANCE_NAME`, `WEB_PORT`) are not editable.
+
 ## Adopting a project that is already running
 
 Instead of pasting a file you can adopt a Compose project that already runs on the server (Apps → Add an app → Scan for other Compose projects). The same checks apply, plus: one compose file, named volumes only (no host bind mounts), and the copy must produce exactly the same `docker compose config --hash` as the running project, so adopting never restarts or recreates containers. Backups of an adopted app also cover its named volumes: the stack is stopped for a few seconds while each volume is archived (so databases stay consistent), then started again; restore, verify, restore tests and off-host copies work the same as for other apps. Removing an adopted app deletes its volumes. The panel cannot read compose files under `/home`.

@@ -106,6 +106,14 @@ pub(crate) fn write_private(path: &Path, content: &str) -> std::io::Result<()> {
     f.write_all(content.as_bytes())
 }
 
+/// Replace an existing file atomically (temp file + rename, mode 0640).
+pub(crate) fn replace_private(path: &Path, content: &str) -> std::io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    let _ = std::fs::remove_file(&tmp);
+    write_private(&tmp, content)?;
+    std::fs::rename(&tmp, path)
+}
+
 /// Create `<root>/<name>/` with compose.yaml, optional override, `.env` (0600)
 /// and state.toml. Fails if the instance already exists. Nothing is deleted on
 /// failure: the error names the directory so the user can inspect it.
@@ -305,6 +313,14 @@ pub async fn wait_healthy(inst: &Instance, timeout: Duration) -> Result<(), Stri
             Status::Waiting(_) => tokio::time::sleep(Duration::from_secs(3)).await,
         }
     }
+}
+
+/// [`wait_healthy`], then once more after a pause: a container that starts and immediately
+/// exits still reads "running" in the first poll.
+pub async fn wait_stable(inst: &Instance, timeout: Duration) -> Result<(), String> {
+    wait_healthy(inst, timeout).await?;
+    tokio::time::sleep(Duration::from_secs(8)).await;
+    wait_healthy(inst, Duration::from_secs(60)).await
 }
 
 /// Pull the first capture group out of a hook's stdout.
