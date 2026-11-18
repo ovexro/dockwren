@@ -885,6 +885,8 @@ struct InstanceView {
 #[template(path = "instances.html")]
 struct InstancesPage {
     instances: Vec<InstanceView>,
+    /// Apps ticked for a bulk action; the list refreshes itself, so the ticks travel with it.
+    picked: Vec<String>,
     error: Option<String>,
 }
 
@@ -1498,9 +1500,17 @@ pub fn instance_count(apps: &Apps) -> usize {
         .unwrap_or(0)
 }
 
-pub async fn instances(State(apps): State<Apps>) -> Html<String> {
+pub async fn instances(
+    State(apps): State<Apps>,
+    axum::extract::Query(q): axum::extract::Query<Vec<(String, String)>>,
+) -> Html<String> {
     render(InstancesPage {
         instances: instance_views(&apps).await,
+        picked: q
+            .into_iter()
+            .filter(|(k, _)| k == "name")
+            .map(|(_, v)| v)
+            .collect(),
         error: None,
     })
 }
@@ -1530,6 +1540,7 @@ pub async fn instance_remove(
     }
     Ok(render(InstancesPage {
         instances: instance_views(&apps).await,
+        picked: Vec::new(),
         error,
     }))
 }
@@ -1680,13 +1691,16 @@ pub async fn instances_bulk(
         "update" => true,
         _ => return Err(StatusCode::NOT_FOUND),
     };
-    let mut names: Vec<String> = values
+    let names: Vec<String> = values
         .into_iter()
         .filter(|(k, _)| k == "name")
         .map(|(_, v)| v)
         .collect();
     if names.is_empty() {
-        names = apps.instance_names();
+        // Never fall back to "everything": a lost tick must not start a run on all apps.
+        return Ok(Html(
+            "<p role=\"alert\">Tick at least one app first.</p>".to_string(),
+        ));
     }
     let id = apps.spawn_bulk(update, names.clone())?;
     crate::audit::record(

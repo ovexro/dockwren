@@ -22,7 +22,7 @@
     <div id="overview" hx-get="/overview" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     {% else if active == "apps" %}
     <h2>Installed apps</h2>
-    <div id="instances" hx-get="/instances/list" hx-trigger="load, every 10s" hx-swap="innerHTML">Loading…</div>
+    <div id="instances" hx-get="/instances/list" hx-trigger="load, every 10s" hx-include=".bulk-pick" hx-swap="innerHTML">Loading…</div>
     <section id="install"></section>
     <h2>Add an app</h2>
     <div id="catalog"><button class="primary" hx-get="/catalog" hx-target="#catalog" hx-swap="innerHTML">Browse apps</button></div>

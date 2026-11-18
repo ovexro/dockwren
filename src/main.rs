@@ -2754,6 +2754,12 @@ mod tests {
         assert!(body_of(res).await.contains("No apps installed"));
         let res = app
             .clone()
+            .oneshot(post("/instances-bulk/backup", None, ""))
+            .await
+            .unwrap();
+        assert!(body_of(res).await.contains("Tick at least one app"));
+        let res = app
+            .clone()
             .oneshot(post("/instances/..%2Fx/remove", None, ""))
             .await
             .unwrap();
