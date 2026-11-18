@@ -99,7 +99,7 @@ when the disk reports healthy. Without `smart.json`, nothing happens.
 `src/signin.rs`, called next to the audit-log lines in `auth.rs` and `auth/passkey.rs`. `login.new_source`
 (warning, one event per address) fires when a sign-in succeeds from an address not seen before; the
 address is the proxy header's value when there is one, else the peer. Known addresses are kept in
-`signin-known.txt` (newest 100). When that file does not exist (first start after upgrading) it is
+`signin-known.txt` (newest 100). IPv6 addresses count by their /64 network, because devices rotate the lower half (privacy addresses) and that is not a new place. When that file does not exist (first start after upgrading) it is
 seeded from past `login` lines in the audit log and nothing is raised. `login.lockout` (warning) fires
 when the limiter locks sign-in after five failures and resolves on the next successful sign-in.
 

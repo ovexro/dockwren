@@ -88,9 +88,22 @@ fn save(path: &Path, known: &[String]) {
     }
 }
 
+/// What counts as "the same place": an IPv6 address is its /64 network (phones and laptops rotate
+/// the lower half for privacy, which would otherwise look like a new sign-in every time).
+fn network_of(addr: &str) -> String {
+    match addr.parse::<std::net::Ipv6Addr>() {
+        Ok(a) => {
+            let s = a.segments();
+            format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+        }
+        Err(_) => addr.to_string(),
+    }
+}
+
 /// Is this address new? Learns it either way. Pure bookkeeping, so it can be tested.
 fn learn(known: &mut Vec<String>, addr: &str) -> bool {
-    if known.iter().any(|k| k == addr) {
+    let net = network_of(addr);
+    if known.iter().any(|k| network_of(k) == net) {
         return false;
     }
     known.push(addr.to_string());
@@ -172,6 +185,16 @@ mod tests {
             learn(&mut k, &format!("9.9.9.{i}"));
         }
         assert_eq!(k.len(), MAX_KNOWN);
+    }
+
+    #[test]
+    fn ipv6_privacy_rotation_is_not_a_new_address() {
+        let mut k = Vec::new();
+        assert!(learn(&mut k, "2a02:2f04:d37:1800:72f4:862e:ed2c:983e"));
+        assert!(!learn(&mut k, "2a02:2f04:d37:1800:3ea6:20b9:e6b2:3f74"));
+        assert!(learn(&mut k, "2a02:2f04:d37:1801::1"));
+        assert!(learn(&mut k, "203.0.113.7"));
+        assert!(!learn(&mut k, "203.0.113.7"));
     }
 
     #[test]
