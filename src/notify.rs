@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 const LOG_FILE: &str = "notifications.log";
 const PREFS_FILE: &str = "notify-settings.json";
 /// Every kind a producer raises: (kind, label, what it does). Settings lists exactly these.
-pub const KINDS: [(&str, &str, &str); 18] = [
+pub const KINDS: [(&str, &str, &str); 20] = [
     (
         "terminal.opened",
         "Web terminal opened",
@@ -51,6 +51,16 @@ pub const KINDS: [(&str, &str, &str); 18] = [
         "dockwren.update_available",
         "New Dockwren release",
         "Checks GitHub for a newer release every 6 hours (one anonymous request, nothing about you is sent).",
+    ),
+    (
+        "login.new_source",
+        "Sign-in from a new address",
+        "Someone signed in to the panel from an address that has not signed in before (the first sign-in after upgrading only learns the addresses already in the audit log). Dismiss it if it was you.",
+    ),
+    (
+        "login.lockout",
+        "Sign-in locked after wrong attempts",
+        "Five wrong passwords or codes in a row paused sign-in for a minute. Clears on the next successful sign-in.",
     ),
     (
         "host.os_updates",

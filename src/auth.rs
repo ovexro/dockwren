@@ -269,6 +269,8 @@ impl Auth {
             l.locked_until = Some(now + LOCKOUT);
             l.failures = 0;
             l.window_start = None;
+            drop(l);
+            crate::signin::lockout();
         }
     }
 
@@ -467,6 +469,7 @@ pub async fn login_submit(
     }
     auth.record_success();
     crate::audit::record("login", &src);
+    crate::signin::success(&src);
     let token = auth.create_session();
     let mut res = Redirect::to("/").into_response();
     res.headers_mut()

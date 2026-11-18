@@ -93,6 +93,15 @@ media errors, 90 % of rated endurance used, or 65 °C and up (warning). Realloca
 shown in Health but not alarmed on. Health also warns when the file is older than 3 hours. Closes
 when the disk reports healthy. Without `smart.json`, nothing happens.
 
+## Sign-in notifications
+
+`src/signin.rs`, called next to the audit-log lines in `auth.rs` and `auth/passkey.rs`. `login.new_source`
+(warning, one event per address) fires when a sign-in succeeds from an address not seen before; the
+address is the proxy header's value when there is one, else the peer. Known addresses are kept in
+`signin-known.txt` (newest 100). When that file does not exist (first start after upgrading) it is
+seeded from past `login` lines in the audit log and nothing is raised. `login.lockout` (warning) fires
+when the limiter locks sign-in after five failures and resolves on the next successful sign-in.
+
 ## Resource alerts
 
 `src/alerts.rs` checks every minute, from the metrics the sampler already keeps and the Docker

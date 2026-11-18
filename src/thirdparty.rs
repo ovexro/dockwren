@@ -508,10 +508,7 @@ pub async fn add_submit(
             apps.reload_templates();
             list_html(
                 &apps,
-                Some(format!(
-                    "Added {}. It is in the catalog now.",
-                    s.id
-                )),
+                Some(format!("Added {}. It is in the catalog now.", s.id)),
                 None,
             )
         }
@@ -687,11 +684,24 @@ mod tests {
     fn catalog_follows_add_and_remove_without_restart() {
         let data = std::env::temp_dir().join(format!("dw-tp-live-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&data);
-        let apps = Apps::new(crate::template::catalog(None).unwrap(), data.join("instances"));
-        let has = |a: &Apps| a.templates().iter().any(|t| t.manifest.app.id == "ghost-live");
+        let apps = Apps::new(
+            crate::template::catalog(None).unwrap(),
+            data.join("instances"),
+        );
+        let has = |a: &Apps| {
+            a.templates()
+                .iter()
+                .any(|t| t.manifest.app.id == "ghost-live")
+        };
         assert!(!has(&apps));
         let m = MANIFEST.replace("id = \"ghost\"", "id = \"ghost-live\"");
-        add(&data, "https://example.com/r", &"a".repeat(40), &fetched(&m)).unwrap();
+        add(
+            &data,
+            "https://example.com/r",
+            &"a".repeat(40),
+            &fetched(&m),
+        )
+        .unwrap();
         apps.reload_templates();
         assert!(has(&apps));
         remove(&data, "ghost-live").unwrap();

@@ -457,6 +457,7 @@ pub async fn login_passkey(
     }
     auth.record_success();
     crate::audit::record("login", &format!("{src} (passkey)"));
+    crate::signin::success(&src);
     let token = auth.create_session();
     let mut res = Json(json!({"ok": true})).into_response();
     res.headers_mut()
@@ -496,6 +497,7 @@ pub async fn login_code(
     auth.finish_login_pending(&f.pending);
     auth.record_success();
     crate::audit::record("login", &src);
+    crate::signin::success(&src);
     let token = auth.create_session();
     let mut res = Redirect::to("/").into_response();
     res.headers_mut()

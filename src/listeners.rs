@@ -17,7 +17,9 @@ pub fn wildcard_inodes(text: &str) -> BTreeMap<u16, u64> {
         if f.len() < 10 || f[3] != "0A" {
             continue;
         }
-        let Some((addr, port)) = f[1].split_once(':') else { continue };
+        let Some((addr, port)) = f[1].split_once(':') else {
+            continue;
+        };
         if !addr.chars().all(|c| c == '0') {
             continue;
         }
@@ -49,7 +51,9 @@ pub fn owner_of(inode: u64) -> Option<String> {
         if !pid.bytes().all(|b| b.is_ascii_digit()) {
             continue;
         }
-        let Ok(fds) = std::fs::read_dir(e.path().join("fd")) else { continue };
+        let Ok(fds) = std::fs::read_dir(e.path().join("fd")) else {
+            continue;
+        };
         for fd in fds.flatten() {
             if std::fs::read_link(fd.path()).is_ok_and(|l| l.to_str() == Some(want.as_str())) {
                 let comm = std::fs::read_to_string(e.path().join("comm")).unwrap_or_default();
@@ -117,7 +121,10 @@ mod tests {
 
     #[test]
     fn names_the_most_likely_owner() {
-        assert_eq!(describe_owner(Some("nginx (pid 7)".into()), &[]), "process nginx (pid 7)");
+        assert_eq!(
+            describe_owner(Some("nginx (pid 7)".into()), &[]),
+            "process nginx (pid 7)"
+        );
         assert_eq!(
             describe_owner(None, &["dockwren-caddy".into(), "x".into()]),
             "possibly host-network container dockwren-caddy, x"
@@ -128,9 +135,18 @@ mod tests {
     #[test]
     fn finds_own_socket_owner() {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let ino = std::fs::read_link(format!("/proc/self/fd/{}", std::os::fd::AsRawFd::as_raw_fd(&l)))
+        let ino = std::fs::read_link(format!(
+            "/proc/self/fd/{}",
+            std::os::fd::AsRawFd::as_raw_fd(&l)
+        ))
+        .unwrap();
+        let ino: u64 = ino
+            .to_str()
+            .unwrap()
+            .trim_start_matches("socket:[")
+            .trim_end_matches(']')
+            .parse()
             .unwrap();
-        let ino: u64 = ino.to_str().unwrap().trim_start_matches("socket:[").trim_end_matches(']').parse().unwrap();
         assert!(owner_of(ino).is_some());
         assert!(owner_of(u64::MAX).is_none());
     }

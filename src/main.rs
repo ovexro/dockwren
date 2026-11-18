@@ -28,6 +28,7 @@ mod restoretest;
 mod runner;
 mod schedule;
 mod selfupdate;
+mod signin;
 mod smart;
 mod stack;
 mod statusapi;
@@ -1588,6 +1589,7 @@ async fn main() {
     vulnscan::spawn_checker(apps.clone(), notify.clone(), cfg.data_dir.clone());
     backupwatch::spawn_checker(notify.clone());
     smart::spawn_checker(notify.clone(), cfg.data_dir.clone());
+    signin::init(notify.clone(), &cfg.data_dir);
     let os_control = Arc::new(osupdate::Control::new(Some(&cfg.data_dir)));
     osupdate::spawn_watcher(os_control.clone(), notify.clone());
     deliver::spawn(notify.clone());

@@ -4,7 +4,13 @@
 use std::sync::Arc;
 
 use askama::Template;
-use axum::{extract::State, http::{HeaderMap, StatusCode}, response::{Html, IntoResponse, Response}, routing::get, Router};
+use axum::{
+    Router,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::{Html, IntoResponse, Response},
+    routing::get,
+};
 
 use crate::apps::Apps;
 use crate::auth::SharedAuth;
@@ -55,7 +61,11 @@ fn describe(auto: Option<(u8, u8)>, os: (bool, bool), self_installed: bool) -> V
         "Button not set up yet: run sudo dockwren self-update once"
     }
     .to_string();
-    View { auto_apps, os_button, self_button }
+    View {
+        auto_apps,
+        os_button,
+        self_button,
+    }
 }
 
 async fn show(State(s): State<St>, headers: HeaderMap) -> Response {
@@ -76,11 +86,18 @@ mod tests {
         let v = describe(Some((3, 6)), (true, true), true);
         assert_eq!(v.auto_apps, "On now: between 03:00 and 06:00 UTC");
         assert!(v.os_button.contains("on"));
-        assert_eq!(describe(Some((0, 0)), (true, false), false).auto_apps, "On now: any time of day");
+        assert_eq!(
+            describe(Some((0, 0)), (true, false), false).auto_apps,
+            "On now: any time of day"
+        );
         let off = describe(None, (false, false), false);
         assert!(off.auto_apps.starts_with("Off now"));
         assert!(off.os_button.contains("not set up"));
         assert!(off.self_button.contains("self-update"));
-        assert!(describe(None, (true, false), false).os_button.contains("off"));
+        assert!(
+            describe(None, (true, false), false)
+                .os_button
+                .contains("off")
+        );
     }
 }
