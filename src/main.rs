@@ -46,7 +46,7 @@ use askama::Template;
 use auth::SharedAuth;
 use axum::{
     Router,
-    extract::{FromRef, Path, State},
+    extract::{FromRef, Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     middleware::from_fn_with_state,
     response::{Html, IntoResponse, Response},
@@ -123,21 +123,142 @@ struct LogsTemplate {
     id: String,
     text: String,
     error: Option<String>,
+    q: String,
+    level: String,
+    since: String,
+    /// Lines that matched (only meaningful while a filter is on).
+    matched: usize,
+    filtered: bool,
+    /// Render only the refreshing part (the filter form stays untouched while typing).
+    part: bool,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct LogQuery {
+    q: Option<String>,
+    level: Option<String>,
+    since: Option<String>,
+    part: Option<String>,
+}
+
+/// Parsed, bounded log filter.
+struct LogFilter {
+    q: String,
+    level: String,
+    since: String,
+}
+
+impl LogFilter {
+    fn from(q: &LogQuery) -> Self {
+        let pick = |v: &Option<String>, ok: &[&str], d: &str| {
+            v.as_deref()
+                .filter(|x| ok.contains(x))
+                .unwrap_or(d)
+                .to_string()
+        };
+        Self {
+            q: q.q.as_deref().unwrap_or("").chars().take(100).collect(),
+            level: pick(&q.level, &["all", "warn", "error"], "all"),
+            since: pick(&q.since, &["all", "15m", "1h", "24h"], "all"),
+        }
+    }
+    fn active(&self) -> bool {
+        !self.q.is_empty() || self.level != "all" || self.since != "all"
+    }
+    /// Unix time to read logs from (0 = no limit).
+    fn since_unix(&self) -> i32 {
+        let secs = match self.since.as_str() {
+            "15m" => 900,
+            "1h" => 3600,
+            "24h" => 86400,
+            _ => return 0,
+        };
+        (metrics::now_unix().saturating_sub(secs)).min(i32::MAX as u64) as i32
+    }
+}
+
+/// Lines read from Docker when a filter is on (the plain view shows the last `LOG_LINES`).
+const LOG_SEARCH_LINES: u32 = 20_000;
+/// Most matching lines shown in the page; the download has everything that was read.
+const LOG_SHOWN_LINES: usize = 500;
+
+async fn read_logs(
+    docker: &docker::DockerClient,
+    id: &str,
+    f: &LogFilter,
+) -> Result<(String, usize), bollard::errors::Error> {
+    if !f.active() {
+        let t = docker.logs(id, LOG_LINES).await?;
+        let n = t.lines().count();
+        return Ok((t, n));
+    }
+    let raw = docker
+        .logs_since(id, LOG_SEARCH_LINES, f.since_unix())
+        .await?;
+    Ok(docker::filter_log_lines(&raw, &f.q, &f.level))
 }
 
 async fn container_logs(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    Query(query): Query<LogQuery>,
 ) -> Result<Html<String>, StatusCode> {
     if !docker::valid_id(&id) {
         return Err(StatusCode::NOT_FOUND);
     }
-    let (text, error) = match state.docker.logs(&id, LOG_LINES).await {
-        Ok(text) => (text, None),
-        Err(e) => (String::new(), Some(format!("Cannot read logs: {e}"))),
+    let f = LogFilter::from(&query);
+    let (text, matched, error) = match read_logs(&state.docker, &id, &f).await {
+        Ok((t, n)) => {
+            // Show the newest lines only.
+            let skip = n.saturating_sub(LOG_SHOWN_LINES);
+            let shown: Vec<&str> = t.lines().skip(skip).collect();
+            (shown.join("\n"), n, None)
+        }
+        Err(e) => (String::new(), 0, Some(format!("Cannot read logs: {e}"))),
     };
-    let page = LogsTemplate { id, text, error };
+    let page = LogsTemplate {
+        filtered: f.active(),
+        id,
+        text,
+        error,
+        q: f.q,
+        level: f.level,
+        since: f.since,
+        matched,
+        part: query.part.is_some(),
+    };
     Ok(Html(page.render().expect("logs template renders")))
+}
+
+/// The same filter as a plain-text download (everything that was read, not just the page's tail).
+async fn download_logs(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<LogQuery>,
+) -> Result<impl IntoResponse, StatusCode> {
+    if !docker::valid_id(&id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let f = LogFilter::from(&query);
+    let raw = state
+        .docker
+        .logs_since(&id, LOG_SEARCH_LINES, f.since_unix())
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let (text, _) = docker::filter_log_lines(&raw, &f.q, &f.level);
+    Ok((
+        [
+            (
+                header::CONTENT_TYPE,
+                "text/plain; charset=utf-8".to_string(),
+            ),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{id}.log\""),
+            ),
+        ],
+        text,
+    ))
 }
 
 async fn close_logs() -> Html<&'static str> {
@@ -411,6 +532,7 @@ fn app(
         .route("/containers/list", get(containers))
         .route("/containers/{id}/{action}", post(container_action))
         .route("/containers/{id}/logs", get(container_logs))
+        .route("/containers/{id}/logs/download", get(download_logs))
         .route("/containers/{name}/graphs", get(metrics::container_graphs))
         .route("/logs/close", get(close_logs))
         .route("/catalog", get(apps::list))
@@ -1976,9 +2098,16 @@ mod tests {
             id: "0123456789ab".into(),
             text: "<script>alert(1)</script>".into(),
             error: None,
+            q: "\"><b>".into(),
+            level: "all".into(),
+            since: "all".into(),
+            matched: 0,
+            filtered: false,
+            part: false,
         };
         let html = page.render().unwrap();
         assert!(!html.contains("<script>") && html.contains("&#60;script&#62;"));
+        assert!(!html.contains("<b>"), "the search text is escaped too");
     }
 
     #[tokio::test]

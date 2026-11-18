@@ -12,6 +12,8 @@ use tokio::io::AsyncWrite;
 
 /// Upper bound for log text sent to the browser (the newest bytes are kept).
 const MAX_LOG_BYTES: usize = 256 * 1024;
+/// Raw log text read for a search or download before filtering.
+const SEARCH_LOG_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContainerInfo {
@@ -125,9 +127,24 @@ impl DockerClient {
 
     /// Returns the last `tail` log lines (stdout and stderr). `id` must pass [`valid_id`].
     pub async fn logs(&self, id: &str, tail: u32) -> Result<String, bollard::errors::Error> {
+        Ok(limit_tail(
+            self.logs_since(id, tail, 0).await?,
+            MAX_LOG_BYTES,
+        ))
+    }
+
+    /// Like [`logs`](Self::logs) but only lines newer than the Unix time `since` (0 = no limit),
+    /// and with a larger size cap, for searching. The caller filters, then trims.
+    pub async fn logs_since(
+        &self,
+        id: &str,
+        tail: u32,
+        since: i32,
+    ) -> Result<String, bollard::errors::Error> {
         let options = LogsOptionsBuilder::default()
             .stdout(true)
             .stderr(true)
+            .since(since)
             .tail(&tail.to_string())
             .build();
         let mut stream = self.inner.logs(id, Some(options));
@@ -135,7 +152,7 @@ impl DockerClient {
         while let Some(chunk) = stream.next().await {
             out.push_str(&chunk?.to_string());
         }
-        Ok(limit_tail(out, MAX_LOG_BYTES))
+        Ok(limit_tail(out, SEARCH_LOG_BYTES))
     }
 
     /// Opens an interactive shell (tty) inside a running container. `id` must pass [`valid_id`].
@@ -347,6 +364,38 @@ impl DockerClient {
     }
 }
 
+/// Keeps the lines of `text` that contain `q` (case-insensitive; empty = all) and, for
+/// `level` "error" or "warn", look like that severity. Returns the kept lines and how many.
+pub fn filter_log_lines(text: &str, q: &str, level: &str) -> (String, usize) {
+    let q = q.to_lowercase();
+    let words: &[&str] = match level {
+        "error" => &["error", "fatal", "panic", "critical", "exception", "fail"],
+        "warn" => &[
+            "warn",
+            "error",
+            "fatal",
+            "panic",
+            "critical",
+            "exception",
+            "fail",
+        ],
+        _ => &[],
+    };
+    let mut out = String::new();
+    let mut n = 0;
+    for line in text.lines() {
+        let low = line.to_lowercase();
+        if (q.is_empty() || low.contains(&q))
+            && (words.is_empty() || words.iter().any(|w| low.contains(w)))
+        {
+            out.push_str(line);
+            out.push('\n');
+            n += 1;
+        }
+    }
+    (out, n)
+}
+
 /// Keeps at most `max` bytes from the end of `s`, cutting on a character boundary.
 fn limit_tail(s: String, max: usize) -> String {
     if s.len() <= max {
@@ -458,6 +507,20 @@ mod tests {
             ..Default::default()
         };
         assert!(ContainerInfo::from(labelled).managed);
+    }
+
+    #[test]
+    fn filters_log_lines_by_text_and_level() {
+        let t = "start ok\nWARN disk low\nERROR boom\nrequest GET /a\nrequest GET /B\n";
+        assert_eq!(filter_log_lines(t, "", "all"), (t.to_string(), 5));
+        assert_eq!(
+            filter_log_lines(t, "get /b", "all"),
+            ("request GET /B\n".into(), 1)
+        );
+        assert_eq!(filter_log_lines(t, "", "error"), ("ERROR boom\n".into(), 1));
+        assert_eq!(filter_log_lines(t, "", "warn").1, 2);
+        assert_eq!(filter_log_lines(t, "boom", "warn").1, 1);
+        assert_eq!(filter_log_lines(t, "nothing", "all"), (String::new(), 0));
     }
 
     #[test]
