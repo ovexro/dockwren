@@ -885,6 +885,21 @@ pub fn tiles(m: &Metrics) -> Vec<Tile> {
     out
 }
 
+/// The load-average tile: 1-minute figure, with the 5- and 15-minute ones as detail.
+fn load_tile(text: &str) -> Option<Tile> {
+    let f: Vec<&str> = text.split_whitespace().take(3).collect();
+    if f.len() < 3 || f.iter().any(|x| x.parse::<f64>().is_err()) {
+        return None;
+    }
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    Some(Tile {
+        title: "Load",
+        value: f[0].to_string(),
+        detail: format!("5 min {}, 15 min {} · {cores} cores", f[1], f[2]),
+        warn: false,
+    })
+}
+
 #[derive(Template)]
 #[template(path = "overview.html")]
 pub struct OverviewTemplate {
@@ -961,7 +976,13 @@ pub fn overview(
     m: &Metrics,
     containers: Result<&[(String, String, String)], String>,
 ) -> OverviewTemplate {
-    let tiles = tiles(m);
+    let mut tiles = tiles(m);
+    if !tiles.is_empty()
+        && let Some(t) = load_tile(&read("/proc/loadavg"))
+    {
+        let at = tiles.len().min(3);
+        tiles.insert(at, t);
+    }
     let mut warnings: Vec<String> = tiles
         .iter()
         .filter(|t| t.warn)
@@ -1148,7 +1169,10 @@ mod page_tests {
             ("b".to_string(), "exited".to_string(), "Exited".to_string()),
         ];
         let o = overview(&m, Ok(&list));
-        assert_eq!((o.tiles.len(), o.running, o.total), (4, 1, 2));
+        let load = usize::from(load_tile(&read("/proc/loadavg")).is_some());
+        assert_eq!((o.tiles.len(), o.running, o.total), (4 + load, 1, 2));
+        assert!(load_tile("0.52 0.40 0.31 1/300 123\n").is_some_and(|t| t.value == "0.52"));
+        assert!(load_tile("garbage").is_none());
         assert_eq!(o.warnings.len(), 2);
         let html = o.render().unwrap();
         assert!(html.contains("12%") && html.contains("a is unhealthy"));

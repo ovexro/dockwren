@@ -110,6 +110,10 @@ container list. Thresholds are fixed (no settings); each kind has its on/off swi
 - `host.disk_full`: one event per tracked disk, warning at 85 %, critical at 95 %, closes below 80 %.
 - `host.memory_high`: memory averaged 90 % or more over 5 minutes, closes below 85 %.
 - `host.cpu_high`: CPU averaged 90 % or more over 15 minutes, closes below 80 %.
+- `host.inodes_high`: one event per tracked filesystem (`df -i`, every 5 minutes), warning at 85 % of
+  inodes, critical at 95 %, closes below 80 %. Filesystems without a fixed inode count are skipped.
+- `host.load_high`: the 15-minute load average (`/proc/loadavg`) at 2 times the CPU core count or
+  more, closes below 1.5 times. The Overview has a Load tile (no alert state of its own).
 - `container.problem`: a container that is restarting, dead, reports `(unhealthy)`, or (panel-managed
   ones only) exited with an error other than 0, 137 or 143, or was killed for running out of memory
   (Docker's OOM flag, so a manual kill with 137 stays quiet). It must be seen on two polls in a row, so

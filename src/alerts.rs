@@ -21,6 +21,8 @@ pub const MEM_KIND: &str = "host.memory_high";
 pub const CPU_KIND: &str = "host.cpu_high";
 pub const CONTAINER_KIND: &str = "container.problem";
 pub const PORT_KIND: &str = "container.port_open";
+pub const INODE_KIND: &str = "host.inodes_high";
+pub const LOAD_KIND: &str = "host.load_high";
 pub const LISTEN_KIND: &str = "host.listener";
 
 const DISK_CRIT_PCT: f64 = 95.0;
@@ -28,6 +30,13 @@ const DISK_CLEAR_PCT: f64 = 80.0;
 /// Warn when the weekly trend fills a disk within this many days; clear above the second value.
 const FORECAST_WARN_DAYS: f64 = 14.0;
 const FORECAST_CLEAR_DAYS: f64 = 21.0;
+const INODE_PCT: f64 = 85.0;
+const INODE_CRIT_PCT: f64 = 95.0;
+const INODE_CLEAR_PCT: f64 = 80.0;
+/// 15-minute load average per CPU core: raised at this, cleared below the lower figure.
+const LOAD_PER_CORE: f64 = 2.0;
+const LOAD_CLEAR_PER_CORE: f64 = 1.5;
+const INODE_EVERY: u32 = 5; // polls (minutes) between inode checks
 const MEM_PCT: f64 = 90.0;
 const MEM_CLEAR_PCT: f64 = 85.0;
 /// Samples are 10 s apart.
@@ -192,6 +201,91 @@ pub fn check_host(shared: &Shared, m: &Metrics) {
         "CPU",
         "15 minutes",
     );
+}
+
+/// `df -P -i` output: (filesystem, inodes total, inodes used). `None` for filesystems that
+/// have no fixed inode count (btrfs, some network mounts report 0 or `-`).
+pub fn parse_df_inodes(text: &str) -> Option<(String, u64, u64)> {
+    let f: Vec<&str> = text.lines().nth(1)?.split_whitespace().collect();
+    if f.len() < 6 {
+        return None;
+    }
+    let total: u64 = f[1].parse().ok()?;
+    let used: u64 = f[2].parse().ok()?;
+    (total > 0).then(|| (f[0].to_string(), total, used))
+}
+
+async fn df_inodes(path: &str) -> Option<(String, u64, u64)> {
+    let out = tokio::process::Command::new("df")
+        .args(["-P", "-i", path])
+        .output()
+        .await
+        .ok()?;
+    parse_df_inodes(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// One alert per filesystem that is running out of inodes (many small files fill these long
+/// before the space is gone). `rows` are (label, total, used).
+pub fn check_inodes(shared: &Shared, rows: &[(String, u64, u64)]) {
+    let mut open = HashSet::new();
+    for (label, total, used) in rows {
+        let pct = *used as f64 / *total as f64 * 100.0;
+        let key = format!("{INODE_KIND}:{label}");
+        if !level(pct, INODE_PCT, INODE_CLEAR_PCT, is_open(shared, &key)) {
+            continue;
+        }
+        let sev = if pct >= INODE_CRIT_PCT {
+            Severity::Critical
+        } else {
+            Severity::Warning
+        };
+        open.insert(key.clone());
+        notify::raise(
+            shared,
+            NewEvent::new(
+                "host",
+                INODE_KIND,
+                sev,
+                &format!("Disk {label} has used {pct:.0}% of its inodes"),
+            )
+            .body(format!(
+                "{used} of {total} file slots (inodes) are taken. When they run out nothing new can be written even with free space; look for folders with millions of small files (caches, mail, sessions)."
+            ))
+            .link("/metrics")
+            .key(key),
+        );
+    }
+    resolve_stale(shared, &format!("{INODE_KIND}:"), &open);
+}
+
+/// 15-minute load average from `/proc/loadavg` text.
+pub fn parse_load15(text: &str) -> Option<f64> {
+    text.split_whitespace().nth(2)?.parse().ok()
+}
+
+/// Sustained load: the 15-minute average per core, with hysteresis.
+pub fn check_load(shared: &Shared, load15: f64, cores: usize) {
+    let per_core = load15 / cores.max(1) as f64;
+    if level(
+        per_core,
+        LOAD_PER_CORE,
+        LOAD_CLEAR_PER_CORE,
+        is_open(shared, LOAD_KIND),
+    ) {
+        notify::raise(
+            shared,
+            NewEvent::new(
+                "host",
+                LOAD_KIND,
+                Severity::Warning,
+                &format!("Load is high ({load15:.1} on {cores} cores)"),
+            )
+            .body("The 15-minute load average is at least twice the number of cores: more work is waiting for the CPU or the disk than the server can handle. Check Containers for the busiest app.")
+            .link("/metrics"),
+        );
+    } else {
+        notify::resolve(shared, LOAD_KIND);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -368,11 +462,36 @@ pub fn check_listeners(shared: &Shared, list: &[ContainerInfo]) {
     resolve_stale(shared, &format!("{LISTEN_KIND}:"), &keep);
 }
 
-pub fn spawn(shared: Shared, metrics: metrics::Shared, docker: DockerClient) {
+pub fn spawn(
+    shared: Shared,
+    metrics: metrics::Shared,
+    docker: DockerClient,
+    disk_paths: Vec<String>,
+) {
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
     tokio::spawn(async move {
         let mut previous = HashSet::new();
+        let mut tick = 0u32;
         loop {
             tokio::time::sleep(POLL).await;
+            if let Some(l) =
+                parse_load15(&std::fs::read_to_string("/proc/loadavg").unwrap_or_default())
+            {
+                check_load(&shared, l, cores);
+            }
+            if tick.is_multiple_of(INODE_EVERY) {
+                let mut rows: Vec<(String, u64, u64)> = Vec::new();
+                let mut seen = HashSet::new();
+                for p in &disk_paths {
+                    if let Some((fs, total, used)) = df_inodes(p).await
+                        && seen.insert(fs)
+                    {
+                        rows.push((p.clone(), total, used));
+                    }
+                }
+                check_inodes(&shared, &rows);
+            }
+            tick = tick.wrapping_add(1);
             {
                 let m = metrics.lock().unwrap();
                 check_host(&shared, &m);
@@ -437,6 +556,46 @@ mod tests {
         let got = open_ports(&[web, off]);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].0, "container.port_open:web:8080/tcp");
+    }
+
+    #[test]
+    fn inodes_warn_escalate_and_clear() {
+        let s = store();
+        check_inodes(&s, &[("/data".into(), 1000, 500)]);
+        assert!(open(&s).is_empty());
+        check_inodes(&s, &[("/data".into(), 1000, 860)]);
+        assert_eq!(
+            open(&s),
+            vec![("host.inodes_high:/data".into(), Severity::Warning)]
+        );
+        check_inodes(&s, &[("/data".into(), 1000, 970)]);
+        assert_eq!(open(&s)[0].1, Severity::Critical);
+        check_inodes(&s, &[("/data".into(), 1000, 820)]); // above the clear level: stays
+        assert_eq!(open(&s).len(), 1);
+        check_inodes(&s, &[("/data".into(), 1000, 700)]);
+        assert!(open(&s).is_empty());
+    }
+
+    #[test]
+    fn df_inodes_parses_and_skips_filesystems_without_a_count() {
+        let ok = "Filesystem Inodes IUsed IFree IUse% Mounted on\n/dev/sda1 1000 250 750 25% /\n";
+        assert_eq!(parse_df_inodes(ok), Some(("/dev/sda1".into(), 1000, 250)));
+        let btrfs = "Filesystem Inodes IUsed IFree IUse% Mounted on\n/dev/sdb 0 0 0 - /mnt\n";
+        assert_eq!(parse_df_inodes(btrfs), None);
+    }
+
+    #[test]
+    fn load_is_judged_per_core_with_hysteresis() {
+        let s = store();
+        assert_eq!(parse_load15("0.10 0.20 3.50 1/200 999\n"), Some(3.5));
+        check_load(&s, 7.0, 4);
+        assert!(open(&s).is_empty());
+        check_load(&s, 8.0, 4);
+        assert_eq!(open(&s).len(), 1);
+        check_load(&s, 6.5, 4); // 1.6 per core: above the clear level
+        assert_eq!(open(&s).len(), 1);
+        check_load(&s, 5.0, 4);
+        assert!(open(&s).is_empty());
     }
 
     #[test]

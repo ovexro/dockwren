@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 const LOG_FILE: &str = "notifications.log";
 const PREFS_FILE: &str = "notify-settings.json";
 /// Every kind a producer raises: (kind, label, what it does). Settings lists exactly these.
-pub const KINDS: [(&str, &str, &str); 20] = [
+pub const KINDS: [(&str, &str, &str); 22] = [
     (
         "terminal.opened",
         "Web terminal opened",
@@ -86,6 +86,16 @@ pub const KINDS: [(&str, &str, &str); 20] = [
         "host.disk_full",
         "Disk almost full",
         "A tracked disk is at 85% or more (critical from 95%). Clears when it drops below 80%.",
+    ),
+    (
+        "host.inodes_high",
+        "Disk running out of inodes",
+        "A tracked disk has used 85% or more of its inodes (critical from 95%), which stops new files even with free space. Checked every 5 minutes; clears below 80%. Filesystems without a fixed inode count are skipped.",
+    ),
+    (
+        "host.load_high",
+        "Load average high",
+        "The 15-minute load average is at least twice the number of CPU cores. Clears below 1.5 times.",
     ),
     (
         "host.memory_high",
