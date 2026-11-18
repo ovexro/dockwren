@@ -12,7 +12,6 @@ Open items only, one line each, with the date it was last verified open. Deliver
   1. Adopt running containers / existing Compose projects as managed stacks: phases 1 (scan) + 2 (adopt, named volumes only) built; open: host bind mounts (data relocation), ports (backups of named volumes built 2026-11-18, real-Docker test passes; verified with a real adopted Postgres project 2026-11-18: backup, verify, restore, restore-test) claimed in .env, ProtectHome files.
   2. Rotate generated app passwords from the Passwords page (change in the app/DB too, only for templates with a migration step); medium, delicate.
   Non-code: list Dockwren in awesome-selfhosted + public announcement (outward action: ask the user first).
-- Test hygiene: `adopt::tests::adopted_project_is_not_recreated` uses fixed port 45873 and leaves its containers when it fails; a stale one makes every later run fail. Use a free port and clean up on failure.
 - Passkeys (released v0.1.59, tested on a real device 2026-11-17): reauth prompts (Passwords, terminal, updates) still take a typed code (TOTP/recovery), not a passkey tap; passkeys work only on the hostname they were added on.
 
 ## Decisions (do not re-propose)

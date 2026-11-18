@@ -424,7 +424,26 @@ mod tests {
             "services:\n  db:\n    image: postgres:16-alpine\n    environment:\n      POSTGRES_PASSWORD: ${PW}\n    ports: [\"127.0.0.1:${PORT}:5432\"]\n    volumes: [\"pgdata:/var/lib/postgresql/data\"]\nvolumes:\n  pgdata:\n",
         )
         .unwrap();
-        std::fs::write(src.join(".env"), "PW=secret\nPORT=45873").unwrap();
+        // A free port, so a stray process or leftover container cannot break the test.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        std::fs::write(src.join(".env"), format!("PW=secret\nPORT={port}")).unwrap();
+        // Cleans up even when an assertion below panics.
+        struct Cleanup(String, std::path::PathBuf, std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::process::Command::new("docker")
+                    .args(["compose", "-p", &self.0, "-f"])
+                    .arg(&self.1)
+                    .args(["down", "-v"])
+                    .output();
+                let _ = std::fs::remove_dir_all(&self.2);
+            }
+        }
+        let _cleanup = Cleanup(project.clone(), file.clone(), base.clone());
         let sh = |args: &[&str]| {
             let o = std::process::Command::new("docker")
                 .args(["compose", "-p", &project, "-f"])
@@ -464,8 +483,6 @@ mod tests {
             proj_of_copy = runner::project_name(&copy);
             assert!(crate::terminal::managed(Some(&project)));
         }
-        sh(&["down", "-v"]);
-        let _ = std::fs::remove_dir_all(&base);
         let inst = res.unwrap();
         assert_eq!(inst.name, "adopted-x");
         assert_eq!(before, after, "container was recreated");
