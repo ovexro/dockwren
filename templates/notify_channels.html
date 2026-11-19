@@ -47,7 +47,7 @@
   {% endif %}
   <div class="actions" style="align-items:center">
     <label style="display:flex;align-items:center;gap:.5rem;white-space:nowrap">Send me
-      <select name="min" form="channels-form">
+      <select name="min" form="channels-form" style="margin-top:0">
         <option value="info" {% if min == "info" %}selected{% endif %}>everything (info, warnings, critical)</option>
         <option value="warning" {% if min == "warning" %}selected{% endif %}>warnings and critical</option>
         <option value="critical" {% if min == "critical" %}selected{% endif %}>critical only</option>
