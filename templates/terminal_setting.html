@@ -1,12 +1,13 @@
 <div id="terminal-setting">
+  <span id="b-terminal" class="h-badge" hx-swap-oob="true">{% if forced || on %}<span class="badge" data-state="running">On</span>{% else %}<span class="badge" data-state="exited">Off</span>{% endif %}</span>
   {% if let Some(e) = error %}<p role="alert">{{ e }}</p>{% endif %}
   {% if forced %}
-  <p><span class="badge" data-state="running">On</span> Set by <code>DOCKWREN_TERMINAL=1</code> in the panel's environment. Remove that variable to control it here.</p>
+  <p>Set by <code>DOCKWREN_TERMINAL=1</code> in the panel's environment. Remove that variable to control it here.</p>
   {% else %}
   {% if on %}
-  <p><span class="badge" data-state="running">On</span> Containers of apps Dockwren installed get a Terminal button. Each open asks for your password again and is logged. Turning it off does not close sessions already open.</p>
+  <p>Containers of apps Dockwren installed get a Terminal button. Each open asks for your password again and is logged. Turning it off does not close sessions already open.</p>
   {% else %}
-  <p><span class="badge" data-state="exited">Off</span> Turning it on lets you open a shell inside containers of apps Dockwren installed.{% if !two_factor %} Turn on two-factor sign-in first: it is required for a terminal reached through a Cloudflare Tunnel.{% endif %}</p>
+  <p>Turning it on lets you open a shell inside containers of apps Dockwren installed.{% if !two_factor %} Turn on two-factor sign-in first: it is required for a terminal reached through a Cloudflare Tunnel.{% endif %}</p>
   {% endif %}
   <form class="row" hx-post="/settings/terminal" hx-target="#terminal-setting" hx-swap="outerHTML" autocomplete="off">
     <input type="hidden" name="on" value="{% if on %}0{% else %}1{% endif %}">

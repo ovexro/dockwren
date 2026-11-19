@@ -309,3 +309,5 @@ details.more > summary::after { content: " \25BE"; }
 .row input { width: 100%; max-width: none; }
 .row input[type=hidden] { display: none; }
 .row button { flex: none; margin: 0; height: 2.5625rem; box-sizing: border-box; }
+
+.h-badge { margin-left: .5rem; vertical-align: middle; }

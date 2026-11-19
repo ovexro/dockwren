@@ -1,4 +1,5 @@
 <div id="passkeys">
+  <span id="b-passkeys" class="h-badge" hx-swap-oob="true">{% if !list.is_empty() %}<span class="badge" data-state="running">On</span>{% else %}<span class="badge" data-state="exited">Off</span>{% endif %}</span>
   {% if !available %}
   <p class="muted">Passkeys need the panel's data directory.</p>
   {% else %}
@@ -9,9 +10,9 @@
 {% endfor %}</pre>
   {% endif %}
   {% if list.is_empty() %}
-  <p><span class="badge" data-state="exited">Off</span> None yet. After your password, sign-in asks for a passkey (fingerprint, security key or phone) instead of a 6-digit code. A passkey works only on the address it was added from; authenticator and recovery codes work everywhere.</p>
+  <p>None yet. After your password, sign-in asks for a passkey (fingerprint, security key or phone) instead of a 6-digit code. A passkey works only on the address it was added from; authenticator and recovery codes work everywhere.</p>
   {% else %}
-  <p><span class="badge" data-state="running">On</span> {{ list.len() }} registered.</p>
+  <p>{{ list.len() }} registered.</p>
   <ul>
     {% for k in list %}
     <li>

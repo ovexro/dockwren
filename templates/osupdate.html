@@ -1,10 +1,11 @@
 <div id="osupdate">
+  <span id="b-osupdate" class="h-badge" hx-swap-oob="true">{% if installed && on %}<span class="badge" data-state="running">On</span>{% else %}<span class="badge" data-state="exited">Off</span>{% endif %}</span>
   {% if let Some(e) = error %}<p role="alert">{{ e }}</p>{% endif %}
   {% if !installed %}
-  <p><span class="badge" data-state="exited">Off</span> The panel only tells you when updates are available. To install them from here, set up a small root-owned helper once on this server: <code>sudo dockwren setup-osupdate --data-dir /path/to/dockwren-data</code>, then come back and turn this on.</p>
+  <p>The panel only tells you when updates are available. To install them from here, set up a small root-owned helper once on this server: <code>sudo dockwren setup-osupdate --data-dir /path/to/dockwren-data</code>, then come back and turn this on.</p>
   {% else %}
   {% if on %}
-  <p><span class="badge" data-state="running">On</span>
+  <p>
     {% if let Some(n) = pending %}{% if *n == 0 %}No OS updates are waiting.{% else if *n == 1 %}1 OS update is waiting.{% else %}{{ n }} OS updates are waiting.{% endif %}{% endif %}
     It runs <code>apt-get update</code> and <code>apt-get full-upgrade</code> as root, never reboots, and logs each start. Each start asks for your password again.</p>
   <form class="row" hx-post="/host/os-updates/run" hx-target="#osupdate" hx-swap="outerHTML" autocomplete="off">
@@ -14,7 +15,7 @@
   </form>
   <div id="osupdate-log" hx-get="/host/os-updates/log" hx-trigger="load" hx-swap="outerHTML"></div>
   {% else %}
-  <p><span class="badge" data-state="exited">Off</span> Turning it on adds an "Install updates now" button here. It runs <code>apt-get full-upgrade</code> as root through a helper you set up on this server, and never reboots.</p>
+  <p>Turning it on adds an "Install updates now" button here. It runs <code>apt-get full-upgrade</code> as root through a helper you set up on this server, and never reboots.</p>
   {% endif %}
   <form class="row" hx-post="/settings/osupdates" hx-target="#osupdate" hx-swap="outerHTML" autocomplete="off">
     <input type="hidden" name="on" value="{% if on %}0{% else %}1{% endif %}">
