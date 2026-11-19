@@ -144,7 +144,12 @@ mod tests {
 
     #[test]
     fn dependents_are_transitive() {
-        let m = map(&[("db", &[]), ("api", &["db"]), ("web", &["api"]), ("solo", &[])]);
+        let m = map(&[
+            ("db", &[]),
+            ("api", &["db"]),
+            ("web", &["api"]),
+            ("solo", &[]),
+        ]);
         assert_eq!(dependents(&m, "db"), vec!["api", "web"]);
         assert!(dependents(&m, "web").is_empty());
     }
@@ -161,7 +166,11 @@ mod tests {
         let m = map(&[("db", &[]), ("web", &["db"])]);
         assert!(validate(&m, "web", &["web".into()]).is_err());
         assert!(validate(&m, "web", &["nope".into()]).is_err());
-        assert!(validate(&m, "db", &["web".into()]).unwrap_err().contains("loop"));
+        assert!(
+            validate(&m, "db", &["web".into()])
+                .unwrap_err()
+                .contains("loop")
+        );
         assert_eq!(
             validate(&m, "web", &["db".into(), "db".into()]).unwrap(),
             vec!["db"]

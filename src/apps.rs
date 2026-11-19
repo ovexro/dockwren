@@ -1391,7 +1391,9 @@ pub async fn stack_edit_submit(
         }
         port = crate::stack::first_published_port(&model);
         if let Some(p) = port
-            && !text.lines().any(|l| l.trim_start().starts_with("WEB_PORT="))
+            && !text
+                .lines()
+                .any(|l| l.trim_start().starts_with("WEB_PORT="))
         {
             text.push_str(&format!("WEB_PORT={p}\n"));
         }
@@ -1769,7 +1771,10 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
         } else {
             format!(" {} needs it and will stop working.", users.join(", "))
         };
-        v.stop_confirm = format!("Stop {} and remove its containers? Data is kept.{also}", v.name);
+        v.stop_confirm = format!(
+            "Stop {} and remove its containers? Data is kept.{also}",
+            v.name
+        );
         v.delete_confirm = format!(
             "Delete {} completely? Its volumes and data folder are erased and cannot be recovered. Backups are kept.{also}",
             v.name
@@ -1892,7 +1897,12 @@ struct NeedsForm {
     error: Option<String>,
 }
 
-fn needs_view(apps: &Apps, name: &str, ticked: Option<&[String]>, error: Option<String>) -> NeedsForm {
+fn needs_view(
+    apps: &Apps,
+    name: &str,
+    ticked: Option<&[String]>,
+    error: Option<String>,
+) -> NeedsForm {
     let map = crate::needs::all(&apps.root);
     let current = map.get(name).cloned().unwrap_or_default();
     let ticked = ticked.unwrap_or(&current);
@@ -1979,7 +1989,8 @@ pub async fn instance_start(
                     dir: apps2.root.join(&n),
                     name: n.clone(),
                 };
-                let stopped = match runner::compose(&inst, &["ps", "-a", "--format", "json"]).await {
+                let stopped = match runner::compose(&inst, &["ps", "-a", "--format", "json"]).await
+                {
                     Ok(ps) => matches!(runner::judge(&ps),
                         runner::Status::Waiting(w) if w == "no containers yet"),
                     Err(e) => return Err(format!("{n}: {e}")),
@@ -2727,6 +2738,94 @@ pub async fn offsite_save(
         None,
         generated.then_some(cfg.password),
     ))
+}
+
+#[derive(Template)]
+#[template(path = "registries.html")]
+struct RegistriesPage {
+    logins: Vec<(String, String)>,
+    note: Option<String>,
+    error: Option<String>,
+}
+
+fn registries_html(apps: &Apps, note: Option<String>, error: Option<String>) -> Html<String> {
+    let logins = apps
+        .root
+        .parent()
+        .map(crate::registry::list)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|k| (crate::registry::display_name(&k), k))
+        .collect();
+    render(RegistriesPage {
+        logins,
+        note,
+        error,
+    })
+}
+
+pub async fn registries_show(State(apps): State<Apps>) -> Html<String> {
+    registries_html(&apps, None, None)
+}
+
+#[derive(serde::Deserialize)]
+pub struct RegistryForm {
+    #[serde(default)]
+    server: String,
+    #[serde(default)]
+    user: String,
+    #[serde(default)]
+    token: String,
+}
+
+pub async fn registries_login(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Form(f): Form<RegistryForm>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let Some(data) = apps.root.parent() else {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    };
+    Ok(
+        match crate::registry::login(data, &f.server, &f.user, &f.token).await {
+            Ok(name) => {
+                crate::audit::record("registry.login", &name);
+                registries_html(&apps, Some(format!("Logged in to {name}.")), None)
+            }
+            Err(e) => registries_html(
+                &apps,
+                None,
+                Some(format!(
+                    "Not saved: {}",
+                    if e.is_empty() { "login refused" } else { &e }
+                )),
+            ),
+        },
+    )
+}
+
+pub async fn registries_logout(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Form(f): Form<RegistryForm>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let Some(data) = apps.root.parent() else {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    };
+    Ok(match crate::registry::logout(data, &f.server).await {
+        Ok(()) => {
+            let name = crate::registry::display_name(&f.server);
+            crate::audit::record("registry.logout", &name);
+            registries_html(&apps, Some(format!("Logged out of {name}.")), None)
+        }
+        Err(e) => registries_html(&apps, None, Some(e)),
+    })
 }
 
 /// Register a running job for `name`; CONFLICT if one is already running for it.
@@ -3973,7 +4072,11 @@ mod tests {
         let page = render(InstancesPage {
             instances: vec![
                 view("db", vec![], true),
-                view("api", vec![("db".into(), false), ("cache".into(), true)], false),
+                view(
+                    "api",
+                    vec![("db".into(), false), ("cache".into(), true)],
+                    false,
+                ),
             ],
             picked: Vec::new(),
             error: None,
@@ -3993,7 +4096,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dw-edit-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("compose.yaml"), "services:\n  a:\n    image: new\n").unwrap();
+        std::fs::write(
+            dir.join("compose.yaml"),
+            "services:\n  a:\n    image: new\n",
+        )
+        .unwrap();
         std::fs::write(dir.join(".env"), "INSTANCE_NAME=x\nWEB_PORT=8080\nFOO=2\n").unwrap();
         crate::stackhistory::save(
             &dir,

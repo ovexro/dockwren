@@ -25,6 +25,7 @@ mod offsite;
 mod orphans;
 mod osupdate;
 mod public;
+mod registry;
 mod release;
 mod restoretest;
 mod runner;
@@ -604,6 +605,9 @@ fn app(
             "/settings/offsite",
             get(apps::offsite_show).post(apps::offsite_save),
         )
+        .route("/settings/registries", get(apps::registries_show))
+        .route("/settings/registries/login", post(apps::registries_login))
+        .route("/settings/registries/logout", post(apps::registries_logout))
         .route(
             "/instances/{name}/public",
             get(apps::public_form).post(apps::public_submit),
@@ -2463,6 +2467,55 @@ mod tests {
             get("/settings/tab/nope").await.status(),
             StatusCode::NOT_FOUND
         );
+    }
+
+    #[tokio::test]
+    async fn registry_logins_page_needs_a_session_and_refuses_bad_input() {
+        let app = test_app();
+        let anon = app
+            .clone()
+            .oneshot(
+                Request::get("/settings/registries")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_ne!(anon.status(), StatusCode::OK);
+        let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+        let page = app
+            .clone()
+            .oneshot(
+                Request::get("/settings/registries")
+                    .header(header::COOKIE, cookie.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.status(), StatusCode::OK);
+        assert!(body_of(page).await.contains("No registry logins yet"));
+        let post = |path: &'static str, body: &'static str| {
+            let app = app.clone();
+            let cookie = cookie.clone();
+            async move {
+                let req = Request::post(path)
+                    .header(header::COOKIE, cookie)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(body))
+                    .unwrap();
+                body_of(app.oneshot(req).await.unwrap()).await
+            }
+        };
+        let bad = post(
+            "/settings/registries/login",
+            "server=ghcr.io%2Fowner&user=u&token=secret-tok",
+        )
+        .await;
+        assert!(bad.contains("must be a host name"), "{bad}");
+        assert!(!bad.contains("secret-tok"), "{bad}");
+        let none = post("/settings/registries/logout", "server=ghcr.io").await;
+        assert!(none.contains("No saved login"), "{none}");
     }
 
     #[tokio::test]

@@ -1,0 +1,26 @@
+<div id="registries">
+  {% if let Some(e) = error %}<p role="alert">{{ e }}</p>{% endif %}
+  {% if let Some(n) = note %}<p role="status">{{ n }}</p>{% endif %}
+  <p>Log in to a registry so Dockwren can pull private images (your own stack, or an adopted project) when it installs and updates apps. Use an access token with read-only access to packages, not your account password. The token is checked with the registry and kept on this server in a private file; it is never shown again and is not part of the config export.</p>
+  {% if logins.is_empty() %}
+  <p><small>No registry logins yet.</small></p>
+  {% else %}
+  <ul>
+    {% for (name, key) in logins %}
+    <li>
+      <code>{{ name }}</code>
+      <form hx-post="/settings/registries/logout" hx-target="#registries" hx-swap="outerHTML" hx-confirm="Log out of {{ name }}? Private images from it can no longer be pulled." style="display:inline">
+        <input type="hidden" name="server" value="{{ key }}">
+        <button type="submit">Log out</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <form hx-post="/settings/registries/login" hx-target="#registries" hx-swap="outerHTML" autocomplete="off">
+    <label>Registry <input name="server" placeholder="ghcr.io (empty = Docker Hub)"></label>
+    <label>User name <input name="user" autocomplete="off" required></label>
+    <label>Access token <input name="token" type="password" autocomplete="new-password" required></label>
+    <button type="submit" class="primary">Test and save</button>
+  </form>
+</div>

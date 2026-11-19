@@ -22,7 +22,7 @@ Rules that trip people up:
   outside through a public hostname (Cloudflare Tunnel), not an open port.
 - **Bind mounts only under `./data`** (for example `./data/db:/var/lib/postgresql/data`). Named volumes
   are fine. `/`, `/etc`, the Docker socket and the stack's own `.env` and `compose.yaml` are refused.
-- **Every service needs an `image`**: `build:` is refused.
+- **Every service needs an `image`**: `build:` is refused. For a private image, first add a login under Settings → System → Registry logins.
 - **Not supported**: `privileged`, `cap_add`, `devices`, `security_opt`, `sysctls`, `network_mode`, `pid`,
   `ipc`, `volumes_from`, `include`, `extends`, `env_file`, `secrets`, `configs`, external volumes or
   networks, volume `driver_opts`, non-bridge networks. Software that needs these (Pi-hole/AdGuard DNS on
