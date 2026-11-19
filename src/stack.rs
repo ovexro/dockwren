@@ -84,7 +84,18 @@ fn why_refused(key: &str) -> &'static str {
 
 /// Check the model printed by `docker compose config --format json`.
 /// `project_dir` is the directory the config was resolved in (relative paths start there).
+#[cfg(test)]
 pub fn lint_model(model: &Value, project_dir: &Path) -> Result<(), String> {
+    lint_model_opts(model, project_dir, false)
+}
+
+/// [`lint_model`]; with `host_folders` bind mounts anywhere are left to the caller (adopted
+/// stacks keep their data where it is, and `crate::adopt::lint_adoption` vets each path).
+pub fn lint_model_opts(
+    model: &Value,
+    project_dir: &Path,
+    host_folders: bool,
+) -> Result<(), String> {
     let top = model
         .as_object()
         .ok_or("the compose model is not an object")?;
@@ -151,6 +162,7 @@ pub fn lint_model(model: &Value, project_dir: &Path) -> Result<(), String> {
             let source = v.get("source").and_then(Value::as_str).unwrap_or("");
             match kind {
                 "volume" | "tmpfs" => {}
+                "bind" if host_folders => {}
                 "bind" => {
                     if !(source == data_dir || source.starts_with(&format!("{data_dir}/")))
                         || source.contains("..")
@@ -310,13 +322,23 @@ pub async fn check(
 
 /// [`check`] with the `.env` text as it is (an adopted stack keeps its own file verbatim).
 pub async fn check_raw(data_dir: &Path, compose: &str, env_text: &str) -> Result<Value, String> {
+    check_raw_opts(data_dir, compose, env_text, false).await
+}
+
+/// [`check_raw`] for adopted stacks (`host_folders`: see [`lint_model_opts`]).
+pub async fn check_raw_opts(
+    data_dir: &Path,
+    compose: &str,
+    env_text: &str,
+    host_folders: bool,
+) -> Result<Value, String> {
     precheck(compose)?;
     if env_text.len() > MAX_COMPOSE_BYTES {
         return Err("the environment is larger than 64 KiB".into());
     }
     let dir = data_dir.join(format!("stack-check-{}", crate::auth::generate_password()));
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let result = check_in(&dir, data_dir, compose, env_text).await;
+    let result = check_in(&dir, data_dir, compose, env_text, host_folders).await;
     // `dir` was created just above and holds only the two files written there.
     let _ = std::fs::remove_dir_all(&dir);
     result
@@ -327,6 +349,7 @@ async fn check_in(
     data_dir: &Path,
     compose: &str,
     env_text: &str,
+    host_folders: bool,
 ) -> Result<Value, String> {
     std::fs::write(dir.join("compose.yaml"), compose).map_err(|e| e.to_string())?;
     crate::install::write_env_text(dir, env_text).map_err(|e| e.to_string())?;
@@ -362,7 +385,7 @@ async fn check_in(
     let canon = dir.canonicalize().map_err(|e| e.to_string())?;
     let model: Value = serde_json::from_slice(&out.stdout)
         .map_err(|e| format!("unreadable compose model: {e}"))?;
-    lint_model(&model, &canon)?;
+    lint_model_opts(&model, &canon, host_folders)?;
     Ok(model)
 }
 
@@ -434,6 +457,14 @@ mod tests {
         assert!(p(Some("0.0.0.0")).is_err());
         assert!(p(Some("203.0.113.5")).is_err());
         assert_eq!(p(Some("127.0.0.1")), Ok(()));
+    }
+
+    #[test]
+    fn adopted_stacks_may_bind_host_folders_elsewhere() {
+        let m = json!({"services": {"a": {"image": "x:1", "volumes": [
+            {"type": "bind", "source": "/srv/pg", "target": "/x"}]}}});
+        assert!(lint_model(&m, Path::new(DIR)).is_err());
+        assert_eq!(lint_model_opts(&m, Path::new(DIR), true), Ok(()));
     }
 
     #[test]

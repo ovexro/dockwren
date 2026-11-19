@@ -2,8 +2,9 @@
 //!
 //! A project is found through the labels Compose puts on its containers. Its compose file is
 //! resolved by `docker compose config` and checked with the same allow-list as pasted stacks
-//! ([`crate::stack::lint_model`]), plus one rule of its own: host bind mounts are refused,
-//! because the panel's backups only cover `<instance>/data`. Nothing here changes anything.
+//! ([`crate::stack::lint_model`]), plus one rule of its own: host bind mounts must be plain
+//! folders the panel can back up in place (see [`crate::backup::bind_source_ok`]).
+//! Nothing here changes anything.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -63,7 +64,8 @@ fn single_file(c: &ForeignContainer) -> Result<&str, String> {
     }
 }
 
-/// Adoption-only rule on top of [`crate::stack::lint_model`].
+/// Adoption-only rule on top of [`crate::stack::lint_model`]. Host folders stay where they
+/// are and are archived in place by the backups.
 pub fn lint_adoption(model: &Value) -> Result<(), String> {
     for (name, svc) in model
         .get("services")
@@ -79,9 +81,7 @@ pub fn lint_adoption(model: &Value) -> Result<(), String> {
         {
             if v.get("type").and_then(Value::as_str) == Some("bind") {
                 let src = v.get("source").and_then(Value::as_str).unwrap_or("?");
-                return Err(format!(
-                    "service {name} keeps data in the host folder {src}; only named volumes can be adopted for now"
-                ));
+                crate::backup::bind_source_ok(src).map_err(|e| format!("service {name}: {e}"))?;
             }
         }
     }
@@ -129,7 +129,7 @@ async fn resolve(data_dir: &Path, project: &str, file: &str, wd: &str) -> Result
     let model: Value = serde_json::from_slice(&out.stdout)
         .map_err(|e| format!("unreadable compose model: {e}"))?;
     let canon = wd_path.canonicalize().map_err(|e| format!("{wd}: {e}"))?;
-    crate::stack::lint_model(&model, &canon)?;
+    crate::stack::lint_model_opts(&model, &canon, true)?;
     lint_adoption(&model)?;
     Ok(model)
 }
@@ -346,12 +346,15 @@ mod tests {
     }
 
     #[test]
-    fn host_bind_mounts_are_not_adoptable() {
+    fn only_plain_host_folders_are_adoptable() {
         let m = json!({"services": {"db": {"volumes": [
             {"type": "volume", "source": "pg", "target": "/d"},
             {"type": "bind", "source": "/srv/pg", "target": "/e"}]}}});
+        assert_eq!(lint_adoption(&m), Ok(()));
+        let m = json!({"services": {"db": {"volumes": [
+            {"type": "bind", "source": "/etc/pg", "target": "/e"}]}}});
         let e = lint_adoption(&m).unwrap_err();
-        assert!(e.contains("db") && e.contains("/srv/pg"), "{e}");
+        assert!(e.contains("db") && e.contains("/etc/pg"), "{e}");
         let ok = json!({"services": {"db": {"volumes": [{"type": "volume", "source": "pg", "target": "/d"}]}}});
         assert_eq!(lint_adoption(&ok), Ok(()));
     }
@@ -365,9 +368,13 @@ mod tests {
         for (tag, vol) in [
             ("ok", "volumes: [\"pgdata:/var/lib/postgresql/data\"]"),
             ("bind", "volumes: [\"/tmp:/x\"]"),
+            ("hostdir", "volumes: [\"HOSTDIR:/x\"]"),
         ] {
             let dir = base.join(tag);
             std::fs::create_dir_all(&dir).unwrap();
+            let hostdir = base.join("hostdata");
+            std::fs::create_dir_all(&hostdir).unwrap();
+            let vol = vol.replace("HOSTDIR", &hostdir.display().to_string());
             let project = format!("dwadopt-{tag}-{}", std::process::id());
             let file = dir.join("compose.yaml");
             std::fs::write(
@@ -405,6 +412,7 @@ mod tests {
         assert_eq!(get(&names[0].0).verdict, Ok(()), "{:?}", get(&names[0].0));
         let e = get(&names[1].0).verdict.clone().unwrap_err();
         assert!(e.contains("/tmp"), "{e}");
+        assert_eq!(get(&names[2].0).verdict, Ok(()), "{:?}", get(&names[2].0));
     }
 
     /// Real Docker: adopt a started project, then `up -d` through the panel's runner must keep

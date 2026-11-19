@@ -120,6 +120,12 @@ pub async fn run(
         log("skipped: this app uses fixed network ports that a second copy would clash with");
         return Ok(None);
     }
+    if crate::backup::shares_host_folders(live).await? {
+        log(
+            "skipped: this stack keeps its data in host folders, which a throwaway copy would share with the live one",
+        );
+        return Ok(None);
+    }
     if let Some(m) = available_mib()
         && m < MIN_FREE_MIB
     {

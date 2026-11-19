@@ -1534,12 +1534,12 @@ pub async fn stack_edit_submit(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let (new_env_text, port, old_port, env_same);
     if adopted {
-        // Kept verbatim like at adoption; the adoption rule (named volumes only) on top.
+        // Kept verbatim like at adoption; the adoption rule (host folders must be plain) on top.
         let mut text = env_text.replace("\r\n", "\n");
         if !text.is_empty() && !text.ends_with('\n') {
             text.push('\n');
         }
-        let model = match crate::stack::check_raw(&data_dir, &compose, &text).await {
+        let model = match crate::stack::check_raw_opts(&data_dir, &compose, &text, true).await {
             Ok(m) => m,
             Err(e) => return again(e),
         };
@@ -1554,7 +1554,9 @@ pub async fn stack_edit_submit(
         {
             text.push_str(&format!("WEB_PORT={p}\n"));
         }
-        old_port = match crate::stack::check_raw(&data_dir, &old_compose, &old_env_text).await {
+        old_port = match crate::stack::check_raw_opts(&data_dir, &old_compose, &old_env_text, true)
+            .await
+        {
             Ok(m) => crate::stack::first_published_port(&m),
             Err(_) => None,
         };

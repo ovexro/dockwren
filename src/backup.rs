@@ -79,6 +79,115 @@ async fn first_image(inst: &Instance) -> Result<String, String> {
 /// Snapshot file holding one named volume of an adopted stack: `vol-<compose key>.tar.gz`.
 const VOL_PREFIX: &str = "vol-";
 const VOL_SUFFIX: &str = ".tar.gz";
+/// Host folders of an adopted stack: `bind-<key>.tar.gz`, with `binds.json` mapping key -> path.
+const BIND_PREFIX: &str = "bind-";
+const BINDS_FILE: &str = "binds.json";
+
+/// System locations that are never backed up or restored as "data".
+const BIND_DENY: [&str; 12] = [
+    "/proc",
+    "/sys",
+    "/dev",
+    "/run",
+    "/boot",
+    "/etc",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/var/run",
+    "/var/lib/docker",
+];
+
+/// Whether a host folder may be archived and restored by the panel. The path ends up in
+/// `docker run --mount`, in a shell argument and in a snapshot, so it must be plain.
+pub fn bind_source_ok(src: &str) -> Result<(), String> {
+    let p = Path::new(src);
+    let bad = |why: &str| Err(format!("the host folder {src} {why}"));
+    if !p.is_absolute() || src.chars().any(|c| c.is_control() || c == ',' || c == ':') {
+        return bad(
+            "has a path the panel cannot back up (relative, or it contains , : or control characters)",
+        );
+    }
+    if p.components().any(|c| {
+        matches!(
+            c,
+            std::path::Component::ParentDir | std::path::Component::CurDir
+        )
+    }) {
+        return bad("contains . or .. in its path");
+    }
+    // The parent folder is what gets mounted for a restore, so it must not be the root.
+    if p.parent().is_none_or(|q| q.parent().is_none()) {
+        return bad("is too close to the root of the disk to be backed up safely");
+    }
+    if BIND_DENY.iter().any(|d| p.starts_with(d)) {
+        return bad("is a system folder, not app data");
+    }
+    Ok(())
+}
+
+/// Unique host folders bind-mounted by the services in `docker compose config` JSON (sorted).
+fn parse_binds(config_json: &str) -> Result<Vec<String>, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(config_json).map_err(|e| format!("compose config: {e}"))?;
+    let mut out = std::collections::BTreeSet::new();
+    for svc in v
+        .get("services")
+        .and_then(|m| m.as_object())
+        .into_iter()
+        .flat_map(|m| m.values())
+    {
+        for vol in svc
+            .get("volumes")
+            .and_then(|m| m.as_array())
+            .into_iter()
+            .flatten()
+        {
+            if vol.get("type").and_then(|t| t.as_str()) == Some("bind")
+                && let Some(src) = vol.get("source").and_then(|t| t.as_str())
+            {
+                bind_source_ok(src)?;
+                out.insert(src.to_string());
+            }
+        }
+    }
+    Ok(out.into_iter().collect())
+}
+
+async fn compose_binds(inst: &Instance) -> Result<Vec<String>, String> {
+    parse_binds(&runner::compose(inst, &["config", "--format", "json"]).await?)
+}
+
+/// True when the instance is an adopted stack whose data lives in host folders: a second copy
+/// of it (clone, restore test) would share and overwrite them.
+pub async fn shares_host_folders(inst: &Instance) -> Result<bool, String> {
+    if !is_adopted(inst) {
+        return Ok(false);
+    }
+    Ok(!compose_binds(inst).await?.is_empty())
+}
+
+/// `(key, host folder)` pairs recorded in a snapshot (sorted by key); empty when it has none.
+fn snapshot_binds(snap: &Path) -> Result<Vec<(String, String)>, String> {
+    let Ok(text) = std::fs::read_to_string(snap.join(BINDS_FILE)) else {
+        return Ok(Vec::new());
+    };
+    let map: std::collections::BTreeMap<String, String> =
+        serde_json::from_str(&text).map_err(|e| format!("{BINDS_FILE}: {e}"))?;
+    let mut out = Vec::new();
+    for (k, src) in map {
+        if !valid_volume_key(&k) {
+            return Err(format!("{BINDS_FILE}: bad key {k}"));
+        }
+        bind_source_ok(&src)?;
+        if !snap.join(format!("{BIND_PREFIX}{k}{VOL_SUFFIX}")).is_file() {
+            return Err(format!("snapshot is missing {BIND_PREFIX}{k}{VOL_SUFFIX}"));
+        }
+        out.push((k, src));
+    }
+    Ok(out)
+}
 
 /// Adopted stacks keep their data in named volumes, which `backup.paths` cannot reach.
 fn is_adopted(inst: &Instance) -> bool {
@@ -150,11 +259,29 @@ async fn volume_exists(inst: &Instance, name: &str) -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
-/// Archives one volume into `dest` through a throwaway root container (read-only mount).
+/// `-v` for a named volume; `--mount` for a host folder, which (unlike `-v`) fails instead of
+/// creating a missing folder as root.
+fn source_mount(source: &str, bind: bool, target: &str, ro: bool) -> Vec<String> {
+    if bind {
+        let ro = if ro { ",readonly" } else { "" };
+        vec![
+            "--mount".into(),
+            format!("type=bind,source={source},target={target}{ro}"),
+        ]
+    } else {
+        vec![
+            "-v".into(),
+            format!("{source}:{target}{}", if ro { ":ro" } else { "" }),
+        ]
+    }
+}
+
+/// Archives one volume or host folder into `dest` through a throwaway root container (read-only mount).
 async fn archive_volume(
     inst: &Instance,
     image: &str,
     volume: &str,
+    bind: bool,
     dest: &Path,
 ) -> Result<(), String> {
     let archive = std::fs::OpenOptions::new()
@@ -174,8 +301,7 @@ async fn archive_volume(
             "--entrypoint",
             "tar",
         ])
-        .arg("-v")
-        .arg(format!("{volume}:/src:ro"))
+        .args(source_mount(volume, bind, "/src", true))
         .args(["-w", "/src", image, "--numeric-owner", "-czf", "-", "."])
         .stdout(std::process::Stdio::from(archive))
         .stderr(std::process::Stdio::piped())
@@ -188,12 +314,12 @@ async fn archive_volume(
         let err = String::from_utf8_lossy(&out.stderr);
         let tail: Vec<&str> = err.lines().take(5).collect();
         return Err(format!(
-            "archiving volume {volume} failed: {}",
+            "archiving {volume} failed (a single file cannot be backed up, only folders): {}",
             tail.join("; ")
         ));
     }
     if std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0) == 0 {
-        return Err(format!("archive of volume {volume} is empty"));
+        return Err(format!("archive of {volume} is empty"));
     }
     Ok(())
 }
@@ -211,20 +337,39 @@ async fn snapshot_volumes_into(
             vols.push((key, name));
         }
     }
-    if vols.is_empty() {
+    let binds = compose_binds(inst).await?;
+    if vols.is_empty() && binds.is_empty() {
         return Ok(());
     }
     let image = first_image(inst).await?;
-    log("stopping the stack for a consistent copy of its volumes");
+    log("stopping the stack for a consistent copy of its data");
     runner::compose(inst, &["stop"]).await?;
     let mut result = Ok(());
     for (key, name) in &vols {
         log(&format!("archiving volume {key}"));
         let dest = tmp.join(format!("{VOL_PREFIX}{key}{VOL_SUFFIX}"));
-        if let Err(e) = archive_volume(inst, &image, name, &dest).await {
+        if let Err(e) = archive_volume(inst, &image, name, false, &dest).await {
             result = Err(e);
             break;
         }
+    }
+    let mut map = std::collections::BTreeMap::new();
+    if result.is_ok() {
+        for (i, src) in binds.iter().enumerate() {
+            let key = format!("b{}", i + 1);
+            log(&format!("archiving host folder {src}"));
+            let dest = tmp.join(format!("{BIND_PREFIX}{key}{VOL_SUFFIX}"));
+            if let Err(e) = archive_volume(inst, &image, src, true, &dest).await {
+                result = Err(e);
+                break;
+            }
+            map.insert(key, src.clone());
+        }
+    }
+    if result.is_ok() && !map.is_empty() {
+        result = serde_json::to_vec(&map)
+            .map_err(|e| e.to_string())
+            .and_then(|b| write_private(&tmp.join(BINDS_FILE), &b).map_err(|e| e.to_string()));
     }
     log("starting the stack again");
     let started = runner::compose(inst, &["start"]).await;
@@ -272,6 +417,63 @@ async fn restore_volume(
         let tail: Vec<&str> = err.lines().take(5).collect();
         return Err(format!(
             "extracting volume {name} failed (restore from the safety snapshot): {}",
+            tail.join("; ")
+        ));
+    }
+    Ok(())
+}
+
+/// Puts a host folder back from `archive`. The current folder is moved to
+/// `<folder>.pre-restore-<stamp>` (nothing is deleted); if unpacking fails it is moved back.
+/// Runs as root in a throwaway container that mounts only the folder's parent.
+async fn restore_bind(
+    inst: &Instance,
+    image: &str,
+    src: &str,
+    archive: &Path,
+    stamp: u64,
+) -> Result<(), String> {
+    bind_source_ok(src)?;
+    let p = Path::new(src);
+    let (parent, leaf) = match (p.parent(), p.file_name().and_then(|n| n.to_str())) {
+        (Some(a), Some(b)) => (a.to_string_lossy().into_owned(), b.to_string()),
+        _ => return Err(format!("cannot restore {src}")),
+    };
+    let file = std::fs::File::open(archive).map_err(|e| format!("{}: {e}", archive.display()))?;
+    const SCRIPT: &str = r#"n=$1; s=$2
+if [ -e "/p/$n" ]; then mv "/p/$n" "/p/$n.pre-restore-$s" || exit 1; fi
+mkdir "/p/$n" || exit 1
+if tar --numeric-owner -xzf - -C "/p/$n"; then exit 0; fi
+mv "/p/$n" "/p/$n.failed-restore-$s"
+if [ -e "/p/$n.pre-restore-$s" ]; then mv "/p/$n.pre-restore-$s" "/p/$n"; fi
+exit 1"#;
+    let out = docker_cmd(inst)
+        .args([
+            "run",
+            "--rm",
+            "-i",
+            "--network",
+            "none",
+            "--user",
+            "0",
+            "--entrypoint",
+            "sh",
+        ])
+        .args(source_mount(&parent, true, "/p", false))
+        .args([image, "-c", SCRIPT, "sh", &leaf, &stamp.to_string()])
+        .stdin(std::process::Stdio::from(file))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot run docker: {e}"))?
+        .wait_with_output()
+        .await
+        .map_err(|e| format!("docker: {e}"))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let tail: Vec<&str> = err.lines().take(5).collect();
+        return Err(format!(
+            "restoring {src} failed, its previous content was put back: {}",
             tail.join("; ")
         ));
     }
@@ -526,6 +728,21 @@ pub async fn restore(
         }
         v
     };
+    let binds = snapshot_binds(&snap)?;
+    if !binds.is_empty() {
+        if !is_adopted(inst) {
+            return Err(
+                "the snapshot holds host folders, which only the adopted stack itself can restore"
+                    .into(),
+            );
+        }
+        let current = compose_binds(inst).await?;
+        if let Some((_, src)) = binds.iter().find(|(_, src)| !current.contains(src)) {
+            return Err(format!(
+                "the snapshot holds the folder {src}, which the compose file no longer mounts"
+            ));
+        }
+    }
     if safety {
         log("safety snapshot of the current state");
         // keep = existing + 1, so this cannot prune the snapshot being restored
@@ -616,6 +833,21 @@ pub async fn restore(
             .await
             .inspect_err(|_| undo(&moved))?;
         }
+    }
+    for (key, src) in &binds {
+        log(&format!("restoring host folder {src}"));
+        restore_bind(
+            inst,
+            &image,
+            src,
+            &snap.join(format!("{BIND_PREFIX}{key}{VOL_SUFFIX}")),
+            stamp,
+        )
+        .await
+        .inspect_err(|_| undo(&moved))?;
+        log(&format!(
+            "the previous content is in {src}.pre-restore-{stamp}"
+        ));
     }
     log("starting");
     runner::compose(inst, &["up", "-d"]).await?;
@@ -739,8 +971,16 @@ pub async fn verify(
         }
         log(&format!("files.tar.gz ok ({count} entries)"));
     }
-    for key in snapshot_volumes(&snap) {
-        let file = format!("{VOL_PREFIX}{key}{VOL_SUFFIX}");
+    let mut archives: Vec<String> = snapshot_volumes(&snap)
+        .into_iter()
+        .map(|k| format!("{VOL_PREFIX}{k}{VOL_SUFFIX}"))
+        .collect();
+    archives.extend(
+        snapshot_binds(&snap)?
+            .into_iter()
+            .map(|(k, _)| format!("{BIND_PREFIX}{k}{VOL_SUFFIX}")),
+    );
+    for file in archives {
         log(&format!("reading {file} end to end"));
         let archive = std::fs::File::open(snap.join(&file)).map_err(|e| format!("{file}: {e}"))?;
         let image = first_image(inst).await?;
@@ -1130,6 +1370,132 @@ mod tests {
             .args(["run", "--rm", "-v"])
             .arg(format!("{}:/d", root.display()))
             .args(["alpine:3", "rm", "-rf", "/d/instances", "/d/backups"])
+            .output();
+        let _ = std::fs::remove_dir_all(&root);
+        run.unwrap();
+    }
+
+    #[test]
+    fn bind_sources_must_be_plain_app_folders() {
+        for ok in ["/srv/pg", "/home/u/app/data", "/var/lib/myapp"] {
+            assert_eq!(bind_source_ok(ok), Ok(()), "{ok}");
+        }
+        for bad in [
+            "/",
+            "/tmp",
+            "relative/x",
+            "/srv/a:b",
+            "/srv/a,b",
+            "/srv/../etc/x",
+            "/etc/app",
+            "/proc/1",
+            "/var/run/docker.sock",
+            "/var/lib/docker/volumes",
+            "/srv/a\nb",
+        ] {
+            assert!(bind_source_ok(bad).is_err(), "{bad}");
+        }
+        let j = r#"{"services":{"a":{"volumes":[{"type":"bind","source":"/srv/pg","target":"/x"},{"type":"volume","source":"v","target":"/y"}]},"b":{"volumes":[{"type":"bind","source":"/srv/pg","target":"/z"},{"type":"bind","source":"/srv/app","target":"/w"}]}}}"#;
+        assert_eq!(parse_binds(j).unwrap(), ["/srv/app", "/srv/pg"]);
+        let evil =
+            r#"{"services":{"a":{"volumes":[{"type":"bind","source":"/etc/x","target":"/x"}]}}}"#;
+        assert!(parse_binds(evil).is_err());
+    }
+
+    /// Real Docker: a host folder of an adopted-style project is archived in place (stack
+    /// stopped and started again), changed, then restored; the changed folder is kept aside.
+    #[tokio::test]
+    async fn adopted_bind_round_trip() {
+        let root = tmp();
+        let name = format!("bt{}", std::process::id());
+        let inst = Instance {
+            name: name.clone(),
+            dir: root.join("instances").join(&name),
+        };
+        let host = root.join("host/appdata");
+        std::fs::create_dir_all(inst.dir.join("data")).unwrap();
+        std::fs::create_dir_all(&host).unwrap();
+        std::fs::write(host.join("f"), "before").unwrap();
+        std::fs::write(
+            inst.dir.join("compose.yaml"),
+            format!(
+                "services:\n  app:\n    image: alpine:3\n    command: [\"sleep\", \"600\"]\n    volumes: [\"{}:/v\"]\n",
+                host.display()
+            ),
+        )
+        .unwrap();
+        std::fs::write(inst.dir.join(".env"), "").unwrap();
+        std::fs::write(
+            inst.dir.join(runner::PROJECT_FILE),
+            format!("dwbt-{name}\n"),
+        )
+        .unwrap();
+        let t = crate::template::load(&Path::new(env!("CARGO_MANIFEST_DIR")).join("apps/custom"))
+            .unwrap();
+        let backups = root.join("backups");
+        let mut l = |_: &str| {};
+        let run = async {
+            assert!(shares_host_folders(&inst).await?);
+            runner::compose(&inst, &["up", "-d"]).await?;
+            let snap = snapshot(&backups, &inst, &t, &mut l).await?;
+            assert!(snap.join("bind-b1.tar.gz").is_file() && snap.join(BINDS_FILE).is_file());
+            let state = runner::compose(&inst, &["ps", "--status", "running", "-q"]).await?;
+            assert!(!state.trim().is_empty(), "stack must be running again");
+            runner::compose(
+                &inst,
+                &[
+                    "exec",
+                    "-T",
+                    "app",
+                    "sh",
+                    "-c",
+                    "echo after > /v/f; echo x > /v/g",
+                ],
+            )
+            .await?;
+            verify(&backups, &inst, &t, None, &mut l).await?;
+            restore(&backups, &inst, &t, None, false, &mut l).await?;
+            let f = runner::compose(&inst, &["exec", "-T", "app", "sh", "-c", "cat /v/f; ls /v"])
+                .await?;
+            assert!(f.contains("before") && !f.contains('g'), "{f}");
+            let aside: Vec<_> = std::fs::read_dir(root.join("host"))
+                .unwrap()
+                .flatten()
+                .filter(|e| e.file_name().to_string_lossy().contains(".pre-restore-"))
+                .collect();
+            assert_eq!(aside.len(), 1, "previous folder must be kept aside");
+            // A copy without the project file must refuse to write into the live folder.
+            let copy = Instance {
+                name: format!("rt-{name}"),
+                dir: root.join("instances").join(format!("rt-{name}")),
+            };
+            std::fs::create_dir_all(&copy.dir).unwrap();
+            std::fs::copy(inst.dir.join("compose.yaml"), copy.dir.join("compose.yaml")).unwrap();
+            std::fs::create_dir_all(backups.join(&copy.name)).unwrap();
+            std::os::unix::fs::symlink(
+                &snap,
+                backups.join(&copy.name).join(snap.file_name().unwrap()),
+            )
+            .unwrap();
+            let e = restore(&backups, &copy, &t, None, false, &mut l)
+                .await
+                .unwrap_err();
+            assert!(e.contains("only the adopted stack"), "{e}");
+            Ok::<(), String>(())
+        }
+        .await;
+        let _ = runner::compose(&inst, &["down", "-v"]).await;
+        let _ = std::process::Command::new("docker")
+            .args(["run", "--rm", "-v"])
+            .arg(format!("{}:/d", root.display()))
+            .args([
+                "alpine:3",
+                "rm",
+                "-rf",
+                "/d/instances",
+                "/d/backups",
+                "/d/host",
+            ])
             .output();
         let _ = std::fs::remove_dir_all(&root);
         run.unwrap();

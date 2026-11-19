@@ -35,6 +35,12 @@ pub async fn run(
     if !t.manifest.lan_ports.is_empty() {
         return Err("this app uses fixed network ports that a second copy would clash with".into());
     }
+    if crate::backup::shares_host_folders(live).await? {
+        return Err(
+            "this stack keeps its data in host folders, which a copy would share with the original"
+                .into(),
+        );
+    }
     if let Some(m) = crate::restoretest::available_mib()
         && m < crate::restoretest::MIN_FREE_MIB
     {
