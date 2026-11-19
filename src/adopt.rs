@@ -238,7 +238,7 @@ pub async fn adopt(
     };
     let build = || -> Result<(), String> {
         let err = |what: &str, e: std::io::Error| format!("{}: {what}: {e}", dir.display());
-        runner::write_private(&dir.join("compose.yaml"), &text)
+        runner::write_private(&dir.join("compose.yaml"), &absolutize_binds(&text, &wd))
             .map_err(|e| err("compose.yaml", e))?;
         let mut env = String::from_utf8_lossy(&env_raw).into_owned();
         if let Some(p) = port
@@ -283,6 +283,67 @@ pub async fn adopt(
             })
         }
     }
+}
+
+/// Joins a relative path onto `base` lexically (`.` and `..` resolved, no filesystem access).
+fn join_lexical(base: &str, rel: &str) -> String {
+    let mut parts: Vec<&str> = base.split('/').filter(|p| !p.is_empty()).collect();
+    for seg in rel.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            s => parts.push(s),
+        }
+    }
+    format!("/{}", parts.join("/"))
+}
+
+/// The copy of the compose file runs from the panel's own folder, so a host folder written
+/// relative to the project (`./data`, `../shared`, `source: ./data`) would point somewhere else.
+/// Rewrites exactly those sources to absolute paths; anything unusual is left alone and the
+/// configuration check that follows refuses the adoption instead.
+fn absolutize_binds(text: &str, wd: &str) -> String {
+    let is_rel = |p: &str| p == "." || p == ".." || p.starts_with("./") || p.starts_with("../");
+    let mut out = String::with_capacity(text.len());
+    for line in text.lines() {
+        let t = line.trim_start();
+        let indent = &line[..line.len() - t.len()];
+        let fixed = if let Some(rest) = t.strip_prefix("- ") {
+            // short syntax: `- ./data:/var/lib/x[:ro]`, optionally quoted
+            let (q, body) = match rest.chars().next() {
+                Some(c @ ('"' | '\'')) => (Some(c), &rest[1..]),
+                _ => (None, rest),
+            };
+            match body.find(':') {
+                Some(i) if is_rel(&body[..i]) => Some(format!(
+                    "{indent}- {}{}{}",
+                    q.map(String::from).unwrap_or_default(),
+                    join_lexical(wd, &body[..i]),
+                    &body[i..]
+                )),
+                _ => None,
+            }
+        } else if let Some(rest) = t.strip_prefix("source:") {
+            // long syntax: `source: ./data`, optionally quoted, optional trailing comment
+            let v = rest.trim();
+            let (v, tail) = match v.find(" #") {
+                Some(i) => (v[..i].trim_end(), &v[i..]),
+                None => (v, ""),
+            };
+            let unq = v.trim_matches(|c| c == '"' || c == '\'');
+            is_rel(unq).then(|| format!("{indent}source: {}{tail}", join_lexical(wd, unq)))
+        } else {
+            None
+        };
+        out.push_str(fixed.as_deref().unwrap_or(line));
+        out.push('\n');
+    }
+    if !text.ends_with('\n') {
+        out.pop();
+    }
+    out
 }
 
 /// True when a host bind mount lies inside the project directory: written as `./data` it resolves
@@ -360,6 +421,19 @@ mod tests {
                 .unwrap_err()
                 .contains("several")
         );
+    }
+
+    #[test]
+    fn relative_host_folders_become_absolute_in_the_copy() {
+        let t = "services:\n  a:\n    volumes:\n      - ./data:/d\n      - \"../shared:/s:ro\"\n      - pg:/p\n      - /abs:/x\n      - type: bind\n        source: ./conf # note\n        target: /c\n    command: [\"./run:x\"]\n";
+        let r = absolutize_binds(t, "/srv/app");
+        assert!(r.contains("      - /srv/app/data:/d\n"), "{r}");
+        assert!(r.contains("      - \"/srv/shared:/s:ro\"\n"), "{r}");
+        assert!(r.contains("      - pg:/p\n") && r.contains("      - /abs:/x\n"), "{r}");
+        assert!(r.contains("        source: /srv/app/conf # note\n"), "{r}");
+        assert!(r.contains("command: [\"./run:x\"]"), "{r}");
+        assert_eq!(absolutize_binds("a: 1", "/srv"), "a: 1");
+        assert_eq!(join_lexical("/srv/app", "."), "/srv/app");
     }
 
     #[test]
