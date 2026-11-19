@@ -9,8 +9,9 @@
 {% endfor %}</pre>
   {% endif %}
   {% if list.is_empty() %}
-  <p>None yet. After your password, sign-in asks for a passkey (fingerprint, security key or phone) instead of a 6-digit code. A passkey works only on the address it was added from; authenticator and recovery codes work everywhere.</p>
+  <p><span class="badge" data-state="exited">Off</span> None yet. After your password, sign-in asks for a passkey (fingerprint, security key or phone) instead of a 6-digit code. A passkey works only on the address it was added from; authenticator and recovery codes work everywhere.</p>
   {% else %}
+  <p><span class="badge" data-state="running">On</span> {{ list.len() }} registered.</p>
   <ul>
     {% for k in list %}
     <li>

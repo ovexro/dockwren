@@ -38,30 +38,36 @@ pub fn router(
 #[template(path = "updatepolicy.html")]
 struct View {
     auto_apps: String,
+    auto_on: bool,
     os_button: String,
+    os_on: bool,
     self_button: String,
+    self_on: bool,
 }
 
 /// Current state of each switch, as short text.
 fn describe(auto: Option<(u8, u8)>, os: (bool, bool), self_installed: bool) -> View {
     let auto_apps = match auto {
-        Some((from, to)) if from == to => "On now: any time of day".to_string(),
-        Some((from, to)) => format!("On now: between {from:02}:00 and {to:02}:00 UTC"),
-        None => "Off now (turn on under Scheduled backups)".to_string(),
+        Some((from, to)) if from == to => "Any time of day".to_string(),
+        Some((from, to)) => format!("Between {from:02}:00 and {to:02}:00 UTC"),
+        None => "Turn on under Scheduled backups".to_string(),
     };
     let os_button = match os {
-        (true, true) => "Install button is on",
-        (true, false) => "Install button is off (turn it on above)",
+        (true, true) => "Install button",
+        (true, false) => "Turn the install button on above",
         (false, _) => "Install button not set up on this server",
     }
     .to_string();
     let self_button = if self_installed {
-        "Update button is set up"
+        "Update button"
     } else {
         "Button not set up yet: run sudo dockwren self-update once"
     }
     .to_string();
     View {
+        auto_on: auto.is_some(),
+        os_on: os.0 && os.1,
+        self_on: self_installed,
         auto_apps,
         os_button,
         self_button,
@@ -84,20 +90,17 @@ mod tests {
     #[test]
     fn describes_each_state() {
         let v = describe(Some((3, 6)), (true, true), true);
-        assert_eq!(v.auto_apps, "On now: between 03:00 and 06:00 UTC");
-        assert!(v.os_button.contains("on"));
+        assert_eq!(v.auto_apps, "Between 03:00 and 06:00 UTC");
+        assert!(v.auto_on && v.os_on && v.self_on);
         assert_eq!(
             describe(Some((0, 0)), (true, false), false).auto_apps,
-            "On now: any time of day"
+            "Any time of day"
         );
         let off = describe(None, (false, false), false);
-        assert!(off.auto_apps.starts_with("Off now"));
+        assert!(!off.auto_on && !off.os_on && off.auto_apps.starts_with("Turn on"));
         assert!(off.os_button.contains("not set up"));
         assert!(off.self_button.contains("self-update"));
-        assert!(
-            describe(None, (true, false), false)
-                .os_button
-                .contains("off")
-        );
+        let d = describe(None, (true, false), false);
+        assert!(!d.os_on && d.os_button.contains("on above"));
     }
 }

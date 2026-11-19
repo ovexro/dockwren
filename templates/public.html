@@ -25,7 +25,7 @@
     <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
   </form>
   {% if command.is_some() %}
-  <p><strong>Cloudflare:</strong> {% if cf_ready %}connected.{% else %}not connected (see the guide below).{% endif %}</p>
+  <p><strong>Cloudflare:</strong> {% if cf_ready %}<span class="badge" data-state="running">Connected</span>{% else %}<span class="badge" data-state="exited">Not connected</span> see the guide below.{% endif %}</p>
   {% if cf_ready %}
   <form hx-post="/instances/{{ instance }}/public/publish" hx-target="#install" hx-swap="innerHTML show:#install:top">
     <button type="submit">Publish https://{{ hostname }}</button>

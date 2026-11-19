@@ -8,7 +8,7 @@
   <pre class="codes">{% for c in recovery %}{{ c }}
 {% endfor %}</pre>
   {% else if enabled %}
-  <p><strong>On.</strong> Signing in needs your password and a 6-digit code from your authenticator app (or a recovery code).</p>
+  <p><span class="badge" data-state="running">On</span> Signing in needs your password and a 6-digit code from your authenticator app (or a recovery code).</p>
   <form hx-post="/settings/2fa/disable" hx-target="#twofa" hx-swap="outerHTML" autocomplete="off">
     <label>Current code, to turn it off <input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>
     <button type="submit">Turn off</button>
@@ -22,7 +22,7 @@
     <button class="primary" type="submit">Turn on</button>
   </form>
   {% else %}
-  <p>Off. Add a second step to sign-in: a 6-digit code from an authenticator app on your phone.</p>
+  <p><span class="badge" data-state="exited">Off</span> Add a second step to sign-in: a 6-digit code from an authenticator app on your phone.</p>
   <button class="primary" hx-post="/settings/2fa/start" hx-target="#twofa" hx-swap="outerHTML">Set up</button>
   {% endif %}
   {% endif %}

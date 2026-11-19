@@ -13,7 +13,7 @@
     {% if let Some(p) = problem %}
     <p role="alert"><strong>Cloudflare rejected the saved token:</strong> {{ p }}</p>
     {% else %}
-    <p><strong>Connected.</strong> This token can publish on: {% for z in zones %}<code>{{ z }}</code>{% if !loop.last %}, {% endif %}{% endfor %}.
+    <p><span class="badge" data-state="running">Connected</span> This token can publish on: {% for z in zones %}<code>{{ z }}</code>{% if !loop.last %}, {% endif %}{% endfor %}.
     {% if let Some(t) = tunnel_name %}Tunnel: <code>{{ t }}</code>.{% endif %}</p>
     {% if !choose.is_empty() %}
     <form hx-post="/settings/cloudflare/tunnel" hx-target="#cloudflare" hx-swap="outerHTML">
