@@ -66,6 +66,11 @@ nav a.link:hover{color:var(--text)}
 .shot img{display:block;width:100%;height:auto;aspect-ratio:1100/820;object-fit:cover;object-position:top}
 .shot img.dark-only{display:none}
 @media (prefers-color-scheme:dark){.shot img.light-only{display:none}.shot img.dark-only{display:block}}
+.gallery{column-count:2;column-gap:1.25rem}
+.gallery figure{break-inside:avoid;margin:0 0 1.25rem;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface)}
+.gallery img{display:block;width:100%;height:auto}
+.gallery figcaption{padding:.6rem .9rem;color:var(--muted);font-size:.9rem}
+@media (max-width:700px){.gallery{column-count:1}}
 @media (max-width:560px){nav a.link{display:none}.hero{padding-top:2rem}}
 
 section{padding:3rem 0}
@@ -137,6 +142,18 @@ footer a{color:var(--muted)}
         <div class="card"><h3>Drift detection</h3><p>If the running containers stop matching their Compose files, the app shows out of sync with the services that differ, and one Apply recreates only those.</p></div>
         <div class="card"><h3>Schedules and dependencies</h3><p>Stop and start an app at fixed times, and say which apps need which: Dockwren names who is affected before you stop one and starts the needs first. Registry logins cover private images.</p></div>
         <div class="card"><h3>Careful by default</h3><p>Argon2id login, strict session cookies, rate limiting. Listens on localhost only; reach it over an SSH tunnel.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>See it on a real server</h2>
+      <p class="sub">Screenshots from a fresh VPS running Dockwren with a few apps installed.</p>
+      <div class="gallery">
+        <figure><picture><source media="(prefers-color-scheme: dark)" srcset="shots/installed-dark.png"><img src="shots/installed-light.png" alt="Installed apps with an out-of-sync app and its Apply button" loading="lazy"></picture><figcaption>Every app at a glance: health, last backup, and drift with one Apply.</figcaption></figure>
+        <figure><picture><source media="(prefers-color-scheme: dark)" srcset="shots/resources-dark.png"><img src="shots/resources-light.png" alt="Resources page with CPU, memory, network and disk graphs" loading="lazy"></picture><figcaption>CPU, memory, network and disk graphs.</figcaption></figure>
+        <figure><picture><source media="(prefers-color-scheme: dark)" srcset="shots/settings-backups-dark.png"><img src="shots/settings-backups-light.png" alt="Settings, Backups tab: schedule, off-host and config export" loading="lazy"></picture><figcaption>Scheduled backups, off-host copies, config export.</figcaption></figure>
+        <figure><picture><source media="(prefers-color-scheme: dark)" srcset="shots/settings-security-dark.png"><img src="shots/settings-security-light.png" alt="Settings, Security tab: two-factor, passkeys, web terminal" loading="lazy"></picture><figcaption>Two-factor, passkeys and an opt-in terminal.</figcaption></figure>
+        <figure><picture><source media="(prefers-color-scheme: dark)" srcset="shots/settings-notifications-dark.png"><img src="shots/settings-notifications-light.png" alt="Settings, Notifications tab: what to be told about" loading="lazy"></picture><figcaption>Choose what to be told about, then where it goes.</figcaption></figure>
       </div>
     </section>
 

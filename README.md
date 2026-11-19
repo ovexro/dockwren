@@ -44,6 +44,51 @@ described at its top (for example `--binary` to use a binary you copied yourself
 Release binaries and `SHA256SUMS` are on the
 [releases page](https://github.com/ovexro/dockwren/releases).
 
+
+## Screenshots
+
+From a fresh server with a few apps installed (light and dark themes follow your GitHub setting).
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/installed-dark.png">
+    <img src="docs/screenshots/installed-light.png" alt="Installed apps with an out-of-sync app and its Apply button" width="800">
+  </picture><br>
+  <sub>Every app at a glance: health, last backup, and drift with one Apply.</sub>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/resources-dark.png">
+    <img src="docs/screenshots/resources-light.png" alt="Resources page with CPU, memory, network and disk graphs" width="800">
+  </picture><br>
+  <sub>CPU, memory, network and disk graphs.</sub>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/settings-backups-dark.png">
+    <img src="docs/screenshots/settings-backups-light.png" alt="Settings, Backups tab: schedule, off-host and config export" width="800">
+  </picture><br>
+  <sub>Scheduled backups, off-host copies, config export.</sub>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/settings-security-dark.png">
+    <img src="docs/screenshots/settings-security-light.png" alt="Settings, Security tab: two-factor, passkeys, web terminal" width="800">
+  </picture><br>
+  <sub>Two-factor, passkeys and an opt-in terminal.</sub>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/settings-notifications-dark.png">
+    <img src="docs/screenshots/settings-notifications-light.png" alt="Settings, Notifications tab: what to be told about" width="800">
+  </picture><br>
+  <sub>Choose what to be told about, then where it goes.</sub>
+</p>
+
 ## What works today
 
 - Single-admin login: strong generated password, Argon2id hash, `HttpOnly` + `SameSite=Strict`
