@@ -425,6 +425,9 @@ const SETTINGS_TABS: [(&str, &str); 6] = [
     ("system", "System"),
 ];
 
+/// Tabs of the Apps page: (key, label). The first is the default.
+const APPS_TABS: [(&str, &str); 2] = [("installed", "Installed"), ("add", "Add an app")];
+
 /// (href, key, label, short label for the narrow bottom bar) of the sidebar entries.
 const NAV: [(&str, &str, &str, &str); 7] = [
     ("/", "overview", "Overview", "Overview"),
@@ -492,8 +495,21 @@ async fn overview(State(state): State<AppState>) -> Html<String> {
 async fn index() -> Html<String> {
     page("overview")
 }
-async fn apps_page() -> Html<String> {
-    page("apps")
+/// `GET /apps`: the installed apps, or the catalog when nothing is installed yet.
+async fn apps_page(State(state): State<AppState>) -> Html<String> {
+    let tab = if state.apps.instance_names().is_empty() {
+        APPS_TABS[1].0
+    } else {
+        APPS_TABS[0].0
+    };
+    page_tab("apps", tab)
+}
+/// `GET /apps/tab/{tab}`: one tab of Apps; every tab has its own URL.
+async fn apps_tab(Path(tab): Path<String>) -> Response {
+    match APPS_TABS.iter().find(|t| t.0 == tab) {
+        Some(t) => page_tab("apps", t.0).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 async fn containers_page() -> Html<String> {
     page("containers")
@@ -542,6 +558,7 @@ fn app(
         .route("/", get(index))
         .route("/metrics", get(metrics::page))
         .route("/apps", get(apps_page))
+        .route("/apps/tab/{tab}", get(apps_tab))
         .route("/containers", get(containers_page))
         .route("/resources", get(resources_page))
         .route("/settings", get(settings_page))
@@ -2435,8 +2452,12 @@ mod tests {
             assert_eq!(res.status(), StatusCode::OK, "{path}");
             let html = body_of(res).await;
             assert!(html.contains(&format!("<h1>{title}</h1>")), "{path}");
-            // Settings also marks its active tab.
-            let expected = if path == "/settings" { 2 } else { 1 };
+            // Settings and Apps also mark their active tab.
+            let expected = if path == "/settings" || path == "/apps" {
+                2
+            } else {
+                1
+            };
             assert_eq!(
                 html.matches("aria-current=\"page\"").count(),
                 expected,
@@ -2447,6 +2468,39 @@ mod tests {
                 "{path}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn apps_tabs_have_their_own_urls() {
+        let app = test_app();
+        let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+        let get = |path: &'static str| {
+            let app = app.clone();
+            let cookie = cookie.clone();
+            async move {
+                let req = Request::get(path)
+                    .header(header::COOKIE, cookie)
+                    .body(Body::empty())
+                    .unwrap();
+                app.oneshot(req).await.unwrap()
+            }
+        };
+        let installed = body_of(get("/apps/tab/installed").await).await;
+        assert!(
+            installed.contains("/instances/list") && !installed.contains("hx-get=\"/catalog\"")
+        );
+        assert!(installed.contains("href=\"/apps/tab/installed\" aria-current"));
+        let add = body_of(get("/apps/tab/add").await).await;
+        assert!(add.contains("hx-get=\"/catalog\"") && !add.contains("/instances/list"));
+        assert!(add.contains("href=\"/apps/tab/add\" aria-current"));
+        assert!(add.contains("<section id=\"install\">"));
+        assert_eq!(get("/apps/tab/nope").await.status(), StatusCode::NOT_FOUND);
+        // Nothing installed in the test panel: /apps opens the catalog.
+        assert!(
+            body_of(get("/apps").await)
+                .await
+                .contains("hx-get=\"/catalog\"")
+        );
     }
 
     #[tokio::test]
@@ -2811,6 +2865,7 @@ mod tests {
     async fn app_routes_need_a_session() {
         for (method, uri) in [
             ("GET", "/apps"),
+            ("GET", "/apps/tab/add"),
             ("GET", "/catalog"),
             ("GET", "/apps/gitea/new"),
             ("GET", "/apps/check-host?PUBLIC_HOST=x.example.com"),
