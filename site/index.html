@@ -69,7 +69,7 @@ nav a.link:hover{color:var(--text)}
 .frame img{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;object-position:top}
 .shot img.dark-only{display:none}
 @media (prefers-color-scheme:dark){.shot img.light-only{display:none}.shot img.dark-only{display:block}}
-.gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.75rem 1.5rem}
+.gallery{display:grid;grid-template-columns:minmax(0,1fr);gap:2.5rem;max-width:62rem;margin:0 auto}
 .gallery figure{margin:0}
 .gallery a.frame{display:block;transition:transform .2s,box-shadow .2s}
 .gallery a.frame:hover{transform:translateY(-3px);box-shadow:0 30px 60px -24px rgba(0,0,0,.5)}
