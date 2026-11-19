@@ -89,6 +89,22 @@ From a fresh server with a few apps installed (light and dark themes follow your
   <sub>Choose what to be told about, then where it goes.</sub>
 </p>
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/restore-dark.png">
+    <img src="docs/screenshots/restore-light.png" alt="Restore dialog with snapshot list, verify, test restore and duplicate" width="800">
+  </picture><br>
+  <sub>Restore from a snapshot, verify it, test it on a copy, or duplicate it as a new app.</sub>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/stack-edit-dark.png">
+    <img src="docs/screenshots/stack-edit-light.png" alt="Edit stack form with Compose file and environment" width="800">
+  </picture><br>
+  <sub>Edit a pasted stack: checked, backed up first, and rolled back if it does not come back healthy.</sub>
+</p>
+
 ## What works today
 
 - Single-admin login: strong generated password, Argon2id hash, `HttpOnly` + `SameSite=Strict`
