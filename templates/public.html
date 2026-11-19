@@ -14,21 +14,21 @@
   <form hx-post="/instances/{{ instance }}/public/publish" hx-target="#install" hx-swap="innerHTML show:#install:top">
     <input type="hidden" name="replace" value="yes">
     <p>Replacing deletes the old DNS record(s) named above and points {{ hostname }} at this app instead. Whatever used that address (an old website, for example) stops working. The old values are listed in the result.</p>
-    <button type="submit">Replace it</button>
+    <button type="submit" class="primary">Replace it</button>
   </form>
   {% endif %}
   <form hx-post="/instances/{{ instance }}/public" hx-target="#install" hx-swap="innerHTML show:#install:top">
     <p><label>Public hostname
       <input name="hostname" value="{{ hostname }}" placeholder="blog.example.com"></label><br>
       <small>The web address people type in their browser to open this app. The domain must already be in your Cloudflare account. Leave empty to clear. Saving only records it; press Publish to make it reachable.</small></p>
-    <button type="submit">Save</button>
+    <button type="submit" class="primary">Save</button>
     <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
   </form>
   {% if command.is_some() %}
   <p><strong>Cloudflare:</strong> {% if cf_ready %}<span class="badge" data-state="running">Connected</span>{% else %}<span class="badge" data-state="exited">Not connected</span> see the guide below.{% endif %}</p>
   {% if cf_ready %}
   <form hx-post="/instances/{{ instance }}/public/publish" hx-target="#install" hx-swap="innerHTML show:#install:top">
-    <button type="submit">Publish https://{{ hostname }}</button>
+    <button type="submit" class="primary">Publish https://{{ hostname }}</button>
     <small>Adds the tunnel route and DNS record. It never overwrites an existing record.</small>
   </form>
   {% endif %}
@@ -39,9 +39,9 @@
   {% if !checks.is_empty() %}<ul>{% for (good, t) in checks %}<li>{% if *good %}OK{% else %}Problem{% endif %}: {{ t }}</li>{% endfor %}</ul>{% endif %}
   <form hx-post="/instances/{{ instance }}/public/direct" hx-target="#install" hx-swap="innerHTML show:#install:top">
     <button type="submit" name="action" value="check">Check</button>
-    <button type="submit" name="action" value="on">Publish directly</button>
+    <button type="submit" class="primary" name="action" value="on">Publish directly</button>
     <button type="submit" name="action" value="check-dns">Check (DNS challenge)</button>
-    <button type="submit" name="action" value="on-dns">Publish with DNS challenge</button>
+    <button type="submit" class="primary" name="action" value="on-dns">Publish with DNS challenge</button>
     {% if direct %}<button type="submit" name="action" value="off">Turn direct HTTPS off</button>{% endif %}
   </form>
   {% if direct %}<p><strong>Direct HTTPS is on for this app.</strong>{% if let Some(d) = cert_expiry %} Certificate valid until {{ d }} (Caddy renews it by itself).{% else %} No certificate served yet; it can take a minute after publishing.{% endif %}</p>{% endif %}

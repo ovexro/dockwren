@@ -52,7 +52,7 @@
         <option value="warning" {% if min == "warning" %}selected{% endif %}>warnings and critical</option>
         <option value="critical" {% if min == "critical" %}selected{% endif %}>critical only</option>
       </select></label>
-    <button type="submit" form="channels-form">Save</button>
+    <button type="submit" class="primary" form="channels-form">Save</button>
   {% if configured %}
   <form hx-post="/settings/channels/test" hx-target="#channels" hx-swap="outerHTML">
     <button type="submit">Send a test notification</button>

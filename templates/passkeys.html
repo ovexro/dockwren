@@ -26,8 +26,10 @@
   </ul>
   {% endif %}
   {% if can_add %}
-  <label>Name <input data-pk-name maxlength="40" placeholder="Laptop fingerprint"></label>
-  <button class="primary" type="button" data-pk-add>Add a passkey on {{ host }}</button>
+  <div class="row">
+    <label>Name <input data-pk-name maxlength="40" placeholder="Laptop fingerprint"></label>
+    <button class="primary" type="button" data-pk-add>Add a passkey on {{ host }}</button>
+  </div>
   <p role="status" data-pk-msg></p>
   {% else %}
   <p class="muted">Open the panel through its hostname (not an IP address) to add a passkey.</p>

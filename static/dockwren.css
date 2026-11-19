@@ -303,9 +303,9 @@ details.more > summary::after { content: " \25BE"; }
 }
 
 /* Confirmation forms: password, code and button on one row, wrapping on narrow screens */
-form.row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .5rem .75rem; }
-form.row > label { flex: 1 1 12rem; min-width: 0; margin: 0; padding: 0; }
-form.row > label:has(+ button) { padding-bottom: 0; }
-form.row input { width: 100%; max-width: none; }
-form.row input[type=hidden] { display: none; }
-form.row button { flex: none; margin: 0; height: 2.5625rem; box-sizing: border-box; }
+.row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .5rem .75rem; }
+.row > label { flex: 1 1 12rem; min-width: 0; margin: 0; padding: 0; }
+.row > label:has(+ button) { padding-bottom: 0; }
+.row input { width: 100%; max-width: none; }
+.row input[type=hidden] { display: none; }
+.row button { flex: none; margin: 0; height: 2.5625rem; box-sizing: border-box; }
