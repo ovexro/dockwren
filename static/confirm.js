@@ -37,3 +37,9 @@ document.addEventListener("click", function (e) {
     if (d !== inside || (e.target.closest("button") && d.contains(e.target))) d.removeAttribute("open");
   });
 });
+
+// Do not let the 10 s list refresh close an open "More" menu.
+document.addEventListener("htmx:beforeRequest", function (e) {
+  var t = e.detail && e.detail.elt;
+  if (t && t.id === "instances" && document.querySelector("#instances details.more[open]")) e.preventDefault();
+});
