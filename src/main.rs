@@ -12,6 +12,7 @@ mod deliver;
 mod direct;
 mod diskusage;
 mod docker;
+mod drift;
 mod doctor;
 mod hostupdates;
 mod install;
@@ -614,6 +615,7 @@ fn app(
         .route("/instances/{name}/remove", post(apps::instance_remove))
         .route("/instances/{name}/delete", post(apps::instance_delete))
         .route("/instances/{name}/start", post(apps::instance_start))
+        .route("/instances/{name}/apply", post(apps::instance_apply))
         .route(
             "/instances/{name}/needs",
             get(apps::needs_form).post(apps::needs_submit),

@@ -1040,6 +1040,8 @@ struct InstanceView {
     needs: Vec<(String, bool)>,
     /// No containers: the app can be started from here.
     stopped: bool,
+    /// What no longer matches the Compose files (see `drift`); empty when in sync.
+    drift: Vec<String>,
     /// Its stop/start schedule, when it has one.
     power: Option<String>,
     /// Confirmation texts; they name the apps that need this one.
@@ -1856,6 +1858,11 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             Err(_) => "unknown".to_string(),
         };
         let status_is_stopped = status == "stopped";
+        let drift = if status_is_stopped {
+            Vec::new()
+        } else {
+            crate::drift::check(&inst).await.unwrap_or_default()
+        };
         let newer = apps
             .template(&state.template)
             .map(|t| t.manifest.app.version)
@@ -1903,6 +1910,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             deletable: status_is_stopped && crate::public::read(&dir).is_none(),
             needs: Vec::new(),
             stopped: status_is_stopped,
+            drift,
             power: crate::power::read(&dir).describe(),
             stop_confirm: String::new(),
             delete_confirm: String::new(),
@@ -2232,6 +2240,43 @@ pub async fn instance_start(
         apps2.with_job(&id, |j| match result {
             Ok(()) => {
                 j.log.push("started".into());
+                j.state = JobState::Done;
+            }
+            Err(e) => j.state = JobState::Failed(e),
+        });
+    });
+    job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// `POST /instances/{name}/apply`: bring the containers in line with the Compose files
+/// (`up -d` recreates only what drifted).
+pub async fn instance_apply(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let job_id = new_job(&apps, &name, "Applying")?;
+    crate::audit::record("app.apply", &name);
+    let apps2 = apps.clone();
+    let id = job_id.clone();
+    tokio::spawn(async move {
+        let inst = runner::Instance {
+            dir: apps2.root.join(&name),
+            name: name.clone(),
+        };
+        apps2.with_job(&id, |j| j.log.push("recreating what differs".into()));
+        let result = match runner::compose(&inst, &["up", "-d"]).await {
+            Ok(_) => runner::wait_stable(&inst, std::time::Duration::from_secs(240)).await,
+            Err(e) => Err(e),
+        };
+        apps2.note_job("Applying", &name, result.as_ref().err().map(|e| e.as_str()));
+        apps2.with_job(&id, |j| match result {
+            Ok(()) => {
+                j.log.push("in sync".into());
                 j.state = JobState::Done;
             }
             Err(e) => j.state = JobState::Failed(e),
@@ -4286,6 +4331,7 @@ mod tests {
             has_passwords: false,
             needs,
             stopped,
+            drift: Vec::new(),
             power: None,
             stop_confirm: format!("Stop {name}? api needs it and will stop working."),
             delete_confirm: String::new(),

@@ -525,7 +525,7 @@ pub async fn save(
             };
             (t.to_string(), !s.channels.telegram_chat.is_empty())
         };
-        if !f.telegram_token.trim().is_empty() && !has_chat && valid_bot_token(&token) {
+        if !has_chat && valid_bot_token(&token) {
             let url = telegram_url(TELEGRAM_API, &token, "getUpdates");
             if let Ok(out) = post_out(&url, None, "{}").await
                 && let Some(id) = chat_from_updates(&out)
