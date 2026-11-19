@@ -1,8 +1,5 @@
 <div id="channels">
   <p><small>Besides the Notifications page, Dockwren can push new or escalated notifications to your phone (ntfy), to a Telegram chat or channel, or to any service that accepts a webhook. Only the text of the notification is sent, never passwords or tokens. Delivery is best effort: a failed send is retried a few times, then dropped.</small></p>
-  {% if let Some((ok, text)) = message %}
-  <p role="status"><strong>{% if *ok %}Done:{% else %}Failed:{% endif %}</strong> {{ text }}</p>
-  {% endif %}
   {% if configured %}
   <div class="actions">
   {% if silence_min > 0 %}
@@ -38,6 +35,9 @@
       </select></label></p>
     <button type="submit">Save</button>
   </form>
+  {% if let Some((ok, text)) = message %}
+  <p role="status"><strong>{% if *ok %}Done:{% else %}Failed:{% endif %}</strong> {{ text }}</p>
+  {% endif %}
   <div class="actions">
   {% if configured %}
   <form hx-post="/settings/channels/test" hx-target="#channels" hx-swap="outerHTML">
