@@ -607,6 +607,161 @@ impl Apps {
         });
     }
 
+    /// True when the app has no containers at all (stopped with Remove or by a schedule).
+    async fn app_stopped(&self, name: &str) -> Result<bool, String> {
+        let inst = runner::Instance {
+            dir: self.root.join(name),
+            name: name.to_string(),
+        };
+        let ps = runner::compose(&inst, &["ps", "-a", "--format", "json"]).await?;
+        Ok(matches!(runner::judge(&ps),
+            runner::Status::Waiting(w) if w == "no containers yet"))
+    }
+
+    /// Start `name` after everything it needs, each only if it is stopped.
+    async fn start_with_needs<L: Fn(&str) + Send + Sync>(
+        &self,
+        name: &str,
+        log: L,
+    ) -> Result<(), String> {
+        let map = crate::needs::all(&self.root);
+        for n in crate::needs::start_order(&map, name) {
+            let inst = runner::Instance {
+                dir: self.root.join(&n),
+                name: n.clone(),
+            };
+            if !self
+                .app_stopped(&n)
+                .await
+                .map_err(|e| format!("{n}: {e}"))?
+            {
+                log(&format!("{n} is already running"));
+                continue;
+            }
+            log(&format!("starting {n}"));
+            runner::bring_up(&inst, &mut |s| log(&format!("{n}: {s}")))
+                .await
+                .map_err(|e| format!("{n}: {e}"))?;
+        }
+        Ok(())
+    }
+
+    /// Run `work` as a job on `name` (so it cannot overlap an update or a backup) and wait for it.
+    /// `None` when the app is busy: the caller tries again next minute.
+    async fn scheduled_job<F>(
+        &self,
+        name: &str,
+        verb: &'static str,
+        work: F,
+    ) -> Option<Result<(), String>>
+    where
+        F: std::future::Future<Output = Result<(), String>>,
+    {
+        let id = new_job(self, name, verb).ok()?;
+        let result = work.await;
+        self.note_job(verb, name, result.as_ref().err().map(|e| e.as_str()));
+        self.with_job(&id, |j| match &result {
+            Ok(()) => j.state = JobState::Done,
+            Err(e) => j.state = JobState::Failed(e.clone()),
+        });
+        Some(result)
+    }
+
+    /// One pass of the per-app stop/start schedule (see `power.rs`).
+    pub async fn run_power_schedule(&self, now: u64) {
+        use crate::power::Event;
+        let mut stops: Vec<(String, u64)> = Vec::new();
+        let mut starts: Vec<(String, u64)> = Vec::new();
+        for name in self.instance_names() {
+            let dir = self.root.join(&name);
+            let plan = crate::power::read(&dir);
+            if let Some((ev, at)) = plan.due(now, crate::power::state(&dir).0) {
+                match ev {
+                    Event::Stop => stops.push((name, at)),
+                    Event::Start => starts.push((name, at)),
+                }
+            }
+        }
+        let map = crate::needs::all(&self.root);
+        // Apps that need others stop first, so nothing is stopped under a running dependent.
+        while !stops.is_empty() {
+            let pending: Vec<String> = stops.iter().map(|(n, _)| n.clone()).collect();
+            let pos = stops
+                .iter()
+                .position(|(n, _)| {
+                    !crate::needs::dependents(&map, n)
+                        .iter()
+                        .any(|d| pending.contains(d))
+                })
+                .unwrap_or(0);
+            let (name, at) = stops.remove(pos);
+            let dir = self.root.join(&name);
+            let stopped = self.app_stopped(&name).await.unwrap_or(true);
+            let mut blocked = None;
+            if !stopped {
+                for d in crate::needs::dependents(&map, &name) {
+                    if !pending.contains(&d) && !self.app_stopped(&d).await.unwrap_or(true) {
+                        blocked = Some(d);
+                        break;
+                    }
+                }
+            }
+            let (_, was) = crate::power::state(&dir);
+            if stopped {
+                let _ = crate::power::set_state(&dir, at, was);
+            } else if let Some(d) = blocked {
+                crate::audit::record("power.skip", &format!("{name}: {d} still needs it"));
+                let _ = crate::power::set_state(&dir, at, was);
+            } else {
+                let inst = runner::Instance {
+                    dir: dir.clone(),
+                    name: name.clone(),
+                };
+                match self
+                    .scheduled_job(&name, "Stopping", async { runner::take_down(&inst).await })
+                    .await
+                {
+                    None => {}
+                    Some(r) => {
+                        crate::audit::record("power.stop", &name);
+                        let _ = crate::power::set_state(&dir, at, r.is_ok() || was);
+                    }
+                }
+            }
+        }
+        for (name, at) in starts {
+            let dir = self.root.join(&name);
+            let (_, was) = crate::power::state(&dir);
+            if !was {
+                let _ = crate::power::set_state(&dir, at, false);
+                continue;
+            }
+            match self
+                .scheduled_job(&name, "Starting", async {
+                    self.start_with_needs(&name, |_| {}).await
+                })
+                .await
+            {
+                None => {}
+                Some(r) => {
+                    crate::audit::record("power.start", &name);
+                    let _ = crate::power::set_state(&dir, at, r.is_err());
+                }
+            }
+        }
+    }
+
+    /// Every minute: stop and start the apps that have a schedule.
+    pub fn spawn_power_scheduler(&self) {
+        let apps = self.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                apps.run_power_schedule(crate::schedule::now()).await;
+            }
+        });
+    }
+
     /// Every minute: inside the chosen UTC window, update each healthy app that has a newer
     /// bundled version (and was not skipped). Each (app, version) is tried once per process,
     /// so a failed update that rolled back is not retried every minute.
@@ -885,6 +1040,8 @@ struct InstanceView {
     needs: Vec<(String, bool)>,
     /// No containers: the app can be started from here.
     stopped: bool,
+    /// Its stop/start schedule, when it has one.
+    power: Option<String>,
     /// Confirmation texts; they name the apps that need this one.
     stop_confirm: String,
     delete_confirm: String,
@@ -1744,6 +1901,7 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             deletable: status_is_stopped && crate::public::read(&dir).is_none(),
             needs: Vec::new(),
             stopped: status_is_stopped,
+            power: crate::power::read(&dir).describe(),
             stop_confirm: String::new(),
             delete_confirm: String::new(),
             limitable,
@@ -1875,6 +2033,7 @@ pub async fn instance_remove(
         .err();
     if error.is_none() {
         crate::audit::record("app.remove", &removed);
+        crate::power::forget_stopped(&apps.root.join(&removed));
         crate::terminal::set_adopted(runner::adopted_projects(&apps.root));
     }
     let note = error
@@ -1886,6 +2045,88 @@ pub async fn instance_remove(
         error,
         note,
     }))
+}
+
+#[derive(Template)]
+#[template(path = "power.html")]
+struct PowerForm {
+    name: String,
+    stop: String,
+    start: String,
+    error: Option<String>,
+}
+
+fn power_view(
+    apps: &Apps,
+    name: &str,
+    error: Option<String>,
+    typed: Option<(&str, &str)>,
+) -> PowerForm {
+    let plan = crate::power::read(&apps.root.join(name));
+    let t = |m: Option<u16>| m.map(crate::power::fmt_time).unwrap_or_default();
+    PowerForm {
+        name: name.to_string(),
+        stop: typed.map_or_else(|| t(plan.stop), |(s, _)| s.to_string()),
+        start: typed.map_or_else(|| t(plan.start), |(_, s)| s.to_string()),
+        error,
+    }
+}
+
+/// `GET /instances/{name}/power`: the stop/start times of one app.
+pub async fn power_form(
+    State(apps): State<Apps>,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    known_instance(&apps, &name)?;
+    Ok(render(power_view(&apps, &name, None, None)))
+}
+
+#[derive(serde::Deserialize)]
+pub struct PowerValues {
+    #[serde(default)]
+    stop: String,
+    #[serde(default)]
+    start: String,
+}
+
+/// `POST /instances/{name}/power`: save (or clear) the stop/start times.
+pub async fn power_submit(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Form(v): Form<PowerValues>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let plan = match crate::power::Plan::from_form(&v.stop, &v.start) {
+        Ok(p) => p,
+        Err(e) => {
+            return Ok(render(power_view(
+                &apps,
+                &name,
+                Some(e.to_string()),
+                Some((&v.stop, &v.start)),
+            )));
+        }
+    };
+    if let Err(e) = crate::power::write(&apps.root.join(&name), &plan, crate::schedule::now()) {
+        return Ok(render(power_view(
+            &apps,
+            &name,
+            Some(format!("could not save: {e}")),
+            Some((&v.stop, &v.start)),
+        )));
+    }
+    let note = plan.describe().map_or_else(
+        || format!("{name} has no schedule."),
+        |d| format!("{name} {d}."),
+    );
+    crate::audit::record("app.power", &format!("{name}: {note}"));
+    Ok(Html(format!(
+        "<div id=\"power\"><p>{note}</p><button type=\"button\" onclick=\"document.getElementById('install').innerHTML=''\">Close</button></div>"
+    )))
 }
 
 #[derive(Template)]
@@ -1976,37 +2217,15 @@ pub async fn instance_start(
     known_instance(&apps, &name)?;
     let job_id = new_job(&apps, &name, "Starting")?;
     crate::audit::record("app.start", &name);
+    crate::power::forget_stopped(&apps.root.join(&name));
     let apps2 = apps.clone();
     let id = job_id.clone();
     tokio::spawn(async move {
-        let log = |s: &str| {
-            apps2.with_job(&id, |j| j.log.push(s.to_string()));
-        };
-        let result = async {
-            let map = crate::needs::all(&apps2.root);
-            for n in crate::needs::start_order(&map, &name) {
-                let inst = runner::Instance {
-                    dir: apps2.root.join(&n),
-                    name: n.clone(),
-                };
-                let stopped = match runner::compose(&inst, &["ps", "-a", "--format", "json"]).await
-                {
-                    Ok(ps) => matches!(runner::judge(&ps),
-                        runner::Status::Waiting(w) if w == "no containers yet"),
-                    Err(e) => return Err(format!("{n}: {e}")),
-                };
-                if !stopped {
-                    log(&format!("{n} is already running"));
-                    continue;
-                }
-                log(&format!("starting {n}"));
-                runner::bring_up(&inst, &mut |s| log(&format!("{n}: {s}")))
-                    .await
-                    .map_err(|e| format!("{n}: {e}"))?;
-            }
-            Ok::<(), String>(())
-        }
-        .await;
+        let result = apps2
+            .start_with_needs(&name, |s| {
+                apps2.with_job(&id, |j| j.log.push(s.to_string()));
+            })
+            .await;
         apps2.note_job("Starting", &name, result.as_ref().err().map(|e| e.as_str()));
         apps2.with_job(&id, |j| match result {
             Ok(()) => {
@@ -4065,6 +4284,7 @@ mod tests {
             has_passwords: false,
             needs,
             stopped,
+            power: None,
             stop_confirm: format!("Stop {name}? api needs it and will stop working."),
             delete_confirm: String::new(),
             uncapped: false,
@@ -4263,5 +4483,78 @@ mod offsite_page_tests {
         assert!(html.contains("pw-shown-once-xyz"), "{html}");
         let again = offsite_html(&apps, None, None, None).0;
         assert!(!again.contains("pw-shown-once-xyz"));
+    }
+}
+
+#[cfg(test)]
+mod power_docker_tests {
+    use super::*;
+
+    const D0: u64 = 20_776 * 86_400;
+
+    fn stack(root: &std::path::Path, name: &str, needs: &[&str]) -> runner::Instance {
+        let dir = root.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("state.toml"), "template = \"x\"\nversion = 1\n").unwrap();
+        std::fs::write(dir.join(".env"), "").unwrap();
+        std::fs::write(
+            dir.join("compose.yaml"),
+            "services:\n  s:\n    image: alpine:latest\n    command: sleep 600\n",
+        )
+        .unwrap();
+        let needs: Vec<String> = needs.iter().map(|s| s.to_string()).collect();
+        crate::needs::write(&dir, &needs).unwrap();
+        runner::Instance {
+            dir,
+            name: name.to_string(),
+        }
+    }
+
+    /// Needs a running Docker and the alpine image: two throwaway stacks, `web` needs `db`.
+    #[tokio::test]
+    #[ignore = "needs docker"]
+    async fn schedule_stops_dependents_first_and_starts_needs_first() {
+        let root = std::env::temp_dir().join(format!("dockwren-power-dk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let db = stack(&root, "dwp-db", &[]);
+        let web = stack(&root, "dwp-web", &["dwp-db"]);
+        let apps = Apps::new(Vec::new(), root.clone());
+        let result = async {
+            runner::bring_up(&db, &mut |_| {}).await?;
+            runner::bring_up(&web, &mut |_| {}).await?;
+            let plan = crate::power::Plan::from_form("03:00", "04:00").unwrap();
+            for i in [&db, &web] {
+                crate::power::write(&i.dir, &plan, D0).unwrap();
+            }
+            // Only the db is due to stop while web (no schedule) runs: it is left alone.
+            let only_db = crate::power::Plan::from_form("02:00", "").unwrap();
+            crate::power::write(&web.dir, &crate::power::Plan::default(), D0).unwrap();
+            crate::power::write(&db.dir, &only_db, D0 - 86_400).unwrap();
+            apps.run_power_schedule(D0 + 2 * 3600 + 600).await;
+            assert!(!apps.app_stopped("dwp-db").await?, "db stopped under web");
+            // Both due: web goes first, then db.
+            crate::power::write(&web.dir, &plan, D0).unwrap();
+            crate::power::write(&db.dir, &plan, D0).unwrap();
+            apps.run_power_schedule(D0 + 3 * 3600 + 1800).await;
+            assert!(apps.app_stopped("dwp-web").await?);
+            assert!(apps.app_stopped("dwp-db").await?);
+            assert_eq!(crate::power::state(&web.dir), (D0 + 3 * 3600, true));
+            // Start time: both come back (the db first, as web needs it).
+            apps.run_power_schedule(D0 + 4 * 3600 + 1800).await;
+            assert!(!apps.app_stopped("dwp-db").await?);
+            assert!(!apps.app_stopped("dwp-web").await?);
+            assert_eq!(crate::power::state(&web.dir), (D0 + 4 * 3600, false));
+            // A manual stop is not undone: no new time has passed.
+            runner::take_down(&web).await?;
+            apps.run_power_schedule(D0 + 4 * 3600 + 2400).await;
+            assert!(apps.app_stopped("dwp-web").await?);
+            Ok::<(), String>(())
+        }
+        .await;
+        let _ = runner::take_down(&web).await;
+        let _ = runner::take_down(&db).await;
+        let _ = std::fs::remove_dir_all(&root);
+        result.unwrap();
     }
 }

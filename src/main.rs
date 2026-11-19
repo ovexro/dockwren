@@ -24,6 +24,7 @@ mod notify;
 mod offsite;
 mod orphans;
 mod osupdate;
+mod power;
 mod public;
 mod registry;
 mod release;
@@ -604,6 +605,10 @@ fn app(
         .route(
             "/settings/offsite",
             get(apps::offsite_show).post(apps::offsite_save),
+        )
+        .route(
+            "/instances/{name}/power",
+            get(apps::power_form).post(apps::power_submit),
         )
         .route("/settings/registries", get(apps::registries_show))
         .route("/settings/registries/login", post(apps::registries_login))
@@ -1617,6 +1622,7 @@ async fn main() {
     apps.spawn_update_checker();
     apps.spawn_backup_scheduler();
     apps.spawn_update_scheduler();
+    apps.spawn_power_scheduler();
     release::spawn_checker(notify.clone());
     upstream::spawn_checker(apps.clone(), notify.clone());
     hostupdates::spawn_checker(notify.clone());
@@ -2516,6 +2522,66 @@ mod tests {
         assert!(!bad.contains("secret-tok"), "{bad}");
         let none = post("/settings/registries/logout", "server=ghcr.io").await;
         assert!(none.contains("No saved login"), "{none}");
+    }
+
+    #[tokio::test]
+    async fn power_schedule_form_validates_and_saves() {
+        let root = std::env::temp_dir().join(format!("dockwren-power-ui-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let inst = root.join("gt");
+        std::fs::create_dir_all(&inst).unwrap();
+        std::fs::write(inst.join("state.toml"), "template = \"x\"\nversion = 1\n").unwrap();
+        let auth: SharedAuth =
+            Arc::new(auth::Auth::new(&auth::hash_password(PASSWORD), false).unwrap());
+        let apps =
+            apps::Apps::new(template::catalog(None).unwrap(), root.clone()).with_auth(auth.clone());
+        let app = app(
+            auth,
+            DockerClient::connect().unwrap(),
+            apps,
+            metrics::Shared::default(),
+            Arc::new(std::sync::Mutex::new(notify::Store::memory())),
+            Arc::new(terminal::Switch::new(false, None)),
+            Arc::new(osupdate::Control::new(None)),
+            Arc::new(selfupdate::Control::new(&std::env::temp_dir())),
+        );
+        let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+        let post = |body: &'static str| {
+            let app = app.clone();
+            let cookie = cookie.clone();
+            async move {
+                let req = Request::post("/instances/gt/power")
+                    .header(header::COOKIE, cookie)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(body))
+                    .unwrap();
+                body_of(app.oneshot(req).await.unwrap()).await
+            }
+        };
+        let bad = post("stop=25%3A00&start=07%3A00").await;
+        assert!(bad.contains("HH:MM"), "{bad}");
+        assert!(bad.contains("25:00"), "{bad}");
+        let same = post("stop=03%3A00&start=03%3A00").await;
+        assert!(same.contains("cannot be the same"), "{same}");
+        let ok = post("stop=23%3A00&start=07%3A00").await;
+        assert!(ok.contains("stops 23:00, starts 07:00 UTC"), "{ok}");
+        assert_eq!(
+            std::fs::read_to_string(inst.join("power")).unwrap(),
+            "stop=23:00\nstart=07:00\n"
+        );
+        let cleared = post("stop=&start=").await;
+        assert!(cleared.contains("no schedule"), "{cleared}");
+        assert!(!inst.join("power").exists());
+        let missing = Request::post("/instances/nope/power")
+            .header(header::COOKIE, cookie.clone())
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("stop=&start="))
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(missing).await.unwrap().status(),
+            StatusCode::NOT_FOUND
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[tokio::test]

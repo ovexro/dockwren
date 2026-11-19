@@ -1,0 +1,11 @@
+<div id="power">
+  <h3>When does {{ name }} run?</h3>
+  <p><small>Stop {{ name }} at a set time every day and start it again later (times are UTC, HH:MM). A stop works like Remove: the containers go, the data stays. A start only happens for an app this schedule stopped, with the apps it needs first. Leave a time empty to skip it; leave both empty for no schedule. If it has a Public URL, that shows as unreachable while it is stopped.</small></p>
+  {% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
+  <form hx-post="/instances/{{ name }}/power" hx-target="#install" hx-swap="innerHTML show:#install:top" autocomplete="off">
+    <label>Stop at (UTC) <input name="stop" value="{{ stop }}" placeholder="23:00" maxlength="5"></label>
+    <label>Start at (UTC) <input name="start" value="{{ start }}" placeholder="07:00" maxlength="5"></label>
+    <button class="primary" type="submit">Save</button>
+    <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
+  </form>
+</div>
