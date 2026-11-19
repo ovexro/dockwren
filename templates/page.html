@@ -12,11 +12,12 @@
   <script src="/static/htmx.min.js?v={{ assets }}" defer></script>
   <script src="/static/confirm.js?v={{ assets }}" defer></script>
 </head>
+{% import "icons.html" as icons %}
 <body class="shell">
   <nav class="side" aria-label="Main">
     <a class="brand" href="/"><img src="/favicon.svg" alt="" width="28" height="28">Dockwren</a>
     <ul>
-      {% for n in nav %}<li><a href="{{ n.0 }}"{% if n.1 == active %} aria-current="page"{% endif %} aria-label="{{ n.2 }}"><span class="full">{{ n.2 }}</span><span class="short" aria-hidden="true">{{ n.3 }}</span></a>{% if n.1 == "notifications" %}<span id="bell" hx-get="/notifications/count" hx-trigger="load, every 30s" hx-swap="outerHTML"></span>{% endif %}</li>
+      {% for n in nav %}<li><a href="{{ n.0 }}"{% if n.1 == active %} aria-current="page"{% endif %} aria-label="{{ n.2 }}">{{ icons::ic(n.1) }}<span class="full">{{ n.2 }}</span><span class="short" aria-hidden="true">{{ n.3 }}</span></a>{% if n.1 == "notifications" %}<span id="bell" hx-get="/notifications/count" hx-trigger="load, every 30s" hx-swap="outerHTML"></span>{% endif %}</li>
       {% endfor %}
     </ul>
   </nav>
@@ -41,12 +42,12 @@
     <div id="metrics" hx-get="/metrics" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     {% else %}
     <nav class="tabs" aria-label="Settings">
-      <a href="/settings/tab/general"{% if tab == "general" %} aria-current="page"{% endif %}>General</a>
-      <a href="/settings/tab/notifications"{% if tab == "notifications" %} aria-current="page"{% endif %}>Notifications</a>
-      <a href="/settings/tab/security"{% if tab == "security" %} aria-current="page"{% endif %}>Security</a>
-      <a href="/settings/tab/backups"{% if tab == "backups" %} aria-current="page"{% endif %}>Backups</a>
-      <a href="/settings/tab/updates"{% if tab == "updates" %} aria-current="page"{% endif %}>Updates</a>
-      <a href="/settings/tab/system"{% if tab == "system" %} aria-current="page"{% endif %}>System</a>
+      <a href="/settings/tab/general"{% if tab == "general" %} aria-current="page"{% endif %}>{{ icons::ic("general") }}General</a>
+      <a href="/settings/tab/notifications"{% if tab == "notifications" %} aria-current="page"{% endif %}>{{ icons::ic("notifications") }}Notifications</a>
+      <a href="/settings/tab/security"{% if tab == "security" %} aria-current="page"{% endif %}>{{ icons::ic("security") }}Security</a>
+      <a href="/settings/tab/backups"{% if tab == "backups" %} aria-current="page"{% endif %}>{{ icons::ic("backups") }}Backups</a>
+      <a href="/settings/tab/updates"{% if tab == "updates" %} aria-current="page"{% endif %}>{{ icons::ic("updates") }}Updates</a>
+      <a href="/settings/tab/system"{% if tab == "system" %} aria-current="page"{% endif %}>{{ icons::ic("system") }}System</a>
     </nav>
     {% if tab == "notifications" %}
     <section class="panel">
