@@ -51,13 +51,13 @@ last 90 days). Switch state lives in `notify-settings.json` next to it.
 
 ## Delivery channels
 
-`src/deliver.rs` pushes events out of the panel: ntfy (JSON publish, priority by severity) and a generic
+`src/deliver.rs` pushes events out of the panel: ntfy (JSON publish, priority by severity), Telegram (bot `sendMessage`, plain text with a severity icon) and a generic
 webhook (JSON POST with `title`, `body`, `severity`, `kind`, `link`, `ts`, plus `text` and `content` for
 Slack and Discord). Producers do nothing: a loop checks every 20 s for open events that were not sent yet at
 their current severity (`Store::pending_delivery`), so a new event and an escalation are sent, a repeat is not.
 Each event remembers the highest severity sent (`notified`). A failed send is retried 3 times, then dropped.
 
-- Settings: ntfy server/topic/token, webhook address, and a minimum severity (default warnings and critical).
+- Settings: ntfy server/topic/token, Telegram bot token + chat id or `@channel` (an empty chat id with a new token is looked up with `getUpdates`: the chat that last wrote to the bot), webhook address, and a minimum severity (default warnings and critical).
   Addresses and tokens live in `notify-channels.json` (0600), go to curl on stdin and are never shown again.
 - Turning the first channel on marks the events already open as sent, so it is not flooded.
 - When a condition clears by itself after it was sent, one low-priority "Resolved: ..." message follows (`clear_pending`, `Store::pending_resolved`). Dismissing an event by hand sends nothing; e-mail is not built.

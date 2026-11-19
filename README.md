@@ -60,7 +60,7 @@ Release binaries and `SHA256SUMS` are on the
   steps per template.
 - Backups (files plus database dumps) and restore, from the UI or the CLI; a safety snapshot is
   taken before a restore.
-- Resource alerts: notifications (bell, ntfy, webhook) when a disk passes 85 % (critical at 95 %) or, from the last week's trend, will be full within 14 days (the Overview disk tile shows "full in ~N days" when it is under 60), memory stays at 90 % or more for 5 minutes, CPU for 15 minutes, a disk runs low on inodes (85 %), the 15-minute load stays at twice the core count (the Overview shows a Load tile), or a container crashes, restarts in a loop or fails its health check, or publishes a port on every network interface (Docker bypasses ufw for those; the Health check lists them too). Fixed thresholds, one switch per kind in Settings → Notifications.
+- Resource alerts: notifications (bell, ntfy, Telegram, webhook) when a disk passes 85 % (critical at 95 %) or, from the last week's trend, will be full within 14 days (the Overview disk tile shows "full in ~N days" when it is under 60), memory stays at 90 % or more for 5 minutes, CPU for 15 minutes, a disk runs low on inodes (85 %), the 15-minute load stays at twice the core count (the Overview shows a Load tile), or a container crashes, restarts in a loop or fails its health check, or publishes a port on every network interface (Docker bypasses ufw for those; the Health check lists them too). Fixed thresholds, one switch per kind in Settings → Notifications.
 - App settings: apps with changeable options (time zone, sign-ups, mail servers, media folders...) have a **Settings** button on the Apps page. Saving validates the values, rewrites the app's `.env` and recreates its containers; if the app does not come back healthy the old values are put back. Passwords, ports and the public address are not editable there, and each change is written to the audit log (key names only, never values).
 - Removing apps: **Stop & remove containers** keeps the data and the app stays in the list as stopped. On a stopped app that has no Public URL, **Delete app** removes it completely (containers' volumes and the data folder, after a confirmation; its backups are kept).
 - Needs between apps: **Needs** on an app lets you tick the other apps it depends on (a database stack, say). Dockwren then names the apps affected in the confirmation before you stop or delete one, shows a need that is not running, and **Start** (on a stopped app) starts its needs first. It never changes how Docker runs the stacks.
@@ -201,7 +201,7 @@ The install form shows the full note for each app. The ones that surprise people
 ## Adding apps
 
 Apps are small templates (a manifest plus a Compose file). See [docs/TEMPLATES.md](docs/TEMPLATES.md).
-Panel features can raise notifications for the admin, and Settings can forward them to ntfy or a webhook: see [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
+Panel features can raise notifications for the admin, and Settings can forward them to ntfy, Telegram or a webhook: see [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
 
 ## Support
 

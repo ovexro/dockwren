@@ -2895,6 +2895,7 @@ mod tests {
             ("POST", "/settings/channels"),
             ("POST", "/settings/channels/test"),
             ("POST", "/settings/channels/ntfy/remove"),
+            ("POST", "/settings/channels/telegram/remove"),
             ("GET", "/settings/2fa"),
             ("POST", "/settings/2fa/start"),
             ("POST", "/settings/2fa/enable"),

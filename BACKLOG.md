@@ -21,7 +21,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 - Name stays "Dockwren" (user, 2026-11-13), despite the pending USPTO "DOCKWARE" filing.
 - Repo is public (user approved 2026-11-13); ask before any visibility change.
 - Cloudflare Access on `expose` is opt-in (`--access`): Bitwarden/git-HTTPS clients cannot pass an Access login.
-- Notifications: ntfy/webhook only; no further channels planned (2026-11-14).
+- Notifications: ntfy/webhook; Telegram ADDED as a third channel by user decision 2026-11-19 (separate section under ntfy, not a dropdown; fake-server test, real bot test by user later; also a 640x640 Telegram profile logo from static/icon-512.png). No other channels planned.
 - Home Assistant template: DROPPED (2026-11-16): needs host networking, which Dockwren refuses.
 - Multi-user / roles: not wanted (2026-11-14). Single admin stays.
 - Server migration: DONE via config export (panel settings included) + `dockwren recover` (v0.1.56, tested on a real VPS 2026-11-17). Direct `dockwren migrate` without an off-host target: DROPPED (2026-11-17), off-host covers the real case. The tunnel connector (cloudflared) is not managed by Dockwren: the user runs it on the new server.

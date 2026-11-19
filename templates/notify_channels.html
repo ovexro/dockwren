@@ -1,5 +1,5 @@
 <div id="channels">
-  <p><small>Besides the Notifications page, Dockwren can push new or escalated notifications to your phone (ntfy) or to any service that accepts a webhook. Only the text of the notification is sent, never passwords or tokens. Delivery is best effort: a failed send is retried a few times, then dropped.</small></p>
+  <p><small>Besides the Notifications page, Dockwren can push new or escalated notifications to your phone (ntfy), to a Telegram chat or channel, or to any service that accepts a webhook. Only the text of the notification is sent, never passwords or tokens. Delivery is best effort: a failed send is retried a few times, then dropped.</small></p>
   {% if let Some((ok, text)) = message %}
   <p role="status"><strong>{% if *ok %}Done:{% else %}Failed:{% endif %}</strong> {{ text }}</p>
   {% endif %}
@@ -25,6 +25,11 @@
     <p><label>Webhook address
       <input type="password" name="webhook_url" autocomplete="off" spellcheck="false" placeholder="{% if has_webhook %}saved ({{ webhook_host }}), leave empty to keep{% else %}https://…{% endif %}"></label><br>
       <small>Dockwren sends a JSON POST with <code>title</code>, <code>body</code>, <code>severity</code>, <code>kind</code>, <code>link</code>, <code>ts</code>, plus <code>text</code> and <code>content</code> (what Slack and Discord read).</small></p>
+    <p><label>Telegram bot token
+      <input type="password" name="telegram_token" autocomplete="off" spellcheck="false" placeholder="{% if has_telegram %}saved, leave empty to keep{% else %}123456789:ABC-def…  (from @BotFather){% endif %}"></label></p>
+    <p><label>Telegram chat id or @channel
+      <input type="text" name="telegram_chat" value="{{ telegram_chat }}" placeholder="leave empty to find it automatically" spellcheck="false"></label><br>
+      <small>Create the bot with @BotFather (<code>/newbot</code>). For a private chat, send your bot any message first. For a channel, add the bot as an administrator that may post, then enter <code>@yourchannel</code>. With a new token and an empty chat field, Dockwren looks up the chat that last wrote to the bot.</small></p>
     <p><label>Send me
       <select name="min">
         <option value="info" {% if min == "info" %}selected{% endif %}>everything (info, warnings, critical)</option>
@@ -47,6 +52,11 @@
   {% if has_webhook %}
   <form hx-post="/settings/channels/webhook/remove" hx-target="#channels" hx-swap="outerHTML" hx-confirm="Stop sending to the webhook and forget its address?">
     <button type="submit">Remove webhook</button>
+  </form>
+  {% endif %}
+  {% if has_telegram %}
+  <form hx-post="/settings/channels/telegram/remove" hx-target="#channels" hx-swap="outerHTML" hx-confirm="Stop sending to Telegram and forget the bot token?">
+    <button type="submit">Remove Telegram</button>
   </form>
   {% endif %}
   </div>

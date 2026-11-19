@@ -1,4 +1,4 @@
-//! Delivery channels: push notifications out of the panel (ntfy, webhook).
+//! Delivery channels: push notifications out of the panel (ntfy, webhook, Telegram).
 //!
 //! A background loop looks every 20 seconds for open events the channels have not received at
 //! their current severity (`Store::pending_delivery`), sends them through curl and marks them
@@ -21,6 +21,7 @@ use crate::notify::{Event, Severity, Shared};
 
 pub const FILE: &str = "notify-channels.json";
 const DEFAULT_NTFY: &str = "https://ntfy.sh";
+const TELEGRAM_API: &str = "https://api.telegram.org";
 const TICK: Duration = Duration::from_secs(20);
 const MAX_ATTEMPTS: u8 = 3;
 
@@ -34,6 +35,12 @@ pub struct Config {
     pub ntfy_token: String,
     #[serde(default)]
     pub webhook_url: String,
+    /// Telegram bot token (from @BotFather): a secret, never shown again.
+    #[serde(default)]
+    pub telegram_token: String,
+    /// Chat the bot writes to: a number (private chat, group, channel) or `@channelname`.
+    #[serde(default)]
+    pub telegram_chat: String,
     #[serde(default = "warning")]
     pub min: Severity,
 }
@@ -49,6 +56,8 @@ impl Default for Config {
             ntfy_topic: String::new(),
             ntfy_token: String::new(),
             webhook_url: String::new(),
+            telegram_token: String::new(),
+            telegram_chat: String::new(),
             min: Severity::Warning,
         }
     }
@@ -61,8 +70,11 @@ impl Config {
     pub fn has_webhook(&self) -> bool {
         !self.webhook_url.is_empty()
     }
+    pub fn has_telegram(&self) -> bool {
+        !self.telegram_token.is_empty() && !self.telegram_chat.is_empty()
+    }
     pub fn any(&self) -> bool {
-        self.has_ntfy() || self.has_webhook()
+        self.has_ntfy() || self.has_webhook() || self.has_telegram()
     }
 }
 
@@ -90,6 +102,30 @@ fn valid_topic(t: &str) -> bool {
         && t.len() <= 64
         && t.chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// `123456:ABC-def_...` as BotFather hands it out.
+fn valid_bot_token(t: &str) -> bool {
+    let Some((id, secret)) = t.split_once(':') else {
+        return false;
+    };
+    t.len() <= 200
+        && !id.is_empty()
+        && id.chars().all(|c| c.is_ascii_digit())
+        && !secret.is_empty()
+        && secret
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// A number (`123`, `-1001234567890`) or a public channel name (`@mychannel`).
+fn valid_chat(c: &str) -> bool {
+    if let Some(name) = c.strip_prefix('@') {
+        return (5..=32).contains(&name.len())
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    }
+    let digits = c.strip_prefix('-').unwrap_or(c);
+    !digits.is_empty() && digits.len() <= 20 && digits.chars().all(|c| c.is_ascii_digit())
 }
 
 /// The host part of a URL, for showing which webhook is saved without revealing the path.
@@ -157,14 +193,54 @@ fn webhook_body(e: &Event) -> String {
     .to_string()
 }
 
+/// Telegram `sendMessage` body: plain text (no markup, so nothing in a title can break it).
+fn telegram_body(e: &Event, chat: &str) -> String {
+    let icon = match e.severity {
+        Severity::Info if e.title.starts_with("Resolved: ") => "\u{2705}",
+        Severity::Info => "\u{2139}\u{FE0F}",
+        Severity::Warning => "\u{26A0}\u{FE0F}",
+        Severity::Critical => "\u{1F6A8}",
+    };
+    let mut text = format!("{icon} {}", e.title);
+    if let Some(b) = &e.body {
+        text.push_str("\n\n");
+        text.push_str(b);
+    }
+    let text: String = text.chars().take(3500).collect();
+    serde_json::json!({
+        "chat_id": chat,
+        "text": text,
+        "disable_web_page_preview": true,
+    })
+    .to_string()
+}
+
+fn telegram_url(base: &str, token: &str, method: &str) -> String {
+    format!("{}/bot{token}/{method}", base.trim_end_matches('/'))
+}
+
+/// The chat that last wrote to the bot, so the admin does not have to look up a chat id.
+fn chat_from_updates(json: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(json).ok()?;
+    v["result"].as_array()?.iter().rev().find_map(|u| {
+        ["message", "channel_post", "my_chat_member"]
+            .iter()
+            .find_map(|k| u[*k]["chat"]["id"].as_i64())
+            .map(|id| id.to_string())
+    })
+}
+
 /// One POST through curl. URL and auth header go in on stdin as a curl config.
 async fn post(url: &str, bearer: Option<&str>, body: &str) -> Result<(), String> {
+    post_out(url, bearer, body).await.map(|_| ())
+}
+
+/// Same, returning the response body.
+async fn post_out(url: &str, bearer: Option<&str>, body: &str) -> Result<String, String> {
     let mut cmd = tokio::process::Command::new("curl");
     cmd.args([
         "-sS",
         "-f",
-        "-o",
-        "/dev/null",
         "--max-time",
         "15",
         "--proto",
@@ -181,7 +257,7 @@ async fn post(url: &str, bearer: Option<&str>, body: &str) -> Result<(), String>
         body,
     ]);
     cmd.stdin(Stdio::piped())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("cannot run curl: {e}"))?;
     let mut cfg = format!("url = \"{url}\"\n");
@@ -197,7 +273,7 @@ async fn post(url: &str, bearer: Option<&str>, body: &str) -> Result<(), String>
         .map_err(|e| e.to_string())?;
     let out = child.wait_with_output().await.map_err(|e| e.to_string())?;
     if out.status.success() {
-        return Ok(());
+        return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
     }
     // curl's own message can quote the URL (a secret for webhooks): keep only the reason.
     let err = String::from_utf8_lossy(&out.stderr);
@@ -238,6 +314,13 @@ async fn send(cfg: &Config, e: &Event) -> Vec<String> {
         && let Err(m) = post(&cfg.webhook_url, None, &webhook_body(e)).await
     {
         errors.push(format!("webhook: {m}"));
+    }
+    if cfg.has_telegram() {
+        let url = telegram_url(TELEGRAM_API, &cfg.telegram_token, "sendMessage");
+        let body = telegram_body(e, &cfg.telegram_chat);
+        if let Err(m) = post(&url, None, &body).await {
+            errors.push(format!("telegram: {m}"));
+        }
     }
     errors
 }
@@ -297,6 +380,8 @@ struct ChannelsTemplate {
     has_ntfy: bool,
     has_webhook: bool,
     webhook_host: String,
+    has_telegram: bool,
+    telegram_chat: String,
     configured: bool,
     min: &'static str,
     silence_min: u64,
@@ -313,6 +398,8 @@ fn render(s: &crate::notify::Store, message: Option<(bool, String)>) -> Html<Str
             has_ntfy: c.has_ntfy(),
             has_webhook: c.has_webhook(),
             webhook_host: host_of(&c.webhook_url),
+            has_telegram: c.has_telegram(),
+            telegram_chat: c.telegram_chat.clone(),
             configured: c.any(),
             min: c.min.slug(),
             silence_min: s.silence_left().div_ceil(60),
@@ -336,6 +423,10 @@ pub struct ChannelsForm {
     ntfy_token: String,
     #[serde(default)]
     webhook_url: String,
+    #[serde(default)]
+    telegram_token: String,
+    #[serde(default)]
+    telegram_chat: String,
     #[serde(default)]
     min: String,
 }
@@ -373,6 +464,26 @@ fn merged(old: &Config, f: &ChannelsForm) -> Result<Config, String> {
         }
         c.webhook_url = hook.to_string();
     }
+    let chat = f.telegram_chat.trim();
+    let tg_token = f.telegram_token.trim();
+    if !tg_token.is_empty() {
+        if !valid_bot_token(tg_token) {
+            return Err(
+                "That does not look like a Telegram bot token (it looks like 123456:ABC-def...)."
+                    .into(),
+            );
+        }
+        c.telegram_token = tg_token.to_string();
+    }
+    if !chat.is_empty() {
+        if !valid_chat(chat) {
+            return Err(
+                "The Telegram chat must be a number (for example -1001234567890) or @channelname."
+                    .into(),
+            );
+        }
+        c.telegram_chat = chat.to_string();
+    }
     c.min = match f.min.as_str() {
         "info" => Severity::Info,
         "critical" => Severity::Critical,
@@ -383,14 +494,44 @@ fn merged(old: &Config, f: &ChannelsForm) -> Result<Config, String> {
 
 pub async fn save(
     AxState(shared): AxState<Shared>,
-    axum::Form(f): axum::Form<ChannelsForm>,
+    axum::Form(mut f): axum::Form<ChannelsForm>,
 ) -> Html<String> {
+    let mut found = false;
+    if f.telegram_chat.trim().is_empty() {
+        // A new token without a chat: ask Telegram which chat wrote to the bot last.
+        let (token, has_chat) = {
+            let s = shared.lock().unwrap();
+            let t = f.telegram_token.trim();
+            let t = if t.is_empty() {
+                &s.channels.telegram_token
+            } else {
+                t
+            };
+            (t.to_string(), !s.channels.telegram_chat.is_empty())
+        };
+        if !f.telegram_token.trim().is_empty() && !has_chat && valid_bot_token(&token) {
+            let url = telegram_url(TELEGRAM_API, &token, "getUpdates");
+            if let Ok(out) = post_out(&url, None, "{}").await
+                && let Some(id) = chat_from_updates(&out)
+            {
+                f.telegram_chat = id;
+                found = true;
+            }
+        }
+    }
     let mut s = shared.lock().unwrap();
     match merged(&s.channels, &f) {
         Ok(c) => {
             s.set_channels(c);
             crate::audit::record("settings.channels", "saved");
-            render(&s, Some((true, "Saved.".into())))
+            let note = if found {
+                "Saved. The Telegram chat was found automatically."
+            } else if !s.channels.telegram_token.is_empty() && s.channels.telegram_chat.is_empty() {
+                "Saved, but Telegram is not active yet: send any message to your bot (or add it to the channel as admin and post once), then press Save again, or type the chat id."
+            } else {
+                "Saved."
+            };
+            render(&s, Some((true, note.into())))
         }
         Err(m) => render(&s, Some((false, m))),
     }
@@ -409,6 +550,10 @@ pub async fn remove(
             c.ntfy_token.clear();
         }
         "webhook" => c.webhook_url.clear(),
+        "telegram" => {
+            c.telegram_token.clear();
+            c.telegram_chat.clear();
+        }
         _ => {}
     }
     s.set_channels(c);
@@ -484,6 +629,8 @@ mod tests {
             ntfy_topic: topic.into(),
             ntfy_token: String::new(),
             webhook_url: hook.into(),
+            telegram_token: String::new(),
+            telegram_chat: String::new(),
             min: min.into(),
         }
     }
@@ -545,6 +692,83 @@ mod tests {
         let n: serde_json::Value = serde_json::from_str(&ntfy_body(&e, "t")).unwrap();
         assert_eq!(n["priority"], 4);
         assert_eq!(n["message"], "line1\nline2");
+    }
+
+    #[test]
+    fn telegram_fields_are_checked_and_merged() {
+        assert!(valid_bot_token("123456789:AAE-abc_DEF123"));
+        assert!(!valid_bot_token("abc:def"));
+        assert!(!valid_bot_token("123456789"));
+        assert!(!valid_bot_token("123:a/b"));
+        assert!(valid_chat("-1001234567890") && valid_chat("42") && valid_chat("@dockwren_news"));
+        assert!(!valid_chat("@ab") && !valid_chat("-") && !valid_chat("12a") && !valid_chat(""));
+        let mut f = form("", "", "warning");
+        f.telegram_token = "123456789:AAE-abc".into();
+        let c = merged(&Config::default(), &f).unwrap();
+        assert!(!c.has_telegram(), "token without a chat is not active");
+        f.telegram_token.clear();
+        f.telegram_chat = "@dockwren_news".into();
+        let c = merged(&c, &f).unwrap();
+        assert!(c.has_telegram() && c.any());
+        assert_eq!(c.telegram_token, "123456789:AAE-abc");
+        f.telegram_chat = "no way".into();
+        assert!(merged(&c, &f).is_err());
+    }
+
+    #[test]
+    fn telegram_payload_and_chat_detection() {
+        let e = Event {
+            id: 1,
+            ts: 1,
+            source: "backup".into(),
+            kind: "backup.failed".into(),
+            severity: Severity::Critical,
+            title: "Backup <failed> & more".into(),
+            body: Some("disk full".into()),
+            link: None,
+            key: "k".into(),
+            state: crate::notify::State::New,
+            notified: None,
+            clear_pending: false,
+        };
+        let v: serde_json::Value = serde_json::from_str(&telegram_body(&e, "-100123")).unwrap();
+        assert_eq!(v["chat_id"], "-100123");
+        assert!(
+            v["text"]
+                .as_str()
+                .unwrap()
+                .contains("Backup <failed> & more\n\ndisk full")
+        );
+        assert!(v.get("parse_mode").is_none());
+        assert_eq!(
+            telegram_url("https://api.telegram.org/", "1:AB", "sendMessage"),
+            "https://api.telegram.org/bot1:AB/sendMessage"
+        );
+        let upd = r#"{"ok":true,"result":[{"update_id":1,"message":{"chat":{"id":55}}},{"update_id":2,"message":{"chat":{"id":-1009}}}]}"#;
+        assert_eq!(chat_from_updates(upd).as_deref(), Some("-1009"));
+        assert_eq!(chat_from_updates(r#"{"ok":true,"result":[]}"#), None);
+        assert_eq!(chat_from_updates("nonsense"), None);
+    }
+
+    #[tokio::test]
+    async fn telegram_send_goes_to_the_bot_url_and_errors_hide_the_token() {
+        let (base, h) = serve_once("200 OK");
+        let base = base.trim_end_matches("/hook-secret").to_string();
+        let url = telegram_url(&base, "1:TOKENSECRET", "sendMessage");
+        post(&url, None, "{\"chat_id\":\"1\",\"text\":\"hi\"}")
+            .await
+            .unwrap();
+        let req = h.join().unwrap();
+        assert!(
+            req.starts_with("POST /bot1:TOKENSECRET/sendMessage"),
+            "{req}"
+        );
+        let (base, h) = serve_once("401 Unauthorized");
+        let base = base.trim_end_matches("/hook-secret").to_string();
+        let url = telegram_url(&base, "1:TOKENSECRET", "sendMessage");
+        let err = post(&url, None, "{}").await.unwrap_err();
+        h.join().unwrap();
+        assert!(err.contains("401") && !err.contains("TOKENSECRET"), "{err}");
     }
 
     #[test]
