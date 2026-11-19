@@ -52,6 +52,14 @@ done
 if git grep -nE '(^|[^0-9.])(192\.168\.|10\.[0-9]+\.[0-9]+\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|172\.(1[6-9]|2[0-9]|3[01])\.)[0-9]+\.[0-9]+|neo50q' -- . ':!Cargo.lock' ':!*.svg' ':!scripts/docs-check.sh' | grep -vE '[0-9]/[0-9]+'; then
   fail "private IP or real hostname found in tracked files (above)"; fi
 
+# 8a. Every feature keyword in scripts/features.txt is mentioned in the README and on the site
+# (a new feature is added to features.txt in the same release, so the public pages cannot lag behind).
+while IFS= read -r k; do
+  case "$k" in ''|'#'*) continue ;; esac
+  grep -qiF -- "$k" README.md || fail "feature '$k' (scripts/features.txt) is not in the README"
+  grep -qiF -- "$k" site/index.html || fail "feature '$k' (scripts/features.txt) is not on the site"
+done < scripts/features.txt
+
 # 8. GitHub description, topics and license.
 if command -v gh >/dev/null && repo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null); then
   info=$(gh repo view "$repo" --json description,repositoryTopics,licenseInfo -q '[.description, (.repositoryTopics|length), .licenseInfo.key] | @tsv')

@@ -9,7 +9,7 @@
   {% endif %}
   <span id="b-offsite" class="h-badge" hx-swap-oob="true">{% if kind != "off" %}<span class="badge" data-state="running">On</span>{% else %}<span class="badge" data-state="exited">Off</span>{% endif %}</span>
   <p>After every backup, a copy is uploaded to a place off this server, encrypted with restic, so your backups survive losing this disk. The newest snapshots (the "keep" number above) stay there.{% if kind != "off" %} Target: <code>{{ describe }}</code>.{% endif %}{% if let Some(l) = last %} Last upload: {{ l }}.{% endif %}</p>
-  <form hx-post="/settings/offsite" hx-target="#offsite" hx-swap="outerHTML" autocomplete="off">
+  <form class="row" hx-post="/settings/offsite" hx-target="#offsite" hx-swap="outerHTML" autocomplete="off">
     <label>Where
       <select name="kind">
         <option value="off"{% if kind == "off" %} selected{% endif %}>Off</option>
@@ -17,7 +17,7 @@
         <option value="s3"{% if kind == "s3" %} selected{% endif %}>S3-compatible (AWS, Backblaze B2, Wasabi, MinIO...)</option>
       </select>
     </label>
-    <fieldset class="target sftp">
+    <fieldset class="target sftp row">
       <legend>SFTP</legend>
       <label>Host <input name="host" value="{{ host }}"></label>
       <label>Port <input name="port" type="number" min="1" max="65535" value="{{ port }}"></label>
@@ -26,7 +26,7 @@
       <label>SSH private key <textarea name="private_key" rows="5" placeholder="{% if has_secrets && kind == "sftp" %}saved; paste a new one to replace it{% else %}-----BEGIN OPENSSH PRIVATE KEY-----{% endif %}"></textarea></label>
       <p><small>Use a key made only for this. The server's host key is trusted on first use and pinned afterwards.</small></p>
     </fieldset>
-    <fieldset class="target s3">
+    <fieldset class="target s3 row">
       <legend>S3-compatible</legend>
       <label>Endpoint URL <input name="endpoint" value="{{ endpoint }}" placeholder="https://s3.example.com"></label>
       <label>Bucket <input name="bucket" value="{{ bucket }}"></label>

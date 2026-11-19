@@ -16,11 +16,11 @@
     <p><span class="badge" data-state="running">Connected</span> This token can publish on: {% for z in zones %}<code>{{ z }}</code>{% if !loop.last %}, {% endif %}{% endfor %}.
     {% if let Some(t) = tunnel_name %}Tunnel: <code>{{ t }}</code>.{% endif %}</p>
     {% if !choose.is_empty() %}
-    <form hx-post="/settings/cloudflare/tunnel" hx-target="#cloudflare" hx-swap="outerHTML">
-      <p><label>Which tunnel carries your apps?
-        <select name="tunnel">{% for t in choose %}<option value="{{ t.0 }}">{{ t.1 }}</option>{% endfor %}</select></label><br>
-        <small>A tunnel is the secure link between Cloudflare and this server.</small></p>
+    <form class="row" hx-post="/settings/cloudflare/tunnel" hx-target="#cloudflare" hx-swap="outerHTML">
+      <label>Which tunnel carries your apps?
+        <select name="tunnel">{% for t in choose %}<option value="{{ t.0 }}">{{ t.1 }}</option>{% endfor %}</select></label>
       <button type="submit">Use this tunnel</button>
+      <p><small>A tunnel is the secure link between Cloudflare and this server.</small></p>
     </form>
     {% else if tunnel_name.is_none() %}
     <p role="alert">No tunnel found in your account. Create one first: Cloudflare, Zero Trust, Networks, Tunnels, Create a tunnel, then run the connector it shows on this server. Then reload this page.</p>
@@ -35,11 +35,11 @@
   {% endif %}
 
   {% if !env_managed %}
-  <form hx-post="/settings/cloudflare/connect" hx-target="#cloudflare" hx-swap="outerHTML" autocomplete="off">
-    <p><label>{% if has_token %}Replace the token{% else %}Paste your Cloudflare token{% endif %}
-      <input type="password" name="token" required autocomplete="off" spellcheck="false" placeholder="paste the token here"></label><br>
-      <small>Dockwren checks it with Cloudflare, finds your domains and tunnel by itself, and stores it on this server only (never shown again).</small></p>
+  <form class="row" hx-post="/settings/cloudflare/connect" hx-target="#cloudflare" hx-swap="outerHTML" autocomplete="off">
+    <label>{% if has_token %}Replace the token{% else %}Paste your Cloudflare token{% endif %}
+      <input type="password" name="token" required autocomplete="off" spellcheck="false" placeholder="paste the token here"></label>
     <button class="primary" type="submit">Connect</button>
+    <p><small>Dockwren checks it with Cloudflare, finds your domains and tunnel by itself, and stores it on this server only (never shown again).</small></p>
   </form>
   <details {% if !has_token %}open{% endif %}>
     <summary>How do I get a token? (about 2 minutes)</summary>

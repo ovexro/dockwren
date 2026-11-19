@@ -17,12 +17,12 @@
     <button type="submit" class="primary">Replace it</button>
   </form>
   {% endif %}
-  <form hx-post="/instances/{{ instance }}/public" hx-target="#install" hx-swap="innerHTML show:#install:top">
-    <p><label>Public hostname
-      <input name="hostname" value="{{ hostname }}" placeholder="blog.example.com"></label><br>
-      <small>The web address people type in their browser to open this app. The domain must already be in your Cloudflare account. Leave empty to clear. Saving only records it; press Publish to make it reachable.</small></p>
+  <form class="row" hx-post="/instances/{{ instance }}/public" hx-target="#install" hx-swap="innerHTML show:#install:top">
+    <label>Public hostname
+      <input name="hostname" value="{{ hostname }}" placeholder="blog.example.com"></label>
     <button type="submit" class="primary">Save</button>
     <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
+    <p><small>The web address people type in their browser to open this app. The domain must already be in your Cloudflare account. Leave empty to clear. Saving only records it; press Publish to make it reachable.</small></p>
   </form>
   {% if command.is_some() %}
   <p><strong>Cloudflare:</strong> {% if cf_ready %}<span class="badge" data-state="running">Connected</span>{% else %}<span class="badge" data-state="exited">Not connected</span> see the guide below.{% endif %}</p>

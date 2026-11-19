@@ -309,6 +309,11 @@ details.more > summary::after { content: " \25BE"; }
 .row input { width: 100%; max-width: none; }
 .row input[type=hidden] { display: none; }
 .row button { flex: none; margin: 0; height: 2.5625rem; box-sizing: border-box; }
+/* Longer forms (Backups, Off-host, Cloudflare...): same class. Hints, notes and fieldsets take a full line; checkboxes and text areas too. */
+.row > p, .row > fieldset, .row > .full, .row > label:has(textarea), .row > label:has(input[type=checkbox]) { flex: 1 1 100%; margin: 0; }
+.row select, .row textarea { width: 100%; max-width: none; }
+.row input[type=checkbox], .row input[type=radio] { width: auto; }
+fieldset.row { display: flex; }
 
 h2:has(> .h-badge) { display: flex; align-items: center; gap: .5rem; }
 .h-badge { display: inline-flex; align-items: center; }

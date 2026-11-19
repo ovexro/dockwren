@@ -93,7 +93,7 @@
     </section>
     <section class="panel">
     <h2>Config export</h2>
-    <form method="post" action="/settings/config-export" autocomplete="off">
+    <form class="row" method="post" action="/settings/config-export" autocomplete="off">
       <p>Download your setup (compose files, app passwords, panel settings; no data) as one encrypted file. Restore it with <code>dockwren import</code> or <code>dockwren recover</code>. Keep the file and the passphrase apart.</p>
       <label>Passphrase for the file (12+ characters) <input name="passphrase" type="password" minlength="12" required></label>
       <label>Your panel password <input name="password" type="password" required></label>
