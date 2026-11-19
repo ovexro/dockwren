@@ -60,17 +60,22 @@ nav a.link:hover{color:var(--text)}
   border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer}
 .install small{display:block;margin-top:.5rem;color:var(--muted);font-size:.85rem;text-align:center}
 
-.shot{margin:3rem auto 0;max-width:60rem}
-.shot .frame{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface);
-  box-shadow:0 20px 50px -20px rgba(0,0,0,.35)}
-.shot img{display:block;width:100%;height:auto;aspect-ratio:1100/820;object-fit:cover;object-position:top}
+.shot{margin:3rem auto 0;max-width:68rem}
+.frame{position:relative;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface);
+  box-shadow:0 24px 60px -24px rgba(0,0,0,.4)}
+.frame::before{content:"";display:block;height:28px;border-bottom:1px solid var(--border);background:
+  radial-gradient(circle 4.5px at 18px 14px,#ec6a5e 98%,transparent),radial-gradient(circle 4.5px at 36px 14px,#f4bf4f 98%,transparent),
+  radial-gradient(circle 4.5px at 54px 14px,#61c554 98%,transparent),var(--code-bg)}
+.frame img{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;object-position:top}
 .shot img.dark-only{display:none}
 @media (prefers-color-scheme:dark){.shot img.light-only{display:none}.shot img.dark-only{display:block}}
-.gallery{column-count:2;column-gap:1.25rem}
-.gallery figure{break-inside:avoid;margin:0 0 1.25rem;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface)}
-.gallery img{display:block;width:100%;height:auto}
-.gallery figcaption{padding:.6rem .9rem;color:var(--muted);font-size:.9rem}
-@media (max-width:700px){.gallery{column-count:1}}
+.gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.75rem 1.5rem}
+.gallery figure{margin:0}
+.gallery a.frame{display:block;transition:transform .2s,box-shadow .2s}
+.gallery a.frame:hover{transform:translateY(-3px);box-shadow:0 30px 60px -24px rgba(0,0,0,.5)}
+.gallery figcaption{padding:.7rem .2rem 0;color:var(--muted);font-size:.95rem}
+.gallery figcaption strong{display:block;color:var(--text);font-size:1rem}
+@media (max-width:760px){.gallery{grid-template-columns:1fr}}
 @media (max-width:560px){nav a.link{display:none}.hero{padding-top:2rem}}
 
 section{padding:3rem 0}
@@ -122,8 +127,8 @@ footer a{color:var(--muted)}
 
     <div class="shot">
       <div class="frame">
-        <img class="light-only" src="shots/apps-light.png" alt="Dockwren app catalog with AdGuard Home, Ghost, Gitea, Grafana, Homepage, Immich, Jellyfin and Memos" width="1100" height="900" loading="eager">
-        <img class="dark-only" src="shots/apps-dark.png" alt="Dockwren app catalog, dark theme" width="1100" height="900" loading="eager">
+        <img class="light-only" src="shots/installed-light.png" alt="Dockwren Apps page: every installed app with health, last backup and one-click actions" width="1920" height="1080" loading="eager">
+        <img class="dark-only" src="shots/installed-dark.png" alt="Dockwren Apps page, dark theme" width="1920" height="1080" loading="eager">
       </div>
     </div>
 
@@ -147,15 +152,16 @@ footer a{color:var(--muted)}
 
     <section>
       <h2>See it on a real server</h2>
-      <p class="sub">Screenshots from a fresh VPS running Dockwren with a few apps installed.</p>
+      <p class="sub">Screenshots from a fresh VPS running Dockwren with a few apps installed. Click one for full size.</p>
       <div class="gallery">
-        <figure><picture><source media="(prefers-color-scheme: dark)" srcset="shots/installed-dark.png"><img src="shots/installed-light.png" alt="Installed apps with an out-of-sync app and its Apply button" loading="lazy"></picture><figcaption>Every app at a glance: health, last backup, and drift with one Apply.</figcaption></figure>
-        <figure><picture><source media="(prefers-color-scheme: dark)" srcset="shots/resources-dark.png"><img src="shots/resources-light.png" alt="Resources page with CPU, memory, network and disk graphs" loading="lazy"></picture><figcaption>CPU, memory, network and disk graphs.</figcaption></figure>
-        <figure><picture><source media="(prefers-color-scheme: dark)" srcset="shots/settings-backups-dark.png"><img src="shots/settings-backups-light.png" alt="Settings, Backups tab: schedule, off-host and config export" loading="lazy"></picture><figcaption>Scheduled backups, off-host copies, config export.</figcaption></figure>
-        <figure><picture><source media="(prefers-color-scheme: dark)" srcset="shots/settings-security-dark.png"><img src="shots/settings-security-light.png" alt="Settings, Security tab: two-factor, passkeys, web terminal" loading="lazy"></picture><figcaption>Two-factor, passkeys and an opt-in terminal.</figcaption></figure>
-        <figure><picture><source media="(prefers-color-scheme: dark)" srcset="shots/settings-notifications-dark.png"><img src="shots/settings-notifications-light.png" alt="Settings, Notifications tab: what to be told about" loading="lazy"></picture><figcaption>Choose what to be told about, then where it goes.</figcaption></figure>
-        <figure><picture><source media="(prefers-color-scheme: dark)" srcset="shots/restore-dark.png"><img src="shots/restore-light.png" alt="Restore dialog with snapshot list, verify, test restore and duplicate" loading="lazy"></picture><figcaption>Restore, verify, test on a copy, or duplicate.</figcaption></figure>
-        <figure><picture><source media="(prefers-color-scheme: dark)" srcset="shots/stack-edit-dark.png"><img src="shots/stack-edit-light.png" alt="Edit stack form with Compose file and environment" loading="lazy"></picture><figcaption>Edit a stack: checked, backed up first, rolled back on failure.</figcaption></figure>
+        <figure><a class="frame" href="shots/apps-light.png" target="_blank" rel="noopener"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/apps-dark.png"><img src="shots/apps-light.png" alt="Dockwren app catalog with an Install button for each app" width="1920" height="1080" loading="lazy"></picture></a><figcaption><strong>App catalog</strong>Install from a catalog with generated passwords and hints on every field.</figcaption></figure>
+        <figure><a class="frame" href="shots/containers-light.png" target="_blank" rel="noopener"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/containers-dark.png"><img src="shots/containers-light.png" alt="Containers page with state and status" width="1920" height="1080" loading="lazy"></picture></a><figcaption><strong>Containers</strong>Every container with its state, logs and start, stop and restart.</figcaption></figure>
+        <figure><a class="frame" href="shots/resources-light.png" target="_blank" rel="noopener"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/resources-dark.png"><img src="shots/resources-light.png" alt="Resources page with CPU, memory, network and disk graphs" width="1920" height="1080" loading="lazy"></picture></a><figcaption><strong>Resources</strong>CPU, memory, network and disk graphs, up to 30 days.</figcaption></figure>
+        <figure><a class="frame" href="shots/restore-light.png" target="_blank" rel="noopener"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/restore-dark.png"><img src="shots/restore-light.png" alt="Restore page with snapshot list, verify, test restore and duplicate" width="1920" height="1080" loading="lazy"></picture></a><figcaption><strong>Restore</strong>Restore, verify, test on a copy, or duplicate as a new app.</figcaption></figure>
+        <figure><a class="frame" href="shots/stack-edit-light.png" target="_blank" rel="noopener"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/stack-edit-dark.png"><img src="shots/stack-edit-light.png" alt="Edit stack form with Compose file and environment" width="1920" height="1080" loading="lazy"></picture></a><figcaption><strong>Edit stack</strong>Checked, backed up first, rolled back if it does not come back healthy.</figcaption></figure>
+        <figure><a class="frame" href="shots/settings-backups-light.png" target="_blank" rel="noopener"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/settings-backups-dark.png"><img src="shots/settings-backups-light.png" alt="Settings, Backups tab: schedule, off-host and config export" width="1920" height="1080" loading="lazy"></picture></a><figcaption><strong>Backups</strong>Scheduled snapshots, off-host copies and config export.</figcaption></figure>
+        <figure><a class="frame" href="shots/settings-security-light.png" target="_blank" rel="noopener"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/settings-security-dark.png"><img src="shots/settings-security-light.png" alt="Settings, Security tab: two-factor, passkeys, web terminal" width="1920" height="1080" loading="lazy"></picture></a><figcaption><strong>Security</strong>Two-factor, passkeys and an opt-in terminal.</figcaption></figure>
+        <figure><a class="frame" href="shots/settings-notifications-light.png" target="_blank" rel="noopener"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/settings-notifications-dark.png"><img src="shots/settings-notifications-light.png" alt="Settings, Notifications tab" width="1920" height="1080" loading="lazy"></picture></a><figcaption><strong>Notifications</strong>Choose what to be told about, then where it goes.</figcaption></figure>
       </div>
     </section>
 

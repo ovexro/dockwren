@@ -38,8 +38,8 @@ for o in $(printf '%s' "$quick" | grep -oE -- '`--[a-z-]+`' | tr -d '`' | sort -
   grep -q -- "$o)" install.sh || grep -q -- "$o" install.sh || fail "README mentions $o, install.sh has no such option"
 done
 
-# 5. Every env var in the README table is read by the code.
-for v in $(grep -oE '^\| `DOCKWREN_[A-Z0-9_]+`' README.md | tr -d '|` '); do
+# 5. Every env var in the README / docs/OPERATIONS.md table is read by the code.
+for v in $(grep -hoE '^\| `DOCKWREN_[A-Z0-9_]+`' README.md docs/OPERATIONS.md | tr -d '|` '); do
   grep -rq -- "$v" src/ || fail "README documents $v but src/ never reads it"
 done
 
@@ -56,7 +56,7 @@ if git grep -nE '(^|[^0-9.])(192\.168\.|10\.[0-9]+\.[0-9]+\.|100\.(6[4-9]|[7-9][
 # (a new feature is added to features.txt in the same release, so the public pages cannot lag behind).
 while IFS= read -r k; do
   case "$k" in ''|'#'*) continue ;; esac
-  grep -qiF -- "$k" README.md || fail "feature '$k' (scripts/features.txt) is not in the README"
+  cat README.md docs/FEATURES.md | grep -qiF -- "$k" || fail "feature '$k' (scripts/features.txt) is not in the README or docs/FEATURES.md"
   grep -qiF -- "$k" site/index.html || fail "feature '$k' (scripts/features.txt) is not on the site"
 done < scripts/features.txt
 

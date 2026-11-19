@@ -1,4 +1,4 @@
-# One keyword or phrase per line (case-insensitive). docs-check.sh requires each one in README.md AND site/index.html.
+# One keyword or phrase per line (case-insensitive). docs-check.sh requires each one in README.md or docs/FEATURES.md AND in site/index.html.
 # Add a line whenever a release ships a user-visible feature; remove it only if the feature is removed.
 Telegram
 ntfy
