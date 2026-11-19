@@ -15,7 +15,6 @@ Open items only, one line each, with the date it was last verified open. Deliver
   (queue 3, 2026-11-19: stack version history v0.1.71 done; needs between apps v0.1.72 done, to be tried live; public status page open, low value.; registry logins v0.1.73 done (verified against a local authenticated registry); scheduled stop/start per app v0.1.74 done (real-Docker test passes, not yet tried live); open, verified not built 2026-11-19: drift detection for managed stacks.)
   (queue 2 done: PWA v0.1.67-68; Edit stack for pasted stacks v0.1.69, for adopted stacks v0.1.70; remove confirmation + Delete app v0.1.70.)
 - Passkeys (released v0.1.59, tested on a real device 2026-11-17): reauth prompts (Passwords, terminal, updates) still take a typed code (TOTP/recovery), not a passkey tap; passkeys work only on the hostname they were added on.
-- UX: replace the browser confirm() pop-ups (hx-confirm in 12 templates: instances, restore, disk, notify_channels, limits, passkeys, registries, ...) with a styled in-panel dialog. Plan: one `<dialog>` + `htmx:confirm` listener in static JS (preventDefault, show message, `issueRequest(true)` on OK), danger styling for Remove/Delete, Esc/Enter, focus on Cancel, dark mode, mobile; test with Playwright. Asked by the user 2026-11-19.
 
 ## Decisions (do not re-propose)
 - Multi-server over SSH: DROPPED by the user (2026-11-15).

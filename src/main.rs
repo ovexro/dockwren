@@ -312,6 +312,7 @@ async fn container_action(
 const HTMX: &str = include_str!("../static/htmx.min.js");
 const CSS: &str = include_str!("../static/dockwren.css");
 const PASSKEY_JS: &str = include_str!("../static/passkey.js");
+const CONFIRM_JS: &str = include_str!("../static/confirm.js");
 const FAVICON: &str = include_str!("../static/favicon.svg");
 const MANIFEST: &str = include_str!("../static/manifest.webmanifest");
 const ICON_192: &[u8] = include_bytes!("../static/icon-192.png");
@@ -325,6 +326,7 @@ pub fn asset_version() -> String {
         .bytes()
         .chain(HTMX.bytes())
         .chain(PASSKEY_JS.bytes())
+        .chain(CONFIRM_JS.bytes())
         .chain(terminal::TERMINAL_JS.bytes())
     {
         h = (h ^ u64::from(b)).wrapping_mul(0x100000001b3);
@@ -379,6 +381,16 @@ async fn passkey_js() -> impl IntoResponse {
             (header::CACHE_CONTROL, "no-cache"),
         ],
         PASSKEY_JS,
+    )
+}
+
+async fn confirm_js() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        CONFIRM_JS,
     )
 }
 
@@ -697,6 +709,7 @@ fn app(
         .route("/login/passkey", post(auth::login_passkey))
         .route("/login/code", post(auth::login_code))
         .route("/static/passkey.js", get(passkey_js))
+        .route("/static/confirm.js", get(confirm_js))
         .merge(protected)
         .with_state(AppState {
             auth,
