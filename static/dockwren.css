@@ -310,4 +310,5 @@ details.more > summary::after { content: " \25BE"; }
 .row input[type=hidden] { display: none; }
 .row button { flex: none; margin: 0; height: 2.5625rem; box-sizing: border-box; }
 
-.h-badge { margin-left: .5rem; vertical-align: middle; }
+h2:has(> .h-badge) { display: flex; align-items: center; gap: .5rem; }
+.h-badge { display: inline-flex; align-items: center; }
