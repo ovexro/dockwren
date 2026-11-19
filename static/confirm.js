@@ -29,3 +29,11 @@
     d.querySelector('.confirm-cancel').focus();
   });
 })();
+
+// "More" menu on app rows: close after choosing an action or clicking elsewhere.
+document.addEventListener("click", function (e) {
+  var inside = e.target.closest && e.target.closest("details.more");
+  document.querySelectorAll("details.more[open]").forEach(function (d) {
+    if (d !== inside || (e.target.closest("button") && d.contains(e.target))) d.removeAttribute("open");
+  });
+});

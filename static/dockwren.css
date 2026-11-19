@@ -276,3 +276,12 @@ dialog.confirm p { margin: 0 0 1.1rem; overflow-wrap: anywhere; }
 .confirm-actions button { padding: .45rem 1rem; }
 .confirm-actions button.danger { background: var(--bad); color: var(--surface); border-color: var(--bad); font-weight: 600; }
 .confirm-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* "More" menu on app rows: secondary actions behind one summary button */
+main details.more { display: inline-block; position: relative; margin: 0; vertical-align: top; }
+details.more > summary { display: inline-block; list-style: none; cursor: pointer; padding: .4rem .8rem; border: 1px solid var(--border, #ccc); border-radius: 6px; font-size: .9rem; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary::after { content: " \25BE"; }
+.more-menu { position: absolute; right: 0; z-index: 20; display: flex; flex-direction: column; gap: .35rem; min-width: 11rem; margin-top: .25rem; padding: .5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
+.more-menu button { width: 100%; text-align: left; margin: 0; }
+@media (max-width: 700px) { .more-menu { position: static; box-shadow: none; } }

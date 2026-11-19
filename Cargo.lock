@@ -430,7 +430,7 @@ dependencies = [
 
 [[package]]
 name = "dockwren"
-version = "0.1.75"
+version = "0.1.76"
 dependencies = [
  "argon2",
  "askama",
