@@ -17,7 +17,7 @@
     {% endfor %}
   </ul>
   {% endif %}
-  <form hx-post="/settings/registries/login" hx-target="#registries" hx-swap="outerHTML" autocomplete="off">
+  <form class="row" hx-post="/settings/registries/login" hx-target="#registries" hx-swap="outerHTML" autocomplete="off">
     <label>Registry <input name="server" placeholder="ghcr.io (empty = Docker Hub)"></label>
     <label>User name <input name="user" autocomplete="off" required></label>
     <label>Access token <input name="token" type="password" autocomplete="new-password" required></label>

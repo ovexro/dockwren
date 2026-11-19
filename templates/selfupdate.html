@@ -8,7 +8,7 @@
   {% if newer %}
     <p>Dockwren {% if let Some(l) = latest %}{{ l }}{% endif %} is available (you run {{ current }}).</p>
     {% if installed %}
-    <form hx-post="/settings/selfupdate/run" hx-target="#selfupdate" hx-swap="outerHTML" autocomplete="off">
+    <form class="row" hx-post="/settings/selfupdate/run" hx-target="#selfupdate" hx-swap="outerHTML" autocomplete="off">
       <label>Password, to confirm <input type="password" name="password" required autocomplete="current-password"></label>
       {% if two_factor %}<label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>{% endif %}
       <button type="submit" class="primary">Update Dockwren now</button>

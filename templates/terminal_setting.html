@@ -8,7 +8,7 @@
   {% else %}
   <p><span class="badge" data-state="exited">Off</span> Turning it on lets you open a shell inside containers of apps Dockwren installed.{% if !two_factor %} Turn on two-factor sign-in first: it is required for a terminal reached through a Cloudflare Tunnel.{% endif %}</p>
   {% endif %}
-  <form hx-post="/settings/terminal" hx-target="#terminal-setting" hx-swap="outerHTML" autocomplete="off">
+  <form class="row" hx-post="/settings/terminal" hx-target="#terminal-setting" hx-swap="outerHTML" autocomplete="off">
     <input type="hidden" name="on" value="{% if on %}0{% else %}1{% endif %}">
     <label>Password, to confirm <input type="password" name="password" required autocomplete="current-password"></label>
     {% if two_factor %}<label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>{% endif %}

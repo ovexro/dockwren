@@ -16,7 +16,7 @@
     {% for k in list %}
     <li>
       <strong>{{ k.name }}</strong> <small>on {{ k.rp }}</small>
-      <form hx-post="/settings/passkeys/remove" hx-target="#passkeys" hx-swap="outerHTML" autocomplete="off" hx-confirm="Remove this passkey?">
+      <form class="row" hx-post="/settings/passkeys/remove" hx-target="#passkeys" hx-swap="outerHTML" autocomplete="off" hx-confirm="Remove this passkey?">
         <input type="hidden" name="id" value="{{ k.id }}">
         <label>Current or recovery code, to remove it <input name="code" autocomplete="one-time-code" required></label>
         <button type="submit">Remove</button>

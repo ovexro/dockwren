@@ -7,7 +7,8 @@
     <p>Save it in your password manager now. It encrypts the off-host copies, and without it they cannot be read, by anyone, ever. Dockwren cannot show it again.</p>
   </div>
   {% endif %}
-  <p>{% if kind == "off" %}<span class="badge" data-state="exited">Off</span>{% else %}<span class="badge" data-state="running">On</span>{% endif %} After every backup, a copy is uploaded to a place off this server, encrypted with restic, so your backups survive losing this disk. The newest snapshots (the "keep" number above) stay there.{% if kind != "off" %} Target: <code>{{ describe }}</code>.{% endif %}{% if let Some(l) = last %} Last upload: {{ l }}.{% endif %}</p>
+  <p>{% if kind == "off" %}<span class="badge" data-state="exited">Off</span>{% else %}<span class="badge" data-state="running">On</span>{% endif %}</p>
+  <p>After every backup, a copy is uploaded to a place off this server, encrypted with restic, so your backups survive losing this disk. The newest snapshots (the "keep" number above) stay there.{% if kind != "off" %} Target: <code>{{ describe }}</code>.{% endif %}{% if let Some(l) = last %} Last upload: {{ l }}.{% endif %}</p>
   <form hx-post="/settings/offsite" hx-target="#offsite" hx-swap="outerHTML" autocomplete="off">
     <label>Where
       <select name="kind">

@@ -301,3 +301,11 @@ details.more > summary::after { content: " \25BE"; }
   .side li a { display: flex; flex-direction: column; align-items: center; gap: .15rem; }
   .side li a .ic { margin: 0; width: 20px; height: 20px; }
 }
+
+/* Confirmation forms: password, code and button on one row, wrapping on narrow screens */
+form.row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .5rem .75rem; }
+form.row > label { margin: 0; padding: 0; }
+form.row > label:has(+ button) { padding-bottom: 0; }
+form.row input { max-width: 15rem; }
+#registries form.row input { width: 13rem; }
+form.row button { margin: 0; }

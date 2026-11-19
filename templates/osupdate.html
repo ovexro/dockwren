@@ -7,7 +7,7 @@
   <p><span class="badge" data-state="running">On</span>
     {% if let Some(n) = pending %}{% if *n == 0 %}No OS updates are waiting.{% else if *n == 1 %}1 OS update is waiting.{% else %}{{ n }} OS updates are waiting.{% endif %}{% endif %}
     It runs <code>apt-get update</code> and <code>apt-get full-upgrade</code> as root, never reboots, and logs each start. Each start asks for your password again.</p>
-  <form hx-post="/host/os-updates/run" hx-target="#osupdate" hx-swap="outerHTML" autocomplete="off">
+  <form class="row" hx-post="/host/os-updates/run" hx-target="#osupdate" hx-swap="outerHTML" autocomplete="off">
     <label>Password, to confirm <input type="password" name="password" required autocomplete="current-password"></label>
     {% if two_factor %}<label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>{% endif %}
     <button type="submit" class="primary">Install updates now</button>
@@ -16,7 +16,7 @@
   {% else %}
   <p><span class="badge" data-state="exited">Off</span> Turning it on adds an "Install updates now" button here. It runs <code>apt-get full-upgrade</code> as root through a helper you set up on this server, and never reboots.</p>
   {% endif %}
-  <form hx-post="/settings/osupdates" hx-target="#osupdate" hx-swap="outerHTML" autocomplete="off">
+  <form class="row" hx-post="/settings/osupdates" hx-target="#osupdate" hx-swap="outerHTML" autocomplete="off">
     <input type="hidden" name="on" value="{% if on %}0{% else %}1{% endif %}">
     <label>Password, to confirm <input type="password" name="password" required autocomplete="current-password"></label>
     {% if two_factor %}<label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>{% endif %}

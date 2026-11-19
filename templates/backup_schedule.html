@@ -1,7 +1,8 @@
 <div id="backup-schedule">
   {% if let Some(e) = error %}<p role="alert">{{ e }}</p>{% endif %}
   {% if let Some(n) = note %}<p role="status">{{ n }}</p>{% endif %}
-  <p>{% if mode == "off" %}<span class="badge" data-state="exited">Off</span>{% else %}<span class="badge" data-state="running">On</span>{% endif %} Takes a snapshot of every installed app (files plus database dumps) on a schedule and keeps the newest ones. Times are UTC. Weekly runs on Sundays.{% if let Some(l) = last %} Last scheduled run: {{ l }}.{% endif %}</p>
+  <p>{% if mode == "off" %}<span class="badge" data-state="exited">Off</span>{% else %}<span class="badge" data-state="running">On</span>{% endif %}</p>
+  <p>Takes a snapshot of every installed app (files plus database dumps) on a schedule and keeps the newest ones. Times are UTC. Weekly runs on Sundays.{% if let Some(l) = last %} Last scheduled run: {{ l }}.{% endif %}</p>
   <form hx-post="/settings/backups" hx-target="#backup-schedule" hx-swap="outerHTML" autocomplete="off">
     <label>How often
       <select name="mode">
