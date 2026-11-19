@@ -31,4 +31,4 @@ Open items only, one line each, with the date it was last verified open. Deliver
 - NEW FEATURE = add its keyword to `scripts/features.txt` in the same release: docs-check then fails until README AND site/index.html mention it (added 2026-11-19 after the site lagged ~12 features).
 - At every tag/wrapup with new features re-check README, GitHub description/topics, SECURITY.md, docs/TEMPLATES.md (memory public-repo-freshness).
 - Screenshots: reshot 2026-11-19 at 1920x1080 (c615bfc). Site redeployed. OPEN: optional Resources reshot after 30+ min history.
-- Site images soft at display size: reshoot at 1440x810, device_scale_factor=2 (shots_real.py), redeploy; one-column gallery committed but undeployed (2026-11-19).
+- Site images soft at display size: reshoot at 1440x810, device_scale_factor=2 (shots_real.py), redeploy; one-column gallery already deployed (2026-11-19).
