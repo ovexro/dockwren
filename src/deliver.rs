@@ -121,7 +121,9 @@ fn valid_bot_token(t: &str) -> bool {
 /// A number (`123`, `-1001234567890`) or a public channel name (`@mychannel`).
 fn valid_chat(c: &str) -> bool {
     if let Some(name) = c.strip_prefix('@') {
+        // A name ending in "bot" is a bot (often the user's own): bots cannot be written to.
         return (5..=32).contains(&name.len())
+            && !name.to_ascii_lowercase().ends_with("bot")
             && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
     }
     let digits = c.strip_prefix('-').unwrap_or(c);
@@ -293,6 +295,20 @@ fn clean_reason(reason: &str, url: &str) -> String {
         .filter(|c| !c.is_control())
         .take(160)
         .collect()
+}
+
+fn sent_to(cfg: &Config) -> String {
+    let mut v = Vec::new();
+    if cfg.has_ntfy() {
+        v.push("ntfy");
+    }
+    if cfg.has_webhook() {
+        v.push("the webhook");
+    }
+    if cfg.has_telegram() {
+        v.push("Telegram");
+    }
+    v.join(", ")
 }
 
 /// Send one event to every configured channel. Errors are per channel, labelled.
@@ -478,7 +494,7 @@ fn merged(old: &Config, f: &ChannelsForm) -> Result<Config, String> {
     if !chat.is_empty() {
         if !valid_chat(chat) {
             return Err(
-                "The Telegram chat must be a number (for example -1001234567890) or @channelname."
+                "The Telegram chat must be a number (for example 123456789 or -1001234567890) or a channel like @channelname. A name ending in \"bot\" is a bot, not a chat: leave the field empty and send your bot a message to find your chat id."
                     .into(),
             );
         }
@@ -610,7 +626,10 @@ pub async fn test(AxState(shared): AxState<Shared>) -> Html<String> {
     let msg = if errors.is_empty() {
         (
             true,
-            "Test sent. It should arrive in a few seconds.".to_string(),
+            format!(
+                "Test sent to {}. It should arrive in a few seconds.",
+                sent_to(&cfg)
+            ),
         )
     } else {
         (false, errors.join("; "))
@@ -701,6 +720,7 @@ mod tests {
         assert!(!valid_bot_token("123456789"));
         assert!(!valid_bot_token("123:a/b"));
         assert!(valid_chat("-1001234567890") && valid_chat("42") && valid_chat("@dockwren_news"));
+        assert!(!valid_chat("@dockwren_alerts_bot") && !valid_chat("@MyBot"));
         assert!(!valid_chat("@ab") && !valid_chat("-") && !valid_chat("12a") && !valid_chat(""));
         let mut f = form("", "", "warning");
         f.telegram_token = "123456789:AAE-abc".into();
