@@ -19,6 +19,7 @@ mod limits;
 mod listeners;
 mod logcap;
 mod metrics;
+mod needs;
 mod notify;
 mod offsite;
 mod orphans;
@@ -579,6 +580,11 @@ fn app(
         .route("/instances/list", get(apps::instances))
         .route("/instances/{name}/remove", post(apps::instance_remove))
         .route("/instances/{name}/delete", post(apps::instance_delete))
+        .route("/instances/{name}/start", post(apps::instance_start))
+        .route(
+            "/instances/{name}/needs",
+            get(apps::needs_form).post(apps::needs_submit),
+        )
         .route(
             "/instances/{name}/update",
             get(apps::update_preview).post(apps::instance_update),

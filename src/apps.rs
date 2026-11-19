@@ -881,6 +881,13 @@ struct InstanceView {
     limitable: bool,
     /// The template has generated passwords that can be shown again.
     has_passwords: bool,
+    /// Apps this one needs, each with whether it is healthy right now.
+    needs: Vec<(String, bool)>,
+    /// No containers: the app can be started from here.
+    stopped: bool,
+    /// Confirmation texts; they name the apps that need this one.
+    stop_confirm: String,
+    delete_confirm: String,
     /// Docker logs of this app have no size cap yet.
     uncapped: bool,
 }
@@ -1733,10 +1740,40 @@ async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             editable,
             stack_editable,
             deletable: status_is_stopped && crate::public::read(&dir).is_none(),
+            needs: Vec::new(),
+            stopped: status_is_stopped,
+            stop_confirm: String::new(),
+            delete_confirm: String::new(),
             limitable,
             has_passwords,
             uncapped: !crate::logcap::enabled(&dir),
         });
+    }
+    // Needs between apps: which ones are up, and who is affected when this one stops.
+    let map = crate::needs::all(root);
+    let healthy: std::collections::HashSet<String> = out
+        .iter()
+        .filter(|v| v.status == "healthy")
+        .map(|v| v.name.clone())
+        .collect();
+    for v in &mut out {
+        v.needs = map
+            .get(&v.name)
+            .into_iter()
+            .flatten()
+            .map(|n| (n.clone(), healthy.contains(n)))
+            .collect();
+        let users = crate::needs::dependents(&map, &v.name);
+        let also = if users.is_empty() {
+            String::new()
+        } else {
+            format!(" {} needs it and will stop working.", users.join(", "))
+        };
+        v.stop_confirm = format!("Stop {} and remove its containers? Data is kept.{also}", v.name);
+        v.delete_confirm = format!(
+            "Delete {} completely? Its volumes and data folder are erased and cannot be recovered. Backups are kept.{also}",
+            v.name
+        );
     }
     out
 }
@@ -1846,6 +1883,131 @@ pub async fn instance_remove(
     }))
 }
 
+#[derive(Template)]
+#[template(path = "needs.html")]
+struct NeedsForm {
+    name: String,
+    /// Every other app and whether it is ticked.
+    choices: Vec<(String, bool)>,
+    error: Option<String>,
+}
+
+fn needs_view(apps: &Apps, name: &str, ticked: Option<&[String]>, error: Option<String>) -> NeedsForm {
+    let map = crate::needs::all(&apps.root);
+    let current = map.get(name).cloned().unwrap_or_default();
+    let ticked = ticked.unwrap_or(&current);
+    NeedsForm {
+        name: name.to_string(),
+        choices: map
+            .keys()
+            .filter(|k| k.as_str() != name)
+            .map(|k| (k.clone(), ticked.contains(k)))
+            .collect(),
+        error,
+    }
+}
+
+/// `GET /instances/{name}/needs`: tick the apps this one needs.
+pub async fn needs_form(
+    State(apps): State<Apps>,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    known_instance(&apps, &name)?;
+    Ok(render(needs_view(&apps, &name, None, None)))
+}
+
+/// `POST /instances/{name}/needs`: save the ticked apps (no loops, only installed apps).
+pub async fn needs_submit(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Form(values): Form<Vec<(String, String)>>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let wanted: Vec<String> = values
+        .into_iter()
+        .filter(|(k, _)| k == "need")
+        .map(|(_, v)| v)
+        .collect();
+    let map = crate::needs::all(&apps.root);
+    let saved = crate::needs::validate(&map, &name, &wanted).and_then(|clean| {
+        crate::needs::write(&apps.root.join(&name), &clean)
+            .map(|()| clean)
+            .map_err(|e| format!("could not save: {e}"))
+    });
+    match saved {
+        Ok(clean) => {
+            crate::audit::record("app.needs", &format!("{name}: {}", clean.join(",")));
+            let note = if clean.is_empty() {
+                format!("{name} needs no other app.")
+            } else {
+                format!("{name} needs {}.", clean.join(", "))
+            };
+            Ok(Html(format!(
+                "<div id=\"needs\"><p>{note}</p><button type=\"button\" onclick=\"document.getElementById('install').innerHTML=''\">Close</button></div>"
+            )))
+        }
+        Err(e) => Ok(render(needs_view(&apps, &name, Some(&wanted), Some(e)))),
+    }
+}
+
+/// `POST /instances/{name}/start`: start a stopped app, the apps it needs first.
+pub async fn instance_start(
+    State(apps): State<Apps>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Html<String>, StatusCode> {
+    if !crate::same_origin(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    known_instance(&apps, &name)?;
+    let job_id = new_job(&apps, &name, "Starting")?;
+    crate::audit::record("app.start", &name);
+    let apps2 = apps.clone();
+    let id = job_id.clone();
+    tokio::spawn(async move {
+        let log = |s: &str| {
+            apps2.with_job(&id, |j| j.log.push(s.to_string()));
+        };
+        let result = async {
+            let map = crate::needs::all(&apps2.root);
+            for n in crate::needs::start_order(&map, &name) {
+                let inst = runner::Instance {
+                    dir: apps2.root.join(&n),
+                    name: n.clone(),
+                };
+                let stopped = match runner::compose(&inst, &["ps", "-a", "--format", "json"]).await {
+                    Ok(ps) => matches!(runner::judge(&ps),
+                        runner::Status::Waiting(w) if w == "no containers yet"),
+                    Err(e) => return Err(format!("{n}: {e}")),
+                };
+                if !stopped {
+                    log(&format!("{n} is already running"));
+                    continue;
+                }
+                log(&format!("starting {n}"));
+                runner::bring_up(&inst, &mut |s| log(&format!("{n}: {s}")))
+                    .await
+                    .map_err(|e| format!("{n}: {e}"))?;
+            }
+            Ok::<(), String>(())
+        }
+        .await;
+        apps2.note_job("Starting", &name, result.as_ref().err().map(|e| e.as_str()));
+        apps2.with_job(&id, |j| match result {
+            Ok(()) => {
+                j.log.push("started".into());
+                j.state = JobState::Done;
+            }
+            Err(e) => j.state = JobState::Failed(e),
+        });
+    });
+    job_fragment(&apps, &job_id).ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 /// `POST /instances/{name}/delete`: remove a stopped, unpublished app completely: its
 /// containers' leftovers (volumes, network) and its folder with all data. Backups are kept.
 pub async fn instance_delete(
@@ -1886,6 +2048,7 @@ pub async fn instance_delete(
         match done {
             Ok(()) => {
                 crate::audit::record("app.delete", &name);
+                crate::needs::forget(&apps.root, &name);
                 crate::terminal::set_adopted(runner::adopted_projects(&apps.root));
                 note = Some(format!(
                     "{name} deleted: containers, volumes and data are gone. Its backups are kept."
@@ -3768,6 +3931,62 @@ pub async fn public_direct(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn needs_form_and_list_render() {
+        let html = render(NeedsForm {
+            name: "web".into(),
+            choices: vec![("db".into(), true), ("cache".into(), false)],
+            error: Some("loop".into()),
+        })
+        .0;
+        assert!(html.contains("What does web need?"));
+        assert!(html.contains("value=\"db\" checked"));
+        assert!(html.contains("value=\"cache\">"));
+        assert!(html.contains("loop"));
+        let view = |name: &str, needs: Vec<(String, bool)>, stopped: bool| InstanceView {
+            name: name.into(),
+            app: "custom".into(),
+            ports: String::new(),
+            status: if stopped { "stopped" } else { "healthy" }.into(),
+            update: None,
+            update_skipped: false,
+            upstream: None,
+            snapshots: 0,
+            last_backup: None,
+            last_backup_at: None,
+            hostname: None,
+            public_up: None,
+            uptime: None,
+            vulns: None,
+            editable: false,
+            stack_editable: false,
+            deletable: stopped,
+            limitable: false,
+            has_passwords: false,
+            needs,
+            stopped,
+            stop_confirm: format!("Stop {name}? api needs it and will stop working."),
+            delete_confirm: String::new(),
+            uncapped: false,
+        };
+        let page = render(InstancesPage {
+            instances: vec![
+                view("db", vec![], true),
+                view("api", vec![("db".into(), false), ("cache".into(), true)], false),
+            ],
+            picked: Vec::new(),
+            error: None,
+            note: None,
+        })
+        .0;
+        assert!(page.contains("needs "));
+        assert!(page.contains("db (not running)"));
+        assert!(!page.contains("cache (not running)"));
+        assert!(page.contains("/instances/db/start"));
+        assert!(!page.contains("/instances/api/start"));
+        assert!(page.contains("api needs it and will stop working."));
+    }
 
     #[test]
     fn stack_edit_form_lists_and_loads_earlier_versions() {

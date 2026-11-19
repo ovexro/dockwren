@@ -1,0 +1,11 @@
+<div id="needs">
+  <h3>What does {{ name }} need?</h3>
+  <p><small>Tick the apps {{ name }} cannot work without (for example a database in its own stack). Dockwren then warns before one of them is stopped or deleted, shows it when one is not running, and starts them first when you start {{ name }}. It does not change how Docker runs the stacks.</small></p>
+  {% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
+  {% if choices.is_empty() %}<p>There is no other app yet.</p>{% else %}
+  <form hx-post="/instances/{{ name }}/needs" hx-target="#install" hx-swap="innerHTML show:#install:top">
+  {% for (n, on) in choices %}<p><label><input type="checkbox" name="need" value="{{ n }}"{% if *on %} checked{% endif %}> {{ n }}</label></p>
+  {% endfor %}<button class="primary" type="submit">Save</button>
+  <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
+  </form>{% endif %}
+</div>
