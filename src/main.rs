@@ -32,6 +32,7 @@ mod selfupdate;
 mod signin;
 mod smart;
 mod stack;
+mod stackhistory;
 mod statusapi;
 mod template;
 mod terminal;

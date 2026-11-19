@@ -2,6 +2,12 @@
   <h3>Edit stack {{ name }}</h3>
   <p><small>Saving takes a backup first, then recreates the containers with the new file. The same rules as when adding a stack apply. If the stack does not come back healthy, the old file and environment are put back.</small></p>
   {% if let Some(msg) = error %}<p role="alert">{{ msg }}</p>{% endif %}
+  {% if let Some(when) = loaded %}<p><strong>Version from {{ when }} loaded.</strong> Nothing is applied until you press the button below.</p>
+  <pre style="max-height:16em;overflow:auto">{% for (k, line) in changes %}{% if *k == '+' %}<ins>+ {{ line }}</ins>
+{% else if *k == '-' %}<del>- {{ line }}</del>
+{% else if *k == '@' %}<strong>-- {{ line }} --</strong>
+{% else %}  {{ line }}
+{% endif %}{% endfor %}</pre>{% endif %}
   <form hx-post="/instances/{{ name }}/stack" hx-target="#install" hx-swap="innerHTML show:#install:top"
         hx-confirm="Back up {{ name }}, then restart it with this file?">
   <p><label>docker-compose.yml
@@ -12,4 +18,8 @@
   <button class="primary" type="submit">Check, back up and apply</button>
   <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
   </form>
+  {% if !versions.is_empty() %}<details><summary>Earlier versions ({{ versions.len() }})</summary>
+  <p><small>Each saved edit keeps the file it replaced (last 20). Loading one only fills the form above.</small></p>
+  <ul>{% for (id, when) in versions %}<li>{{ when }} <button hx-get="/instances/{{ name }}/stack?rev={{ id }}" hx-target="#install" hx-swap="innerHTML show:#install:top">Load</button></li>
+  {% endfor %}</ul></details>{% endif %}
 </div>

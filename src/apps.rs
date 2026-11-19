@@ -1221,6 +1221,11 @@ struct StackEdit {
     env: String,
     error: Option<String>,
     adopted: bool,
+    /// Earlier versions kept by earlier edits: (id, "2026-11-13 15:11 UTC"), newest first.
+    versions: Vec<(u64, String)>,
+    /// When an earlier version is loaded: its date and the changes from the live file to it.
+    loaded: Option<String>,
+    changes: Vec<(char, String)>,
 }
 
 /// Variables Dockwren sets itself; they are not shown in the edit form and are rebuilt on save.
@@ -1248,32 +1253,66 @@ fn stack_edit_view(
     adopted: bool,
     entered: Option<(String, String)>,
     error: Option<String>,
+    revision: Option<u64>,
 ) -> Result<StackEdit, StatusCode> {
-    let (compose, env) = match entered {
-        Some(e) => e,
-        None => {
-            let compose = std::fs::read_to_string(dir.join("compose.yaml"))
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let live = || -> Result<(String, String), StatusCode> {
+        let compose = std::fs::read_to_string(dir.join("compose.yaml"))
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let env = if adopted {
+            // An adopted project's own `.env`, exactly as it is (comments, quoting).
+            std::fs::read_to_string(dir.join(".env")).unwrap_or_default()
+        } else {
+            runner::read_env(dir)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                .iter()
+                .filter(|(k, _)| !STACK_OWN_KEYS.contains(&k.as_str()))
+                .map(|(k, v)| format!("{k}={v}\n"))
+                .collect()
+        };
+        Ok((compose, env))
+    };
+    let mut loaded = None;
+    let mut changes = Vec::new();
+    let (compose, env) = match (entered, revision) {
+        (Some(e), _) => e,
+        (None, Some(id)) => {
+            let rev = crate::stackhistory::load(dir, id).ok_or(StatusCode::NOT_FOUND)?;
             let env = if adopted {
-                // An adopted project's own `.env`, exactly as it is (comments, quoting).
-                std::fs::read_to_string(dir.join(".env")).unwrap_or_default()
+                rev.env.clone()
             } else {
-                runner::read_env(dir)
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                // Dockwren's own keys are rebuilt on save, as in the live form.
+                crate::stack::parse_env(&rev.env)
+                    .unwrap_or_default()
                     .iter()
                     .filter(|(k, _)| !STACK_OWN_KEYS.contains(&k.as_str()))
                     .map(|(k, v)| format!("{k}={v}\n"))
                     .collect()
             };
-            (compose, env)
+            let (cur_compose, cur_env) = live()?;
+            changes = crate::stackhistory::diff(&cur_compose, &rev.compose);
+            let env_changes = crate::stackhistory::diff(&cur_env, &env);
+            if env_changes.iter().any(|(k, _)| *k != ' ') {
+                changes.push(('@', "environment".into()));
+                changes.extend(env_changes);
+            }
+            loaded = Some(utc_stamp(rev.id));
+            (rev.compose, env)
         }
+        (None, None) => live()?,
     };
+    let versions = crate::stackhistory::list_ids(dir)
+        .into_iter()
+        .map(|id| (id, utc_stamp(id)))
+        .collect();
     Ok(StackEdit {
         name: name.to_string(),
         compose,
         env,
         error,
         adopted,
+        versions,
+        loaded,
+        changes,
     })
 }
 
@@ -1281,9 +1320,16 @@ fn stack_edit_view(
 pub async fn stack_edit_form(
     State(apps): State<Apps>,
     Path(name): Path<String>,
+    Query(q): Query<HashMap<String, String>>,
 ) -> Result<Html<String>, StatusCode> {
     let (dir, adopted) = stack_dir(&apps, &name)?;
-    Ok(render(stack_edit_view(&name, &dir, adopted, None, None)?))
+    let revision = match q.get("rev") {
+        Some(r) => Some(r.parse::<u64>().map_err(|_| StatusCode::BAD_REQUEST)?),
+        None => None,
+    };
+    Ok(render(stack_edit_view(
+        &name, &dir, adopted, None, None, revision,
+    )?))
 }
 
 /// `POST /instances/{name}/stack`: check the new file like a fresh paste, back the stack up,
@@ -1307,6 +1353,7 @@ pub async fn stack_edit_submit(
             adopted,
             Some((compose.clone(), env_text.clone())),
             Some(error),
+            None,
         )?))
     };
     let t = apps
@@ -1426,6 +1473,13 @@ pub async fn stack_edit_submit(
                     Ok(_) => format!("{e} (old file restored)"),
                     Err(b) => format!("{e} (restoring the old file also failed: {b})"),
                 });
+            }
+            // Keep what was replaced, now that the new file runs (best effort).
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            if let Err(e) = crate::stackhistory::save(&inst.dir, now, &old_compose, &old_env_text) {
+                log(&format!("could not keep the old version: {e}"));
             }
             Ok::<(), String>(())
         }
@@ -3714,6 +3768,33 @@ pub async fn public_direct(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn stack_edit_form_lists_and_loads_earlier_versions() {
+        let dir = std::env::temp_dir().join(format!("dw-edit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("compose.yaml"), "services:\n  a:\n    image: new\n").unwrap();
+        std::fs::write(dir.join(".env"), "INSTANCE_NAME=x\nWEB_PORT=8080\nFOO=2\n").unwrap();
+        crate::stackhistory::save(
+            &dir,
+            1_700_000_000,
+            "services:\n  a:\n    image: old\n",
+            "INSTANCE_NAME=x\nWEB_PORT=8080\nFOO=1\n",
+        )
+        .unwrap();
+        let plain = render(stack_edit_view("x", &dir, false, None, None, None).unwrap()).0;
+        assert!(plain.contains("Earlier versions (1)"));
+        assert!(plain.contains("?rev=1700000000"));
+        assert!(!plain.contains("loaded."));
+        let loaded =
+            render(stack_edit_view("x", &dir, false, None, None, Some(1_700_000_000)).unwrap()).0;
+        assert!(loaded.contains("loaded."));
+        assert!(loaded.contains("- ") && loaded.contains("image: old"));
+        assert!(loaded.contains("FOO=1") && !loaded.contains("WEB_PORT=8080\nFOO"));
+        assert!(stack_edit_view("x", &dir, false, None, None, Some(5)).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     use super::*;
     use std::sync::Mutex as StdMutex;
 
