@@ -287,3 +287,10 @@ details.more > summary::after { content: " \25BE"; }
 .more-menu { position: absolute; right: 0; z-index: 20; display: flex; flex-direction: column; gap: .35rem; min-width: 11rem; margin-top: .25rem; padding: .5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
 .more-menu button { width: 100%; text-align: left; margin: 0; }
 @media (max-width: 700px) { .more-menu { position: static; box-shadow: none; } }
+
+/* Settings sections as cards, so each block reads as separate */
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem 1.1rem; margin: 0 0 1.25rem; }
+.panel h3 { margin: 1.3rem 0 .6rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 1rem; }
+.panel > h2, .panel > h3:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.panel > :last-child { margin-bottom: 0; }
+@media (max-width: 40rem) { .panel { padding: .85rem .9rem 1rem; } }

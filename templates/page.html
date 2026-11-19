@@ -49,25 +49,42 @@
       <a href="/settings/tab/system"{% if tab == "system" %} aria-current="page"{% endif %}>System</a>
     </nav>
     {% if tab == "notifications" %}
+    <section class="panel">
     <h2>Notifications</h2>
     <div id="notify-settings" hx-get="/settings/notifications" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    </section>
+    <section class="panel">
     <h3>Send notifications elsewhere</h3>
     <div id="channels" hx-get="/settings/channels" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    </section>
     {% else if tab == "security" %}
+    <section class="panel">
     <h2>Two-factor sign-in</h2>
     <div id="twofa" hx-get="/settings/2fa" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    </section>
+    <section class="panel">
     <h2>Passkeys</h2>
     <script src="/static/passkey.js?v={{ assets }}" defer></script>
     <div id="passkeys" hx-get="/settings/passkeys" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    </section>
+    <section class="panel">
     <h2>Web terminal</h2>
     <div id="terminal-setting" hx-get="/settings/terminal" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    </section>
+    <section class="panel">
     <h2>Audit log</h2>
     <div id="audit" hx-get="/settings/audit" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    </section>
     {% else if tab == "backups" %}
+    <section class="panel">
     <h2>Scheduled backups</h2>
     <div id="backup-schedule" hx-get="/settings/backups" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    </section>
+    <section class="panel">
     <h2>Off-host backups</h2>
     <div id="offsite" hx-get="/settings/offsite" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    </section>
+    <section class="panel">
     <h2>Config export</h2>
     <form method="post" action="/settings/config-export" autocomplete="off">
       <p>Download your setup (compose files, app passwords, panel settings; no data) as one encrypted file. Restore it with <code>dockwren import</code> or <code>dockwren recover</code>. Keep the file and the passphrase apart.</p>
@@ -76,28 +93,45 @@
       <label>2FA code (if on) <input name="code" inputmode="numeric" autocomplete="one-time-code"></label>
       <button type="submit" class="primary">Download</button>
     </form>
+    </section>
     {% else if tab == "updates" %}
+    <section class="panel">
     <h2>What updates by itself</h2>
     <div id="updatepolicy" hx-get="/settings/updatepolicy" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    </section>
+    <section class="panel">
     <h2>OS updates</h2>
     <div id="osupdate" hx-get="/settings/osupdates" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    </section>
+    <section class="panel">
     <h2>Third-party templates</h2>
     <div id="thirdparty" hx-get="/settings/templates" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    </section>
     {% else if tab == "system" %}
+    <section class="panel">
     <h2>Health</h2>
     <div id="doctor" hx-get="/settings/doctor" hx-trigger="load" hx-swap="outerHTML">Checking…</div>
+    </section>
+    <section class="panel">
     <h2>Disk usage</h2>
     <div id="disk" hx-get="/settings/disk" hx-trigger="load" hx-swap="outerHTML">Measuring…</div>
+    </section>
+    <section class="panel">
     <h2>Registry logins</h2>
     <div id="registries" hx-get="/settings/registries" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    </section>
     {% else %}
+    <section class="panel">
     <h2>About</h2>
     <p>Dockwren version {{ version }}</p>
     <div id="selfupdate" hx-get="/settings/selfupdate" hx-trigger="load" hx-swap="outerHTML"></div>
     <p><small>Apps are updated from the Apps page; an "Update available" button appears there when a newer version exists.</small></p>
+    </section>
+    <section class="panel">
     <h2>Session</h2>
     <form method="post" action="/logout"><button type="submit">Sign out</button></form>
     <p><small>Ends this browser session. Your apps keep running.</small></p>
+    </section>
     {% endif %}
     {% endif %}
   </main>
