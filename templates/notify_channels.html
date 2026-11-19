@@ -11,7 +11,7 @@
   {% endif %}
   </div>
   {% endif %}
-  <form hx-post="/settings/channels" hx-target="#channels" hx-swap="outerHTML" autocomplete="off">
+  <form id="channels-form" hx-post="/settings/channels" hx-target="#channels" hx-swap="outerHTML" autocomplete="off">
     <div class="cards">
     <div class="card">
       <h4>ntfy {% if has_ntfy %}<span class="badge" data-state="running">on</span>{% else %}<span class="badge" data-state="exited">off</span>{% endif %}</h4>
@@ -41,18 +41,18 @@
       {% if has_webhook %}<button type="button" hx-post="/settings/channels/webhook/remove" hx-params="none" hx-target="#channels" hx-swap="outerHTML" hx-confirm="Stop sending to the webhook and forget its address?">Remove Webhook</button>{% endif %}
     </div>
     </div>
-    <p><label>Send me
-      <select name="min">
-        <option value="info" {% if min == "info" %}selected{% endif %}>everything (info, warnings, critical)</option>
-        <option value="warning" {% if min == "warning" %}selected{% endif %}>warnings and critical</option>
-        <option value="critical" {% if min == "critical" %}selected{% endif %}>critical only</option>
-      </select></label></p>
-    <button type="submit">Save</button>
   </form>
   {% if let Some((ok, text)) = message %}
   <p role="status"><strong>{% if *ok %}Done:{% else %}Failed:{% endif %}</strong> {{ text }}</p>
   {% endif %}
-  <div class="actions">
+  <div class="actions" style="align-items:center">
+    <label style="display:flex;align-items:center;gap:.5rem;white-space:nowrap">Send me
+      <select name="min" form="channels-form">
+        <option value="info" {% if min == "info" %}selected{% endif %}>everything (info, warnings, critical)</option>
+        <option value="warning" {% if min == "warning" %}selected{% endif %}>warnings and critical</option>
+        <option value="critical" {% if min == "critical" %}selected{% endif %}>critical only</option>
+      </select></label>
+    <button type="submit" form="channels-form">Save</button>
   {% if configured %}
   <form hx-post="/settings/channels/test" hx-target="#channels" hx-swap="outerHTML">
     <button type="submit">Send a test notification</button>
