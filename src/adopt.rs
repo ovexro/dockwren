@@ -278,10 +278,27 @@ pub async fn adopt(
             let _ = std::fs::remove_dir_all(&dir);
             Err(match other {
                 Err(e) => e,
+                Ok(_) if relative_bind_hint(&model, &wd) => "this project keeps data in a folder written relative to its own directory (like ./data); the copy would point somewhere else. Write the full path in its compose file (like /srv/app/data), restart it, and adopt again. Nothing was adopted".into(),
                 Ok(_) => "the copied file would not match the running containers (Compose would recreate them), so nothing was adopted".into(),
             })
         }
     }
+}
+
+/// True when a host bind mount lies inside the project directory: written as `./data` it resolves
+/// elsewhere once the file is copied into the panel, which is the usual reason the copy differs.
+fn relative_bind_hint(model: &Value, wd: &str) -> bool {
+    let base = Path::new(wd);
+    model
+        .get("services")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|m| m.values())
+        .filter_map(|svc| svc.get("volumes").and_then(Value::as_array))
+        .flatten()
+        .filter(|v| v.get("type").and_then(Value::as_str) == Some("bind"))
+        .filter_map(|v| v.get("source").and_then(Value::as_str))
+        .any(|src| Path::new(src).starts_with(base))
 }
 
 /// Looks at every Compose project the panel does not manage and says whether it could be adopted.
@@ -343,6 +360,16 @@ mod tests {
                 .unwrap_err()
                 .contains("several")
         );
+    }
+
+    #[test]
+    fn a_bind_inside_the_project_directory_is_flagged() {
+        let inside = json!({"services": {"a": {"volumes": [
+            {"type": "bind", "source": "/srv/app/data", "target": "/d"}]}}});
+        assert!(relative_bind_hint(&inside, "/srv/app"));
+        assert!(!relative_bind_hint(&inside, "/srv/other"));
+        let named = json!({"services": {"a": {"volumes": [{"type": "volume", "source": "pg", "target": "/d"}]}}});
+        assert!(!relative_bind_hint(&named, "/srv/app"));
     }
 
     #[test]
