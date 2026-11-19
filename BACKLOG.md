@@ -29,3 +29,4 @@ Open items only, one line each, with the date it was last verified open. Deliver
 ## Standing
 - BEFORE EVERY TAG run `scripts/docs-check.sh` (README versions/apps/CLI/install options/env vars/links, no private IPs or hostnames, GitHub description/topics/license); fix what it flags. Screenshots: regenerate with `tools/shots.py` (the `apps-*-view.png` frames) into `docs/screenshots/` when the UI changes; never use Overview (shows the real hostname).
 - At every tag/wrapup with new features re-check README, GitHub description/topics, SECURITY.md, docs/TEMPLATES.md (memory public-repo-freshness).
+- UX audit: go through the other long pages (Apps, Cloudflare, Resources, per-app pages) and declutter per memory feedback-ux-declutter; measure with real data, not an empty panel.
