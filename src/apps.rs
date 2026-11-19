@@ -2817,7 +2817,7 @@ fn config_download_error(msg: &str) -> Response {
     (
         StatusCode::BAD_REQUEST,
         Html(format!(
-            "<!doctype html><meta charset=\"utf-8\"><title>Config export</title><p role=\"alert\">{msg}</p><p><a href=\"/settings/tab/system\">Back to Settings</a></p>"
+            "<!doctype html><meta charset=\"utf-8\"><title>Config export</title><p role=\"alert\">{msg}</p><p><a href=\"/settings/tab/backups\">Back to Settings</a></p>"
         )),
     )
         .into_response()

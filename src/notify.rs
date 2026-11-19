@@ -43,7 +43,7 @@ pub const KINDS: [(&str, &str, &str); 22] = [
     (
         "app.auto_updated",
         "App updated automatically",
-        "Scheduled auto-update (Settings → System, off by default) moved an app to a newer template and it came back healthy. Failed updates are reported under failed installs, updates and restores.",
+        "Scheduled auto-update (Settings → Backups, off by default) moved an app to a newer template and it came back healthy. Failed updates are reported under failed installs, updates and restores.",
     ),
     (
         "job.failed",

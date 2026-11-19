@@ -404,10 +404,12 @@ struct PageTemplate {
 }
 
 /// Tabs of the Settings page: (key, label). The first is the default.
-const SETTINGS_TABS: [(&str, &str); 4] = [
+const SETTINGS_TABS: [(&str, &str); 6] = [
     ("general", "General"),
     ("notifications", "Notifications"),
     ("security", "Security"),
+    ("backups", "Backups"),
+    ("updates", "Updates"),
     ("system", "System"),
 ];
 
@@ -2453,14 +2455,16 @@ mod tests {
             ("general", "<h2>About</h2>", "/settings/2fa"),
             ("notifications", "/settings/channels", "<h2>About</h2>"),
             ("security", "/settings/terminal", "/settings/osupdates"),
-            ("system", "/settings/osupdates", "/settings/2fa"),
+            ("backups", "/settings/offsite", "/settings/osupdates"),
+            ("updates", "/settings/osupdates", "/settings/offsite"),
+            ("system", "/settings/doctor", "/settings/osupdates"),
         ] {
             let path: &'static str = Box::leak(format!("/settings/tab/{tab}").into_boxed_str());
             let res = get(path).await;
             assert_eq!(res.status(), StatusCode::OK, "{tab}");
             let html = body_of(res).await;
             assert!(html.contains(has), "{tab} should contain {has}");
-            if tab == "system" {
+            if tab == "updates" {
                 assert!(html.contains("What updates by itself"));
             }
             assert!(!html.contains(hasnt), "{tab} should not load {hasnt}");

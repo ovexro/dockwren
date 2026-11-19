@@ -43,6 +43,8 @@
       <a href="/settings/tab/general"{% if tab == "general" %} aria-current="page"{% endif %}>General</a>
       <a href="/settings/tab/notifications"{% if tab == "notifications" %} aria-current="page"{% endif %}>Notifications</a>
       <a href="/settings/tab/security"{% if tab == "security" %} aria-current="page"{% endif %}>Security</a>
+      <a href="/settings/tab/backups"{% if tab == "backups" %} aria-current="page"{% endif %}>Backups</a>
+      <a href="/settings/tab/updates"{% if tab == "updates" %} aria-current="page"{% endif %}>Updates</a>
       <a href="/settings/tab/system"{% if tab == "system" %} aria-current="page"{% endif %}>System</a>
     </nav>
     {% if tab == "notifications" %}
@@ -60,15 +62,11 @@
     <div id="terminal-setting" hx-get="/settings/terminal" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>Audit log</h2>
     <div id="audit" hx-get="/settings/audit" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
-    {% else if tab == "system" %}
-    <h2>Health</h2>
-    <div id="doctor" hx-get="/settings/doctor" hx-trigger="load" hx-swap="outerHTML">Checking…</div>
+    {% else if tab == "backups" %}
     <h2>Scheduled backups</h2>
     <div id="backup-schedule" hx-get="/settings/backups" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>Off-host backups</h2>
     <div id="offsite" hx-get="/settings/offsite" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
-    <h2>Registry logins</h2>
-    <div id="registries" hx-get="/settings/registries" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     <h2>Config export</h2>
     <form method="post" action="/settings/config-export" autocomplete="off">
       <p>Download your setup (compose files, app passwords, panel settings; no data) as one encrypted file. Restore it with <code>dockwren import</code> or <code>dockwren recover</code>. Keep the file and the passphrase apart.</p>
@@ -77,14 +75,20 @@
       <label>2FA code (if on) <input name="code" inputmode="numeric" autocomplete="one-time-code"></label>
       <button type="submit" class="primary">Download</button>
     </form>
-    <h2>Disk usage</h2>
-    <div id="disk" hx-get="/settings/disk" hx-trigger="load" hx-swap="outerHTML">Measuring…</div>
-    <h2>Third-party templates</h2>
-    <div id="thirdparty" hx-get="/settings/templates" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
-    <h2>OS updates</h2>
-    <div id="osupdate" hx-get="/settings/osupdates" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    {% else if tab == "updates" %}
     <h2>What updates by itself</h2>
     <div id="updatepolicy" hx-get="/settings/updatepolicy" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    <h2>OS updates</h2>
+    <div id="osupdate" hx-get="/settings/osupdates" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    <h2>Third-party templates</h2>
+    <div id="thirdparty" hx-get="/settings/templates" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
+    {% else if tab == "system" %}
+    <h2>Health</h2>
+    <div id="doctor" hx-get="/settings/doctor" hx-trigger="load" hx-swap="outerHTML">Checking…</div>
+    <h2>Disk usage</h2>
+    <div id="disk" hx-get="/settings/disk" hx-trigger="load" hx-swap="outerHTML">Measuring…</div>
+    <h2>Registry logins</h2>
+    <div id="registries" hx-get="/settings/registries" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
     {% else %}
     <h2>About</h2>
     <p>Dockwren version {{ version }}</p>

@@ -1,4 +1,4 @@
-//! Settings → System: "What updates by itself", showing the live state of each switch.
+//! Settings → Updates: "What updates by itself", showing the live state of each switch.
 //! Read-only; every switch itself lives where it always did.
 
 use std::sync::Arc;
