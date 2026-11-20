@@ -421,6 +421,11 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/homebox/compose.yaml"),
         include_str!("../apps/homebox/icon.svg"),
     ),
+    (
+        include_str!("../apps/wallos/manifest.toml"),
+        include_str!("../apps/wallos/compose.yaml"),
+        include_str!("../apps/wallos/icon.svg"),
+    ),
 ];
 
 /// Bundled templates plus (optionally) a directory of extra or overriding ones.
@@ -826,13 +831,14 @@ mod tests {
                 "syncthing",
                 "uptime-kuma",
                 "vaultwarden",
+                "wallos",
                 "wikijs",
                 "wordpress"
             ]
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 28);
+        assert_eq!(c.len(), 29);
     }
 
     #[test]
@@ -899,6 +905,7 @@ mod tests {
                 "syncthing",
                 "uptime-kuma",
                 "vaultwarden",
+                "wallos",
                 "wikijs",
                 "wordpress"
             ]

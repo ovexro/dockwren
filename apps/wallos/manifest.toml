@@ -1,0 +1,45 @@
+[app]
+id = "wallos"
+name = "Wallos"
+description = "Track your subscriptions: renewals, costs per month and year, reminders"
+changelog = "https://github.com/ellite/Wallos/releases"
+version = 1
+note = "Your subscription tracker. On first visit register your account; the first one is the admin. Then switch registrations off in the app's Admin settings."
+accepts_public_host = true
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "wallos"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "TIME_ZONE"
+editable = true
+label = "Time zone"
+type = "string"
+default = "UTC"
+pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
+help = "Your region, so dates and times are right. For example Europe/Bucharest."
+
+[[services]]
+name = "wallos"
+main = true
+health = { source = "image" }
+
+[backup]
+paths = ["db", "logos"]
+
+[update]
+image_pins = ["bellamy/wallos"]
+pre_update = ["backup"]
