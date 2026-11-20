@@ -48,7 +48,7 @@ binaries and `SHA256SUMS` are on the [releases page](https://github.com/ovexro/d
 
 ## What you get
 
-- **Apps from templates:** Actual Budget, AdGuard Home, Audiobookshelf, Ghost, Gitea, Grafana, Homebox, Homepage, Immich, Jellyfin, Linkding, Mealie, Memos, Miniflux, n8n, Navidrome, Nextcloud, Paperless-ngx, Pi-hole, Roundcube, SnappyMail, Stirling-PDF, Syncthing, Uptime Kuma, Vaultwarden, Wiki.js, WordPress. Add your own with a manifest and a Compose file, or paste a Compose file and **edit stack** later, with **version history**. **Adopt** a Compose project that is already running, without touching it.
+- **Apps from templates:** Actual Budget, AdGuard Home, Audiobookshelf, changedetection.io, Ghost, Gitea, Grafana, Homebox, Homepage, Immich, Jellyfin, Linkding, LubeLogger, Mealie, Memos, Miniflux, n8n, Navidrome, Nextcloud, Paperless-ngx, Pi-hole, Roundcube, SnappyMail, Stirling-PDF, Syncthing, Uptime Kuma, Vaultwarden, Wallos, Wiki.js, WordPress. Add your own with a manifest and a Compose file, or paste a Compose file and **edit stack** later, with **version history**. **Adopt** a Compose project that is already running, without touching it.
 - **Safe updates:** a snapshot first, a preview of what changes, automatic rollback if the new version is not healthy. Drift detection shows apps that no longer match their files, with one **Apply**.
 - **Backups and restore:** scheduled snapshots, **off-host** copies (SFTP or S3, encrypted), verify, weekly test restores, duplicate an app from a snapshot, and `dockwren recover` for a lost server.
 - **Public addresses:** Cloudflare Tunnel, or direct HTTPS with Let's Encrypt (bundled Caddy). See [Publishing](docs/PUBLISHING.md).
