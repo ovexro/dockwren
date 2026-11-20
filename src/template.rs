@@ -427,6 +427,11 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/linkwarden/icon.svg"),
     ),
     (
+        include_str!("../apps/forgejo/manifest.toml"),
+        include_str!("../apps/forgejo/compose.yaml"),
+        include_str!("../apps/forgejo/icon.svg"),
+    ),
+    (
         include_str!("../apps/wallos/manifest.toml"),
         include_str!("../apps/wallos/compose.yaml"),
         include_str!("../apps/wallos/icon.svg"),
@@ -825,6 +830,7 @@ mod tests {
                 "audiobookshelf",
                 "changedetection",
                 "custom",
+                "forgejo",
                 "ghost",
                 "gitea",
                 "grafana",
@@ -856,7 +862,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 32);
+        assert_eq!(c.len(), 33);
     }
 
     #[test]
@@ -902,6 +908,7 @@ mod tests {
                 "audiobookshelf",
                 "changedetection",
                 "custom",
+                "forgejo",
                 "ghost",
                 "gitea",
                 "grafana",

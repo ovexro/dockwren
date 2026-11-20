@@ -1,0 +1,85 @@
+[app]
+id = "forgejo"
+name = "Forgejo"
+description = "Self-hosted Git service"
+changelog = "https://codeberg.org/forgejo/forgejo/releases"
+version = 1
+note = "Git hosting with issues and pull requests. Data and database are backed up together."
+public_url_field = "PUBLIC_URL"
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "forgejo"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "SSH_PORT"
+label = "Git SSH port"
+type = "port"
+default = "auto"
+help = "A second door used only for git over SSH (git clone with an ssh:// address). Leave on auto unless you need a specific number."
+
+[[fields]]
+key = "PUBLIC_URL"
+label = "Public URL"
+type = "url"
+default = "http://127.0.0.1:${WEB_PORT}/"
+
+[[fields]]
+key = "ADMIN_USER"
+label = "Admin user"
+type = "string"
+default = "forgejo-admin"
+pattern = "^[a-z][a-z0-9_-]{2,30}$"
+help = "The username you will sign in with (the name admin is reserved by Forgejo). Dockwren creates a strong password for you and shows it once after the install, so copy it then."
+
+[[fields]]
+key = "ADMIN_EMAIL"
+label = "Admin e-mail"
+type = "email"
+help = "Your e-mail address, used for the administrator account and for password-reset messages."
+
+[[secrets]]
+key = "POSTGRES_PASSWORD"
+kind = "password"
+length = 32
+
+[[services]]
+name = "db"
+health = { source = "image" }
+
+[[services]]
+name = "forgejo"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/healthz | grep -q pass"], interval = "15s", start_period = "60s" }
+
+[[post_start]]
+name = "create-admin"
+service = "forgejo"
+run = ["forgejo", "admin", "user", "create", "--admin", "--username", "${ADMIN_USER}", "--email", "${ADMIN_EMAIL}", "--random-password"]
+user = "git"
+capture = { label = "Admin password", regex = "generated random password is '([^']+)'" }
+
+[backup]
+paths = ["data"]
+[[backup.dumps]]
+service = "db"
+run = ["pg_dump", "--clean", "--if-exists", "-U", "forgejo", "forgejo"]
+restore = ["psql", "-v", "ON_ERROR_STOP=1", "-q", "-U", "forgejo", "forgejo"]
+output = "db.sql"
+
+[update]
+image_pins = ["codeberg.org/forgejo/forgejo", "postgres"]
+pre_update = ["backup"]
+pinned_major = ["postgres"]
