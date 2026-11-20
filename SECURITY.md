@@ -54,6 +54,13 @@ is start a package update. It never reboots. The log is written by root to
 - To remove it: `systemctl disable --now dockwren-osupdate.path`, then delete the two unit files in
   `/etc/systemd/system/` and `/usr/local/lib/dockwren/`.
 
+## UPS (NUT)
+
+If NUT's `upsd` answers on `127.0.0.1:3493` (or the address in `DOCKWREN_NUT`), the unprivileged
+panel connects every 10 seconds and sends only `LIST UPS`, `LIST VAR <ups>` and `LOGOUT`: read-only,
+no credentials, nothing is changed and the server is never shut down by Dockwren (that stays with
+NUT's `upsmon`). Keep `upsd` on loopback (its default); `DOCKWREN_NUT=off` switches the reader off.
+
 ## Disk health (SMART)
 
 Optional: running `sudo dockwren setup-smart` once installs `dockwren-smart.timer` and

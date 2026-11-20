@@ -328,6 +328,28 @@ fn smart_checks(data_dir: &Path, now: u64, v: &mut Vec<Item>) {
     }
 }
 
+/// UPS state from NUT; silent when `upsd` does not answer (NUT is optional).
+async fn ups_check(v: &mut Vec<Item>) {
+    let Some(addr) = crate::ups::nut_addr() else {
+        return;
+    };
+    let Ok(Ok(list)) = tokio::task::spawn_blocking(move || crate::ups::query(&addr)).await else {
+        return;
+    };
+    for u in list {
+        let level = if u
+            .status
+            .iter()
+            .any(|s| s == "OB" || s == "RB" || s == "OVER")
+        {
+            Level::Warn
+        } else {
+            Level::Ok
+        };
+        v.push(item("UPS", level, u.summary()));
+    }
+}
+
 fn tunnel_check(v: &mut Vec<Item>) {
     v.push(match crate::public::Settings::from_env() {
         Some(_) => item(
@@ -395,6 +417,7 @@ pub async fn run(data_dir: &Path) -> Vec<Item> {
     ports_check(&mut v).await;
     listeners_check(&mut v).await;
     smart_checks(data_dir, now, &mut v);
+    ups_check(&mut v).await;
     backup_checks(data_dir, now, &mut v);
     tunnel_check(&mut v);
     v

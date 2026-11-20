@@ -24,7 +24,7 @@ const SILENCE_FILE: &str = "notify-silence.txt";
 /// Longest "silence" the admin can ask for (a forgotten one must not hide alerts for days).
 pub const MAX_SILENCE_MIN: u64 = 240;
 /// Every kind a producer raises: (kind, label, what it does). Settings lists exactly these.
-pub const KINDS: [(&str, &str, &str); 22] = [
+pub const KINDS: [(&str, &str, &str); 23] = [
     (
         "terminal.opened",
         "Web terminal opened",
@@ -84,6 +84,11 @@ pub const KINDS: [(&str, &str, &str); 22] = [
         "host.smart",
         "Disk health (SMART) problem",
         "A disk reports trouble: failed health test, sectors waiting for reallocation, uncorrectable sectors, NVMe critical warning, spare capacity at its threshold, 90% of rated write endurance used, or over 65 °C. Needs the optional SMART helper (sudo dockwren setup-smart), which reads smartctl every hour. Clears when the disk reports healthy again.",
+    ),
+    (
+        "host.ups",
+        "UPS: power cut, low or worn battery, overload",
+        "Reads a UPS from NUT (Network UPS Tools, upsd on 127.0.0.1:3493, read-only) every 10 seconds. Raised when the UPS runs on battery (critical once the battery is low and NUT shuts the server down), when its battery needs replacing, or when it is overloaded. Clears when the condition ends. Nothing happens without NUT.",
     ),
     (
         "host.disk_full",

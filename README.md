@@ -52,7 +52,7 @@ binaries and `SHA256SUMS` are on the [releases page](https://github.com/ovexro/d
 - **Safe updates:** a snapshot first, a preview of what changes, automatic rollback if the new version is not healthy. Drift detection shows apps that no longer match their files, with one **Apply**.
 - **Backups and restore:** scheduled snapshots, **off-host** copies (SFTP or S3, encrypted), verify, weekly test restores, duplicate an app from a snapshot, and `dockwren recover` for a lost server.
 - **Public addresses:** Cloudflare Tunnel, or direct HTTPS with Let's Encrypt (bundled Caddy). See [Publishing](docs/PUBLISHING.md).
-- **Monitoring:** resource graphs, disk, memory and CPU alerts, crash and health alerts, image vulnerability scan, public address checks. Notifications go to the panel bell, ntfy, Telegram or a webhook.
+- **Monitoring:** resource graphs, disk, memory and CPU alerts, UPS power-cut alerts (via NUT), crash and health alerts, image vulnerability scan, public address checks. Notifications go to the panel bell, ntfy, Telegram or a webhook.
 - **Careful by design:** Argon2id login, **two-factor** and **passkey** sign-in, an audit log, an opt-in web terminal, **registry login** for private images, **schedule** stop/start, **needs** between apps, resource limits, log caps.
 
 Every feature in detail: [docs/FEATURES.md](docs/FEATURES.md).

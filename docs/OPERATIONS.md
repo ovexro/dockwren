@@ -29,6 +29,7 @@ All settings are environment variables.
 | `DOCKWREN_LISTEN_ALLOW` | none | Extra ports allowed to listen on every interface without a warning (comma-separated). |
 | `DOCKWREN_DISKS` | unset | Extra directories (comma separated) whose disks get a graph; the data directory's disk is always shown. |
 | `DOCKWREN_BACKUP_STATUS` | unset | Status file of your host backup job (one line, containing `FAIL` when the last run failed). Raises a notification on failure or when the file is older than 36 hours. See [NOTIFICATIONS.md](NOTIFICATIONS.md). |
+| `DOCKWREN_NUT` | `127.0.0.1:3493` | Where the panel looks for NUT's `upsd` to read a UPS (read-only). Set `off` to disable. Nothing happens when nothing answers there. See [NOTIFICATIONS.md](NOTIFICATIONS.md). |
 | `DOCKWREN_TERMINAL` | unset | Set to `1` to force the web terminal on (a shell inside containers Dockwren installed). Unset, it is off until you turn it on in Settings (asks for your password). See [SECURITY.md](../SECURITY.md). |
 | `DOCKWREN_SECURE_COOKIE` | unset | Set to `1` when served over HTTPS so the session cookie is marked `Secure`. |
 

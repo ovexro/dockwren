@@ -83,6 +83,16 @@ run, one line, containing the word `FAIL` when it failed (`2026-11-14 03:30:20 b
 `FAIL` or the file has not been touched for 36 hours. The next good run resolves it. Without the
 variable, or while the file does not exist, nothing happens.
 
+## UPS (NUT)
+
+`src/ups.rs`. Every 10 seconds the panel asks NUT's `upsd` (default `127.0.0.1:3493`, `DOCKWREN_NUT`
+to change or `off`) for `LIST UPS` and `LIST VAR`: plain text over TCP, read-only, no login. A
+status flag must show on 2 polls in a row before anything is raised (a one-second brownout is not
+news). `OB` raises a warning on `host.ups:<ups>:power`, escalated to critical when `LB` or `FSD`
+follows (NUT is shutting the server down); `RB` raises `...:replace`, `OVER` raises `...:overload`.
+Each closes when the flag goes away, which also sends the "resolved" message. If `upsd` does not
+answer, nothing is raised and nothing is closed. Health shows each UPS.
+
 ## Disk health (SMART)
 
 `src/smart.rs`. A root systemd timer (`dockwren-smart.timer`, installed by `sudo dockwren
