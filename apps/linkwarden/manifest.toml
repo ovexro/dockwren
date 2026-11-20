@@ -1,0 +1,81 @@
+[app]
+id = "linkwarden"
+name = "Linkwarden"
+description = "Bookmark manager that also archives each page (screenshot, PDF, readable copy)"
+changelog = "https://github.com/linkwarden/linkwarden/releases"
+version = 1
+note = "Your bookmarks and page archives, with their own database. Sign in with the admin user and the generated password (shown once). Public sign-up is off; add people from the admin settings."
+public_url_field = "PUBLIC_URL"
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "linkwarden"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "PUBLIC_URL"
+label = "Public URL"
+type = "url"
+default = "http://127.0.0.1:${WEB_PORT}"
+
+[[fields]]
+key = "ADMIN_USER"
+label = "Admin user"
+type = "string"
+default = "admin"
+pattern = "^[a-z][a-z0-9_-]{2,30}$"
+help = "The username you will sign in with. Dockwren creates a strong password for you and shows it once after the install, so copy it then."
+
+[[secrets]]
+key = "POSTGRES_PASSWORD"
+kind = "password"
+length = 32
+
+[[secrets]]
+key = "NEXTAUTH_SECRET"
+kind = "password"
+length = 48
+
+[[secrets]]
+key = "ADMIN_PASSWORD"
+kind = "password"
+length = 20
+reveal = true
+
+[[services]]
+name = "db"
+health = { source = "image" }
+
+[[services]]
+name = "linkwarden"
+main = true
+health = { source = "image" }
+
+[[post_start]]
+name = "create admin user"
+service = "db"
+run = ["psql", "-v", "ON_ERROR_STOP=1", "-q", "-U", "linkwarden", "linkwarden", "-c", "CREATE EXTENSION IF NOT EXISTS pgcrypto; INSERT INTO \"User\" (name, username, email, password, uuid, \"emailVerified\", \"updatedAt\") SELECT '${ADMIN_USER}', '${ADMIN_USER}', '${ADMIN_USER}@example.com', crypt('${ADMIN_PASSWORD}', gen_salt('bf', 10)), gen_random_uuid(), now(), now() WHERE NOT EXISTS (SELECT 1 FROM \"User\");"]
+
+[backup]
+paths = ["data"]
+[[backup.dumps]]
+service = "db"
+run = ["pg_dump", "--clean", "--if-exists", "-U", "linkwarden", "linkwarden"]
+restore = ["psql", "-v", "ON_ERROR_STOP=1", "-q", "-U", "linkwarden", "linkwarden"]
+output = "db.sql"
+
+[update]
+image_pins = ["ghcr.io/linkwarden/linkwarden", "postgres"]
+pre_update = ["backup"]
+pinned_major = ["postgres"]

@@ -422,6 +422,11 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/homebox/icon.svg"),
     ),
     (
+        include_str!("../apps/linkwarden/manifest.toml"),
+        include_str!("../apps/linkwarden/compose.yaml"),
+        include_str!("../apps/linkwarden/icon.svg"),
+    ),
+    (
         include_str!("../apps/wallos/manifest.toml"),
         include_str!("../apps/wallos/compose.yaml"),
         include_str!("../apps/wallos/icon.svg"),
@@ -828,6 +833,7 @@ mod tests {
                 "immich",
                 "jellyfin",
                 "linkding",
+                "linkwarden",
                 "lubelogger",
                 "mealie",
                 "memos",
@@ -850,7 +856,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 31);
+        assert_eq!(c.len(), 32);
     }
 
     #[test]
@@ -904,6 +910,7 @@ mod tests {
                 "immich",
                 "jellyfin",
                 "linkding",
+                "linkwarden",
                 "lubelogger",
                 "mealie",
                 "memos",
