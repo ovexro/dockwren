@@ -1,0 +1,12 @@
+services:
+  mealie:
+    image: ghcr.io/mealie-recipes/mealie:v3.31.0
+    restart: unless-stopped
+    environment:
+      BASE_URL: ${PUBLIC_URL}
+      ALLOW_SIGNUP: "false"
+      TZ: ${TIME_ZONE}
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "127.0.0.1:${WEB_PORT}:9000"

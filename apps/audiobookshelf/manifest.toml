@@ -1,0 +1,63 @@
+[app]
+id = "audiobookshelf"
+name = "Audiobookshelf"
+description = "Audiobook and podcast server with apps for phones"
+changelog = "https://github.com/advplyr/audiobookshelf/releases"
+version = 1
+note = "Your audiobooks and podcasts. On first visit create the admin account, then add the folders /audiobooks and /podcasts as libraries."
+accepts_public_host = true
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "audiobookshelf"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "AUDIOBOOKS_PATH"
+editable = true
+label = "Audiobooks folder"
+type = "string"
+default = "/srv/audiobooks"
+pattern = "^/[A-Za-z0-9._/-]+$"
+help = "The folder on this server that holds your audiobooks. It is shown inside Audiobookshelf as /audiobooks and is read-only, so your files are never changed. It must already exist. It is not included in backups: back up your own media separately."
+
+[[fields]]
+key = "PODCASTS_PATH"
+editable = true
+label = "Podcasts folder"
+type = "string"
+default = "/srv/podcasts"
+pattern = "^/[A-Za-z0-9._/-]+$"
+help = "The folder on this server where downloaded podcast episodes are stored. It is shown inside Audiobookshelf as /podcasts. It must already exist. It is not included in backups."
+
+[[fields]]
+key = "TIME_ZONE"
+editable = true
+label = "Time zone"
+type = "string"
+default = "UTC"
+pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
+help = "Your region, so dates and times are right. For example Europe/Bucharest."
+
+[[services]]
+name = "audiobookshelf"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80/healthcheck"], interval = "15s", start_period = "20s" }
+
+[backup]
+paths = ["config", "metadata"]
+
+[update]
+image_pins = ["advplyr/audiobookshelf"]
+pre_update = ["backup"]

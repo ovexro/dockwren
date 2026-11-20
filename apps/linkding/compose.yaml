@@ -1,0 +1,12 @@
+services:
+  linkding:
+    image: sissbruecker/linkding:1.47.0
+    restart: unless-stopped
+    environment:
+      LD_SUPERUSER_NAME: ${ADMIN_USER}
+      LD_SUPERUSER_PASSWORD: ${ADMIN_PASSWORD}
+      LD_CSRF_TRUSTED_ORIGINS: ${PUBLIC_URL}
+    volumes:
+      - ./data:/etc/linkding/data
+    ports:
+      - "127.0.0.1:${WEB_PORT}:9090"

@@ -1,0 +1,8 @@
+services:
+  actual:
+    image: actualbudget/actual-server:26.11.0
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
+    ports:
+      - "127.0.0.1:${WEB_PORT}:5006"

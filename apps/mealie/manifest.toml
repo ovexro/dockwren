@@ -1,0 +1,63 @@
+[app]
+id = "mealie"
+name = "Mealie"
+description = "Recipe manager and meal planner for the whole household"
+changelog = "https://github.com/mealie-recipes/mealie/releases"
+version = 1
+note = "Your recipes and meal plans. Sign in as changeme@example.com with the generated password (shown once after the install), then change the e-mail in your profile."
+public_url_field = "PUBLIC_URL"
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "mealie"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "PUBLIC_URL"
+label = "Public URL"
+type = "url"
+default = "http://127.0.0.1:${WEB_PORT}"
+help = "The address people use to reach this app. Leave it as it is for now: when you publish the app with a public hostname, Dockwren fills this in for you."
+
+[[fields]]
+key = "TIME_ZONE"
+editable = true
+label = "Time zone"
+type = "string"
+default = "UTC"
+pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
+help = "Your region, so dates and times are right. For example Europe/Bucharest."
+
+[[secrets]]
+key = "ADMIN_PASSWORD"
+kind = "password"
+length = 20
+reveal = true
+
+[[services]]
+name = "mealie"
+main = true
+health = { source = "image" }
+
+[[post_start]]
+name = "set admin password"
+service = "mealie"
+run = ["/opt/mealie/bin/python", "-c", "import json,urllib.request as u,urllib.parse as p;b='http://127.0.0.1:9000';t=json.load(u.urlopen(b+'/api/auth/token',p.urlencode({'username':'changeme@example.com','password':'MyPassword'}).encode()))['access_token'];u.urlopen(u.Request(b+'/api/users/password',json.dumps({'currentPassword':'MyPassword','newPassword':'${ADMIN_PASSWORD}'}).encode(),{'Authorization':'Bearer '+t,'Content-Type':'application/json'},method='PUT'))"]
+
+[backup]
+paths = ["data"]
+
+[update]
+image_pins = ["ghcr.io/mealie-recipes/mealie"]
+pre_update = ["backup"]

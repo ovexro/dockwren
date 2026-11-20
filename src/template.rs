@@ -396,6 +396,31 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/wordpress/compose.yaml"),
         include_str!("../apps/wordpress/icon.svg"),
     ),
+    (
+        include_str!("../apps/actual-budget/manifest.toml"),
+        include_str!("../apps/actual-budget/compose.yaml"),
+        include_str!("../apps/actual-budget/icon.svg"),
+    ),
+    (
+        include_str!("../apps/audiobookshelf/manifest.toml"),
+        include_str!("../apps/audiobookshelf/compose.yaml"),
+        include_str!("../apps/audiobookshelf/icon.svg"),
+    ),
+    (
+        include_str!("../apps/linkding/manifest.toml"),
+        include_str!("../apps/linkding/compose.yaml"),
+        include_str!("../apps/linkding/icon.svg"),
+    ),
+    (
+        include_str!("../apps/mealie/manifest.toml"),
+        include_str!("../apps/mealie/compose.yaml"),
+        include_str!("../apps/mealie/icon.svg"),
+    ),
+    (
+        include_str!("../apps/homebox/manifest.toml"),
+        include_str!("../apps/homebox/compose.yaml"),
+        include_str!("../apps/homebox/icon.svg"),
+    ),
 ];
 
 /// Bundled templates plus (optionally) a directory of extra or overriding ones.
@@ -775,14 +800,19 @@ mod tests {
         assert_eq!(
             ids,
             [
+                "actual-budget",
                 "adguard-home",
+                "audiobookshelf",
                 "custom",
                 "ghost",
                 "gitea",
                 "grafana",
+                "homebox",
                 "homepage",
                 "immich",
                 "jellyfin",
+                "linkding",
+                "mealie",
                 "memos",
                 "miniflux",
                 "n8n",
@@ -802,7 +832,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 23);
+        assert_eq!(c.len(), 28);
     }
 
     #[test]
@@ -843,14 +873,19 @@ mod tests {
         assert_eq!(
             ids,
             [
+                "actual-budget",
                 "adguard-home",
+                "audiobookshelf",
                 "custom",
                 "ghost",
                 "gitea",
                 "grafana",
+                "homebox",
                 "homepage",
                 "immich",
                 "jellyfin",
+                "linkding",
+                "mealie",
                 "memos",
                 "miniflux",
                 "n8n",

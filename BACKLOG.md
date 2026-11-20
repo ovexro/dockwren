@@ -4,7 +4,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 (delete the line in the SAME commit that delivers it; grep this file for the feature's keywords first).
 
 ## Open
-- More catalog templates (open-ended; ~15 done, see `templates/`). Verified open 2026-11-17.
+- More catalog templates (open-ended; 28 in `apps/` as of 2026-11-20: added actual-budget, audiobookshelf, homebox, linkding, mealie, each tested on a real VPS incl. backup/restore, NOT yet released). Later ideas: wallos, lubelogger, changedetection.io (all have tar). Apps-page screenshots predate these 5; reshoot at a later screenshot session.
 - Security: PHP advisory recheck (PHP2Shell fixed in 8.5.12/8.4.27/8.3.36/8.2.35; all pinned apps patched, rechecked 2026-11-19 (again 17:00, wordpress:7.1.5-php8.3-apache rebuilt 16:06 but still php 8.3.36): php 8.5.13 etc. exist on Docker Hub but app images (wordpress 7.1.5 = php 8.3.36, nextcloud 35.0.3 = 8.5.12, roundcube 1.7.6 = 8.4.27) not rebuilt yet; recheck at next release).
 - Security: WordPress template has 2 fixable criticals needing upstream rebuilds (rechecked 2026-11-19 17:00 by running the image: wordpress 7.1.5 out, still apache 2.4.69 (fix 2.4.71); mariadb 11.8.10 not yet, Go stdlib 1.24.6 in mariadb:11.8.9, fix 1.24.13). Recheck both tags at each release.
 - Off-host: not tested on AWS (B2 tested). Low value, keep unless asked.
@@ -17,6 +17,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 - Passkeys (released v0.1.59, tested on a real device 2026-11-17): reauth prompts (Passwords, terminal, updates) still take a typed code (TOTP/recovery), not a passkey tap; passkeys work only on the hostname they were added on.
 
 ## Decisions (do not re-propose)
+- Vikunja template: DROPPED (2026-11-20): its image has no `tar`/shell, so Dockwren cannot back it up (checked on a real VPS). Homebox replaced it.
 - Multi-server over SSH: DROPPED by the user (2026-11-15).
 - Name stays "Dockwren" (user, 2026-11-13), despite the pending USPTO "DOCKWARE" filing.
 - Repo is public (user approved 2026-11-13); ask before any visibility change.

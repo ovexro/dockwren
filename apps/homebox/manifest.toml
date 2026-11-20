@@ -1,0 +1,58 @@
+[app]
+id = "homebox"
+name = "Homebox"
+description = "Home inventory: what you own, where it is, with photos and warranties"
+changelog = "https://github.com/sysadminsmedia/homebox/releases"
+version = 1
+note = "Your home inventory. On first visit register your account; the first one is the owner. Then set sign-ups to false in the app's Settings."
+accepts_public_host = true
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "homebox"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "ALLOW_SIGNUP"
+editable = true
+label = "Allow sign-ups"
+type = "bool"
+default = "true"
+help = "Choose true to let anyone with the link create an account, or false to keep the app private. Choose false once your own account exists."
+
+[[fields]]
+key = "TIME_ZONE"
+editable = true
+label = "Time zone"
+type = "string"
+default = "UTC"
+pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
+help = "Your region, so dates and times are right. For example Europe/Bucharest."
+
+[[secrets]]
+key = "API_KEY_PEPPER"
+kind = "hex"
+length = 48
+
+[[services]]
+name = "homebox"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:7745/api/v1/status"], interval = "15s", start_period = "20s" }
+
+[backup]
+paths = ["data"]
+
+[update]
+image_pins = ["ghcr.io/sysadminsmedia/homebox"]
+pre_update = ["backup"]

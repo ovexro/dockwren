@@ -1,0 +1,12 @@
+services:
+  homebox:
+    image: ghcr.io/sysadminsmedia/homebox:0.27.1
+    restart: unless-stopped
+    environment:
+      HBOX_OPTIONS_ALLOW_REGISTRATION: ${ALLOW_SIGNUP}
+      HBOX_AUTH_API_KEY_PEPPER: ${API_KEY_PEPPER}
+      TZ: ${TIME_ZONE}
+    volumes:
+      - ./data:/data
+    ports:
+      - "127.0.0.1:${WEB_PORT}:7745"

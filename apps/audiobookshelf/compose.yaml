@@ -1,0 +1,13 @@
+services:
+  audiobookshelf:
+    image: advplyr/audiobookshelf:2.38.0
+    restart: unless-stopped
+    environment:
+      TZ: ${TIME_ZONE}
+    volumes:
+      - ./config:/config
+      - ./metadata:/metadata
+      - ${AUDIOBOOKS_PATH}:/audiobooks:ro
+      - ${PODCASTS_PATH}:/podcasts
+    ports:
+      - "127.0.0.1:${WEB_PORT}:80"
