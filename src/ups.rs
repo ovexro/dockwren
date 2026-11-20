@@ -11,6 +11,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
+use askama::Template;
+use axum::response::Html;
+
 use crate::notify::{self, NewEvent, Severity, Shared};
 
 pub const KIND: &str = "host.ups";
@@ -269,6 +272,124 @@ pub fn apply(shared: &Shared, list: &[Ups], seen: &mut HashMap<String, u32>) {
     }
 }
 
+/// USB vendor ids that only make UPS devices (as `idVendor` appears in sysfs).
+const UPS_VENDORS: [(&str, &str); 6] = [
+    ("0463", "Eaton"),
+    ("051d", "APC"),
+    ("0764", "CyberPower"),
+    ("09ae", "Tripp Lite"),
+    ("0d9f", "PowerCOM"),
+    ("06da", "Phoenixtec"),
+];
+
+/// UPS devices plugged into this server, from `/sys/bus/usb/devices` (readable without root).
+pub fn usb_ups(sys: &std::path::Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let Ok(rd) = std::fs::read_dir(sys) else {
+        return out;
+    };
+    for e in rd.flatten() {
+        let read = |f: &str| {
+            std::fs::read_to_string(e.path().join(f))
+                .map(|s| s.trim().to_lowercase())
+                .unwrap_or_default()
+        };
+        let vendor = read("idVendor");
+        let Some((_, brand)) = UPS_VENDORS.iter().find(|v| v.0 == vendor) else {
+            continue;
+        };
+        let product: String = std::fs::read_to_string(e.path().join("product"))
+            .unwrap_or_default()
+            .trim()
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(60)
+            .collect();
+        let id = format!("{vendor}:{}", read("idProduct"));
+        out.push(if product.is_empty() {
+            format!("{brand} UPS ({id})")
+        } else if product.to_lowercase().starts_with(&brand.to_lowercase()) {
+            format!("{product} ({id})")
+        } else {
+            format!("{brand} {product} ({id})")
+        });
+    }
+    out.sort();
+    out
+}
+
+#[derive(Template)]
+#[template(path = "ups.html")]
+struct View {
+    /// `off`, `connected`, `empty`, `setup` or `none`.
+    mode: &'static str,
+    badge_state: &'static str,
+    badge_text: String,
+    lines: Vec<String>,
+    detected: Vec<String>,
+}
+
+/// Badge for a set of UPSes: the worst one decides.
+fn badge(list: &[Ups]) -> (&'static str, &'static str) {
+    if list
+        .iter()
+        .any(|u| u.has("FSD") || (u.has("OB") && u.has("LB")))
+    {
+        ("exited", "Battery low")
+    } else if list.iter().any(|u| u.has("OB")) {
+        ("paused", "On battery")
+    } else if list.iter().any(|u| u.has("RB")) {
+        ("paused", "Replace battery")
+    } else {
+        ("running", "Connected")
+    }
+}
+
+fn view(addr: Option<&str>, found: Result<Vec<Ups>, String>, usb: Vec<String>) -> View {
+    let mk = |mode, badge_state, badge_text: &str, lines, detected| View {
+        mode,
+        badge_state,
+        badge_text: badge_text.to_string(),
+        lines,
+        detected,
+    };
+    if addr.is_none() {
+        return mk("off", "", "Off", vec![], vec![]);
+    }
+    match found {
+        Ok(list) if !list.is_empty() => {
+            let (state, text) = badge(&list);
+            mk(
+                "connected",
+                state,
+                text,
+                list.iter().map(Ups::summary).collect(),
+                vec![],
+            )
+        }
+        Ok(_) => mk("empty", "paused", "No UPS in NUT", vec![], usb),
+        Err(_) if !usb.is_empty() => mk("setup", "paused", "Detected, not set up", vec![], usb),
+        Err(_) => mk("none", "", "Not detected", vec![], vec![]),
+    }
+}
+
+/// `GET /settings/ups`: the UPS section of Settings → System.
+pub async fn show() -> Html<String> {
+    let addr = nut_addr();
+    let found = match addr.clone() {
+        Some(a) => tokio::task::spawn_blocking(move || query(&a))
+            .await
+            .unwrap_or_else(|e| Err(e.to_string())),
+        None => Err("off".into()),
+    };
+    let usb = usb_ups(std::path::Path::new("/sys/bus/usb/devices"));
+    Html(
+        view(addr.as_deref(), found, usb)
+            .render()
+            .expect("ups renders"),
+    )
+}
+
 pub fn spawn_checker(shared: Shared) {
     let Some(addr) = nut_addr() else { return };
     tokio::spawn(async move {
@@ -387,6 +508,67 @@ mod tests {
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].name, "eaton");
         assert_eq!(got[0].status, vec!["OL", "CHRG"]);
+    }
+
+    #[test]
+    fn finds_ups_on_usb_from_sysfs() {
+        let d = std::env::temp_dir().join(format!("dw-sysusb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        for (n, v, p, name) in [
+            ("1-6", "0463", "ffff", "Eaton 5E 700 G2"),
+            ("1-2", "c0f4", "05c0", "keyboard"),
+            ("1-3", "051D", "0002", ""),
+        ] {
+            let dir = d.join(n);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("idVendor"), format!("{v}\n")).unwrap();
+            std::fs::write(dir.join("idProduct"), format!("{p}\n")).unwrap();
+            if !name.is_empty() {
+                std::fs::write(dir.join("product"), format!("{name}\n")).unwrap();
+            }
+        }
+        assert_eq!(
+            usb_ups(&d),
+            vec![
+                "APC UPS (051d:0002)".to_string(),
+                "Eaton 5E 700 G2 (0463:ffff)".to_string()
+            ]
+        );
+        assert!(usb_ups(&d.join("missing")).is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn section_modes_and_badges() {
+        let usb = vec!["Eaton UPS (0463:ffff)".to_string()];
+        let v = view(None, Err("off".into()), vec![]);
+        assert_eq!(v.mode, "off");
+        let v = view(Some("x"), Err("refused".into()), vec![]);
+        assert_eq!((v.mode, v.badge_text.as_str()), ("none", "Not detected"));
+        let v = view(Some("x"), Err("refused".into()), usb.clone());
+        assert_eq!((v.mode, v.badge_state), ("setup", "paused"));
+        let v = view(Some("x"), Ok(vec![]), usb);
+        assert_eq!(v.mode, "empty");
+        let v = view(Some("x"), Ok(vec![ups("OL CHRG")]), vec![]);
+        assert_eq!(
+            (v.mode, v.badge_state, v.badge_text.as_str()),
+            ("connected", "running", "Connected")
+        );
+        assert_eq!(badge(&[ups("OB DISCHRG")]), ("paused", "On battery"));
+        assert_eq!(badge(&[ups("OB DISCHRG LB")]), ("exited", "Battery low"));
+        assert_eq!(badge(&[ups("OL RB")]), ("paused", "Replace battery"));
+        let html = view(Some("x"), Ok(vec![ups("OL")]), vec![])
+            .render()
+            .unwrap();
+        assert!(html.contains("Connected") && html.contains("Eaton 5E 700 G2"));
+        let html = view(
+            Some("x"),
+            Err("x".into()),
+            vec!["Eaton UPS (0463:ffff)".into()],
+        )
+        .render()
+        .unwrap();
+        assert!(html.contains("sudo dockwren setup-ups") && html.contains("Eaton UPS (0463:ffff)"));
     }
 
     #[test]

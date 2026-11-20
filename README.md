@@ -137,7 +137,7 @@ Early (v0.1.x): it works and is tested on Debian 13 and Ubuntu 24.04 (x86_64) an
 | [Templates](docs/TEMPLATES.md) | write your own app template |
 | [Notifications](docs/NOTIFICATIONS.md) | what raises one, and ntfy, Telegram and webhook forwarding |
 
-CLI: `dockwren [serve | set-password | disable-2fa | status-token [--revoke] | setup-osupdate | setup-smart | self-update | install | export | import | recover | backup [pull] | update | restore | verify | restore-test | scan | doctor | template add/list/remove | cleanup | expose | unexpose | remove]`.
+CLI: `dockwren [serve | set-password | disable-2fa | status-token [--revoke] | setup-osupdate | setup-smart | setup-ups | self-update | install | export | import | recover | backup [pull] | update | restore | verify | restore-test | scan | doctor | template add/list/remove | cleanup | expose | unexpose | remove]`.
 
 ## Support
 

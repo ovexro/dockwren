@@ -1,0 +1,25 @@
+<div id="ups">
+  <span id="b-ups" class="h-badge" hx-swap-oob="true"><span class="badge"{% if !badge_state.is_empty() %} data-state="{{ badge_state }}"{% endif %}>{{ badge_text }}</span></span>
+  {% if mode == "connected" %}
+  {% for l in lines %}<p>{{ l }}</p>
+  {% endfor %}
+  <p><small>Dockwren reads the UPS from NUT every 10 seconds and sends a notification (bell, ntfy, Telegram, webhook) when the power is cut, when the battery is low or worn, or when the UPS is overloaded. NUT itself shuts the server down cleanly before the battery runs out; Dockwren never does.</small></p>
+  {% else if mode == "setup" || mode == "empty" %}
+  <p>{% if mode == "setup" %}A UPS is plugged into this server, but NUT (the standard Linux UPS software) is not set up for it yet:{% else %}NUT is running but has no UPS configured. A UPS is plugged in:{% endif %}</p>
+  {% for d in detected %}<p><code>{{ d }}</code></p>
+  {% endfor %}
+  <p>Run this once on the server, then this section turns green:</p>
+  <p><code>sudo dockwren setup-ups</code></p>
+  <p><small>It installs NUT, finds the UPS, configures it, fixes the USB permissions and enables safe shutdown. It does not touch an existing NUT setup.</small></p>
+  {% else if mode == "none" %}
+  <p>No UPS found. A UPS keeps the server running through a power cut and shuts it down cleanly if the battery runs low. To add one:</p>
+  <ol>
+    <li>Plug the server (and your router and switch) into the UPS, not into the wall.</li>
+    <li>Connect the UPS to the server with its USB data cable (the one with a square end).</li>
+    <li>Reload this page; when it says <em>Detected</em>, run the one command it shows.</li>
+  </ol>
+  <p><small>Works with USB UPSes that NUT supports (Eaton, APC, CyberPower, Tripp Lite and many more). One that is connected but not listed here can still be set up by hand with NUT.</small></p>
+  {% else %}
+  <p>UPS monitoring is switched off (<code>DOCKWREN_NUT=off</code>).</p>
+  {% endif %}
+</div>

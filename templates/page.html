@@ -120,6 +120,10 @@
     <div id="doctor" hx-get="/settings/doctor" hx-trigger="load" hx-swap="outerHTML">Checking…</div>
     </section>
     <section class="panel">
+    <h2>UPS <span id="b-ups" class="h-badge"></span></h2>
+    <div id="ups" hx-get="/settings/ups" hx-trigger="load, every 30s" hx-swap="outerHTML">Checking…</div>
+    </section>
+    <section class="panel">
     <h2>Disk usage</h2>
     <div id="disk" hx-get="/settings/disk" hx-trigger="load" hx-swap="outerHTML">Measuring…</div>
     </section>

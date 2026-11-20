@@ -59,7 +59,10 @@ is start a package update. It never reboots. The log is written by root to
 If NUT's `upsd` answers on `127.0.0.1:3493` (or the address in `DOCKWREN_NUT`), the unprivileged
 panel connects every 10 seconds and sends only `LIST UPS`, `LIST VAR <ups>` and `LOGOUT`: read-only,
 no credentials, nothing is changed and the server is never shut down by Dockwren (that stays with
-NUT's `upsmon`). Keep `upsd` on loopback (its default); `DOCKWREN_NUT=off` switches the reader off.
+NUT's `upsmon`). `sudo dockwren setup-ups` is the only privileged part and runs only when you start it
+in a terminal: it runs `apt-get install nut-client nut-server` and `nut-scanner -U`, writes
+`/etc/nut/{nut,ups,upsd.users,upsmon}.conf` (mode 0640, root:nut, with a random internal password that
+never leaves the server) and restarts the NUT services; it refuses to change an existing NUT setup. Keep `upsd` on loopback (its default); `DOCKWREN_NUT=off` switches the reader off.
 
 ## Disk health (SMART)
 

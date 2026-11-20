@@ -43,6 +43,7 @@ mod terminal;
 mod thirdparty;
 mod totp;
 mod ups;
+mod upssetup;
 mod update;
 mod updatepolicy;
 mod upstream;
@@ -577,6 +578,7 @@ fn app(
             post(thirdparty::remove_submit),
         )
         .route("/settings/doctor", get(doctor::show))
+        .route("/settings/ups", get(ups::show))
         .route("/settings/disk", get(apps::disk_show))
         .route("/settings/disk/prune-images", post(apps::prune_images))
         .route("/settings/disk/remove-orphans", post(apps::remove_orphans))
@@ -1082,7 +1084,7 @@ async fn cli_install(cfg: &config::Config, args: &[String]) -> Result<(), String
     Ok(())
 }
 
-const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | status-token [--revoke] | install <app> [KEY=VALUE...] | export FILE | import FILE | recover | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | restore-test <instance> | scan <instance> | doctor | template add <https-url> <commit> [--yes] | template list | template remove <id> | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | setup-smart [--data-dir DIR] | self-update | --version]";
+const USAGE: &str = "usage: dockwren [serve | set-password | disable-2fa | status-token [--revoke] | install <app> [KEY=VALUE...] | export FILE | import FILE | recover | backup <instance> | backup pull <instance> | update <instance> | restore <instance> [snapshot | --list] | verify <instance> [snapshot] | restore-test <instance> | scan <instance> | doctor | template add <https-url> <commit> [--yes] | template list | template remove <id> | cleanup <instance> | expose <instance> [hostname] [--access EMAIL] [--yes] | unexpose <instance> [--yes] | remove <instance> | setup-osupdate [--data-dir DIR] | setup-smart [--data-dir DIR] | setup-ups | self-update | --version]";
 
 /// CLI commands work on the panel's data directory; explain the usual permission mistake
 /// instead of failing later with a bare "Permission denied".
@@ -1120,6 +1122,7 @@ async fn main() {
         | Some("status-token")
         | Some("setup-osupdate")
         | Some("setup-smart")
+        | Some("setup-ups")
         | Some("smart-collect")
         | Some("self-update") => {}
         Some(
@@ -1158,6 +1161,20 @@ async fn main() {
                 Ok(n) => println!("SMART: {n} disk(s) read into {}/smart.json.", dir.display()),
                 Err(e) => {
                     eprintln!("{c} failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
+        Some("setup-ups") => {
+            match upssetup::setup() {
+                Ok(lines) => {
+                    for l in lines {
+                        println!("{l}");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("setup-ups failed: {e}");
                     std::process::exit(1);
                 }
             }
@@ -2528,7 +2545,7 @@ mod tests {
             ("security", "/settings/terminal", "/settings/osupdates"),
             ("backups", "/settings/offsite", "/settings/osupdates"),
             ("updates", "/settings/osupdates", "/settings/offsite"),
-            ("system", "/settings/doctor", "/settings/osupdates"),
+            ("system", "/settings/ups", "/settings/osupdates"),
         ] {
             let path: &'static str = Box::leak(format!("/settings/tab/{tab}").into_boxed_str());
             let res = get(path).await;
