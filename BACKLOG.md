@@ -4,7 +4,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 (delete the line in the SAME commit that delivers it; grep this file for the feature's keywords first).
 
 ## Open
-- More catalog templates (33 in `apps/`, all VPS-tested). Next: Kavita or Paperless-ai; check `tar` in the image first. Forgejo reserves the name admin (default user forgejo-admin). (2026-11-20)
+- More catalog templates (34 in `apps/`, all VPS-tested; Kavita tested 2026-11-20: install, library scan, backup, restore; image has curl+tar, no wget). Next: Paperless-ai; check `tar` in the image first. Forgejo reserves the name admin (default user forgejo-admin). (2026-11-20)
 - Security: PHP recheck at next release: wordpress 7.1.5 = PHP 8.3.37 OK; nextcloud 35.0.3 = 8.5.12, roundcube 1.7.6 = 8.4.27 (8.5.13 exists, images not rebuilt). (2026-11-20)
 - Security: mariadb 11.8.9 ships gosu with Go 1.24.6 (fix 1.24.13); 11.8.10 not out. Recheck at each release. (2026-11-20)
 - Off-host: not tested on AWS (B2 tested). Low value. (2026-11-20)

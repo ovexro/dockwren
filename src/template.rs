@@ -407,6 +407,11 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/audiobookshelf/icon.svg"),
     ),
     (
+        include_str!("../apps/kavita/manifest.toml"),
+        include_str!("../apps/kavita/compose.yaml"),
+        include_str!("../apps/kavita/icon.svg"),
+    ),
+    (
         include_str!("../apps/linkding/manifest.toml"),
         include_str!("../apps/linkding/compose.yaml"),
         include_str!("../apps/linkding/icon.svg"),
@@ -838,6 +843,7 @@ mod tests {
                 "homepage",
                 "immich",
                 "jellyfin",
+                "kavita",
                 "linkding",
                 "linkwarden",
                 "lubelogger",
@@ -862,7 +868,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 33);
+        assert_eq!(c.len(), 34);
     }
 
     #[test]
@@ -916,6 +922,7 @@ mod tests {
                 "homepage",
                 "immich",
                 "jellyfin",
+                "kavita",
                 "linkding",
                 "linkwarden",
                 "lubelogger",

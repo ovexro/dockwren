@@ -1,0 +1,11 @@
+services:
+  kavita:
+    image: jvmilazz0/kavita:0.9.1
+    restart: unless-stopped
+    environment:
+      TZ: ${TIME_ZONE}
+    volumes:
+      - ./config:/kavita/config
+      - ${LIBRARY_PATH}:/library:ro
+    ports:
+      - "127.0.0.1:${WEB_PORT}:5000"

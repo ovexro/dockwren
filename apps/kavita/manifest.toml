@@ -1,0 +1,54 @@
+[app]
+id = "kavita"
+name = "Kavita"
+description = "Reading server for comics, manga and ebooks"
+changelog = "https://github.com/Kareadita/Kavita/releases"
+version = 1
+note = "Your comics, manga and ebooks. On first visit create the admin account, then add the folder /library as a library."
+accepts_public_host = true
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "kavita"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "LIBRARY_PATH"
+editable = true
+label = "Library folder"
+type = "string"
+default = "/srv/books"
+pattern = "^/[A-Za-z0-9._/-]+$"
+help = "The folder on this server that holds your comics, manga and ebooks. It is shown inside Kavita as /library and is read-only, so your files are never changed. It must already exist. It is not included in backups: back up your own files separately."
+
+[[fields]]
+key = "TIME_ZONE"
+editable = true
+label = "Time zone"
+type = "string"
+default = "UTC"
+pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
+help = "Your region, so dates and times are right. For example Europe/Bucharest."
+
+[[services]]
+name = "kavita"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1:5000/api/health"], interval = "15s", start_period = "60s" }
+
+[backup]
+paths = ["config"]
+
+[update]
+image_pins = ["jvmilazz0/kavita"]
+pre_update = ["backup"]
