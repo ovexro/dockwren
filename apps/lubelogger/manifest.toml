@@ -1,0 +1,36 @@
+[app]
+id = "lubelogger"
+name = "LubeLogger"
+description = "Vehicle maintenance log: services, repairs, fuel, taxes and reminders for every car"
+changelog = "https://github.com/hargata/lubelog/releases"
+version = 1
+note = "Your vehicle maintenance log. Sign-in is on: on first visit register your account, the first one is the admin."
+accepts_public_host = true
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "lubelogger"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[services]]
+name = "lubelogger"
+main = true
+health = { source = "panel", test = ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"], interval = "15s", start_period = "20s" }
+
+[backup]
+paths = ["data", "config", "documents", "images", "keys"]
+
+[update]
+image_pins = ["ghcr.io/hargata/lubelogger"]
+pre_update = ["backup"]

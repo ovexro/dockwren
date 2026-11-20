@@ -426,6 +426,11 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/wallos/compose.yaml"),
         include_str!("../apps/wallos/icon.svg"),
     ),
+    (
+        include_str!("../apps/lubelogger/manifest.toml"),
+        include_str!("../apps/lubelogger/compose.yaml"),
+        include_str!("../apps/lubelogger/icon.svg"),
+    ),
 ];
 
 /// Bundled templates plus (optionally) a directory of extra or overriding ones.
@@ -817,6 +822,7 @@ mod tests {
                 "immich",
                 "jellyfin",
                 "linkding",
+                "lubelogger",
                 "mealie",
                 "memos",
                 "miniflux",
@@ -838,7 +844,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 29);
+        assert_eq!(c.len(), 30);
     }
 
     #[test]
@@ -891,6 +897,7 @@ mod tests {
                 "immich",
                 "jellyfin",
                 "linkding",
+                "lubelogger",
                 "mealie",
                 "memos",
                 "miniflux",

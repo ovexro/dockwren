@@ -1,0 +1,16 @@
+services:
+  lubelogger:
+    image: ghcr.io/hargata/lubelogger:v1.7.5
+    restart: unless-stopped
+    environment:
+      EnableAuth: "true"
+    volumes:
+      - ./data:/App/data
+      - ./config:/App/config
+      - ./documents:/App/wwwroot/documents
+      - ./images:/App/wwwroot/images
+      - ./temp:/App/wwwroot/temp
+      - ./translations:/App/wwwroot/translations
+      - ./keys:/root/.aspnet/DataProtection-Keys
+    ports:
+      - "127.0.0.1:${WEB_PORT}:8080"
