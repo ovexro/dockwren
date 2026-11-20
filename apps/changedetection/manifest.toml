@@ -1,0 +1,45 @@
+[app]
+id = "changedetection"
+name = "changedetection.io"
+description = "Watch web pages and get notified when something changes: prices, stock, notices"
+changelog = "https://github.com/dgtlmoon/changedetection.io/releases"
+version = 1
+note = "Page-change watcher. It has NO password at first: open Settings > General and set one before you publish it."
+accepts_public_host = true
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "changedetection"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "TIME_ZONE"
+editable = true
+label = "Time zone"
+type = "string"
+default = "UTC"
+pattern = "^[A-Za-z][A-Za-z0-9_/+-]{1,40}$"
+help = "Your region, so dates and times are right. For example Europe/Bucharest."
+
+[[services]]
+name = "changedetection"
+main = true
+health = { source = "panel", test = ["CMD", "python3", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:5000/', timeout=5)"], interval = "15s", start_period = "20s" }
+
+[backup]
+paths = ["data"]
+
+[update]
+image_pins = ["ghcr.io/dgtlmoon/changedetection.io"]
+pre_update = ["backup"]
