@@ -13,7 +13,6 @@ Open items only, one line each, with the date it was last verified open. Deliver
 - Public status page: low value. (2026-11-19)
 - Non-code: list Dockwren in awesome-selfhosted + public announcement (outward: ask the user first).
 - Passkeys: reauth prompts (Passwords, terminal, updates) still take a typed code, not a passkey tap; passkeys work only on the hostname they were added on. (2026-11-17)
-- Stopped prototype containers `lwtest-lw-1`, `lwtest-db-1`: delete when the user sets the destructive marker. (2026-11-20)
 
 ## Decisions (do not re-propose)
 - Vikunja template: DROPPED (2026-11-20): its image has no `tar`/shell, so Dockwren cannot back it up (checked on a real VPS). Homebox replaced it.
