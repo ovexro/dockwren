@@ -4,7 +4,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 (delete the line in the SAME commit that delivers it; grep this file for the feature's keywords first).
 
 ## Open
-- More catalog templates (open-ended; 31 in `apps/` as of 2026-11-20: added actual-budget, audiobookshelf, homebox, linkding, mealie, wallos, lubelogger, changedetection, each tested on a real VPS incl. backup/restore, NOT yet released). Later ideas: none left (all have tar). Apps-page screenshots reshot 2026-11-20 (catalog shows all 27).
+- More catalog templates (open-ended; 31 in `apps/` as of 2026-11-20: added actual-budget, audiobookshelf, homebox, linkding, mealie, wallos, lubelogger, changedetection; first five tested on a real VPS, last three (wallos, lubelogger, changedetection) only locally with a temp panel incl. backup/restore, NOT yet released). Later ideas: none left (all have tar). Apps-page screenshots reshot 2026-11-20 (catalog shows all 27).
 - Security: PHP advisory recheck (PHP2Shell fixed in 8.5.12/8.4.27/8.3.36/8.2.35; all pinned apps patched, rechecked 2026-11-19 (again 17:00, wordpress:7.1.5-php8.3-apache rebuilt 16:06 but still php 8.3.36): php 8.5.13 etc. exist on Docker Hub but app images (wordpress 7.1.5 = php 8.3.36, nextcloud 35.0.3 = 8.5.12, roundcube 1.7.6 = 8.4.27) not rebuilt yet; recheck at next release).
 - Security: WordPress template has 2 fixable criticals needing upstream rebuilds (rechecked 2026-11-19 17:00 by running the image: wordpress 7.1.5 out, still apache 2.4.69 (fix 2.4.71); mariadb 11.8.10 not yet, Go stdlib 1.24.6 in mariadb:11.8.9, fix 1.24.13). Recheck both tags at each release.
 - Off-host: not tested on AWS (B2 tested). Low value, keep unless asked.
