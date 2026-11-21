@@ -95,6 +95,19 @@ pub(super) async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
         let has_passwords = apps
             .template(&state.template)
             .is_some_and(|t| t.manifest.secrets.iter().any(is_viewable));
+        // One lock, taken and released here: a guard left alive inside the struct literal below
+        // would still be held by a second `lock()` in the same statement (self-deadlock, v0.1.111).
+        let upstream = apps
+            .upstream
+            .lock()
+            .unwrap()
+            .get(&name_for_upstream)
+            .map(|f| {
+                (
+                    f.summary(),
+                    crate::metrics::age_note(f.checked, now_epoch, 3 * 86400),
+                )
+            });
         out.push(InstanceView {
             name,
             app: state.template,
@@ -102,12 +115,7 @@ pub(super) async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             status,
             update,
             update_skipped,
-            upstream: apps
-                .upstream
-                .lock()
-                .unwrap()
-                .get(&name_for_upstream)
-                .map(|f| f.summary()),
+            upstream: upstream.as_ref().map(|(summary, _)| summary.clone()),
             snapshots,
             last_backup,
             last_backup_at,
@@ -118,12 +126,7 @@ pub(super) async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             vulns: crate::vulnscan::summary(&name_for_upstream).and_then(|v| v.line()),
             // Cached results say how old they are: upstream and scans refresh daily (stale after
             // 3 days), the public probe every few minutes (stale after 30 min).
-            upstream_age: apps
-                .upstream
-                .lock()
-                .unwrap()
-                .get(&name_for_upstream)
-                .map(|f| crate::metrics::age_note(f.checked, now_epoch, 3 * 86400)),
+            upstream_age: upstream.map(|(_, age)| age),
             public_age: crate::webcheck::checked_at(&name_for_upstream)
                 .map(|t| crate::metrics::age_note(t, now_epoch, 1800)),
             vulns_age: crate::vulnscan::summary(&name_for_upstream)
@@ -563,4 +566,43 @@ pub async fn instance_delete(
         error,
         note,
     }))
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use super::*;
+
+    /// Regression (v0.1.111/v0.1.112): `instance_views` locked the upstream cache twice inside one
+    /// statement, so the first guard was still held by the second lock and the worker deadlocked
+    /// as soon as one instance with a cached upstream result existed.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn instance_views_does_not_deadlock_on_the_upstream_cache() {
+        let root = std::env::temp_dir().join(format!("dw-iv-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("web")).unwrap();
+        std::fs::write(
+            root.join("web/state.toml"),
+            "template = \"custom\"\nversion = 1\n",
+        )
+        .unwrap();
+        let apps = Apps::new(crate::template::catalog(None).unwrap(), root.clone());
+        apps.upstream.lock().unwrap().insert(
+            "web".into(),
+            crate::upstream::Found {
+                image: "nginx".into(),
+                current: "1.0.0".into(),
+                minor: Some("1.1.0".into()),
+                major: None,
+                checked: crate::schedule::now(),
+            },
+        );
+        let task = tokio::spawn(async move { instance_views(&apps).await });
+        let views = tokio::time::timeout(std::time::Duration::from_secs(30), task)
+            .await
+            .expect("instance_views hung (deadlock on the upstream cache lock)")
+            .unwrap();
+        assert_eq!(views.len(), 1);
+        assert!(views[0].upstream.is_some() && views[0].upstream_age.is_some());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
