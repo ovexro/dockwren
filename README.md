@@ -49,13 +49,23 @@ The installer checks the binary against that release's `SHA256SUMS` and stops on
 binary also carries a signed build attestation; to check where it was built, run
 `gh attestation verify dockwren-x86_64-linux --repo ovexro/dockwren`.
 
+## Why Dockwren
+
+Dockwren does not try to list the most apps. It tries to be the panel you can leave running on a home server without worrying.
+
+- **Backups you can trust.** Snapshots are verified, and a weekly test restore proves that one really comes back. Off-host copies are encrypted.
+- **Closed by default.** The panel listens on localhost and apps bind to `127.0.0.1`. Reaching them from outside is your choice: a built-in Cloudflare Tunnel (with DNS handling and optional Cloudflare Access) or direct HTTPS.
+- **Tested on real servers.** Every bundled template is installed on a real server before it ships, and the code has almost 400 automated tests, including fuzzing of everything that reads untrusted input: templates, pasted Compose files and config imports.
+- **Careful about itself.** The panel runs as a tightly sandboxed systemd service (rated OK by `systemd-analyze security`), the installer checks the binary against the release checksums, release binaries carry signed build attestations, and CI audits dependencies and licenses.
+- **Small and calm.** One static binary, no database, no agents, and each page has one job.
+
 ## What you get
 
 - **Apps from templates:** Actual Budget, AdGuard Home, Audiobookshelf, changedetection.io, Forgejo, Ghost, Gitea, Grafana, Homebox, Homepage, Immich, Jellyfin, Kavita, Linkding, Linkwarden, LubeLogger, Mealie, Memos, Miniflux, n8n, Navidrome, Nextcloud, Paperless-AI, Paperless-ngx, Pi-hole, Roundcube, SnappyMail, Stirling-PDF, Syncthing, Uptime Kuma, Vaultwarden, Wallos, Wiki.js, WordPress. Add your own with a manifest and a Compose file, or paste a Compose file and **edit stack** later, with **version history**. **Adopt** a Compose project that is already running, without touching it.
 - **Safe updates:** a snapshot first, a preview of what changes, automatic rollback if the new version is not healthy. Drift detection shows apps that no longer match their files, with one **Apply**.
 - **Backups and restore:** scheduled snapshots, **off-host** copies (SFTP or S3, encrypted), verify, weekly test restores, duplicate an app from a snapshot, and `dockwren recover` for a lost server.
 - **Public addresses:** Cloudflare Tunnel, or direct HTTPS with Let's Encrypt (bundled Caddy). See [Publishing](docs/PUBLISHING.md).
-- **Monitoring:** resource graphs, disk, memory and CPU alerts, UPS power-cut alerts (via NUT), crash and health alerts, image vulnerability scan, public address checks. Notifications go to the panel bell, ntfy, Telegram or a webhook.
+- **Monitoring:** resource graphs, disk, memory and CPU alerts, UPS power-cut alerts (via NUT), crash and health alerts, image vulnerability scan with a full report per app, public address checks. Notifications go to the panel bell, ntfy, Telegram or a webhook.
 - **Careful by design:** Argon2id login, strict **security headers** (CSP without inline scripts, no framing), **two-factor** and **passkey** sign-in, a list of signed-in browsers with **sign out everywhere**, an audit log, an opt-in web terminal, **registry login** for private images, **schedule** stop/start, **needs** between apps, resource limits, log caps.
 
 Every feature in detail: [docs/FEATURES.md](docs/FEATURES.md).

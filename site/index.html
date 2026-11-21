@@ -133,6 +133,17 @@ footer a{color:var(--muted)}
     </div>
 
     <section>
+      <h2>Why Dockwren</h2>
+      <p class="sub">Not the longest app list. The panel you can leave running without worrying.</p>
+      <div class="grid">
+        <div class="card"><h3>Backups you can trust</h3><p>Snapshots are verified, and a weekly test restore proves one really comes back. Off-host copies are encrypted.</p></div>
+        <div class="card"><h3>Closed by default</h3><p>The panel listens on localhost and apps bind to 127.0.0.1. Going public is your choice: a built-in Cloudflare Tunnel or direct HTTPS.</p></div>
+        <div class="card"><h3>Tested on real servers</h3><p>Every bundled template is installed on a real server before it ships. Almost 400 automated tests, with fuzzing of everything that reads untrusted input.</p></div>
+        <div class="card"><h3>Careful about itself</h3><p>A tightly sandboxed service, a checksum-verified installer, signed build attestations, and dependency and license audits in CI.</p></div>
+      </div>
+    </section>
+
+    <section>
       <h2>Everything for a self-hosted box, nothing else</h2>
       <p class="sub">It does a few things and does them carefully.</p>
       <div class="grid">
@@ -146,6 +157,7 @@ footer a{color:var(--muted)}
         <div class="card"><h3>Adopt what already runs</h3><p>Scan the host for containers and Compose projects you started by hand, bring them in as managed stacks, and back up their volumes and folders in place. Paste a Compose file to add a stack, then Edit stack, with a version history you can load and diff.</p></div>
         <div class="card"><h3>Drift detection</h3><p>If the running containers stop matching their Compose files, the app shows out of sync with the services that differ, and one Apply recreates only those.</p></div>
         <div class="card"><h3>Schedules and dependencies</h3><p>Stop and start an app at fixed times, and say which apps need which: Dockwren names who is affected before you stop one and starts the needs first. Registry logins cover private images.</p></div>
+        <div class="card"><h3>Image vulnerability scan</h3><p>Every app's images are scanned once a day. Each app shows its critical and high counts, a report lists every finding with the fixed version, and you are notified when a fix exists.</p></div>
         <div class="card"><h3>Careful by default</h3><p>Argon2id login, strict session cookies, rate limiting, strict security headers (CSP, no framing). Listens on localhost only; reach it over an SSH tunnel.</p></div>
       </div>
     </section>
