@@ -11,12 +11,23 @@ const KIND: &str = "host.os_updates";
 const EVERY: Duration = Duration::from_secs(6 * 3600);
 const POLL: Duration = Duration::from_secs(300);
 const REBOOT_FLAG: &str = "/var/run/reboot-required";
+const APT_LISTS: &str = "/var/lib/apt/lists";
 const SHOW: usize = 10;
 
 #[derive(Debug, PartialEq, Eq, Default)]
 struct Pending {
     packages: Vec<String>,
     security: usize,
+    details: Vec<Pkg>,
+}
+
+/// One package `apt-get -s` would upgrade.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Pkg {
+    pub name: String,
+    pub from: String,
+    pub to: String,
+    pub security: bool,
 }
 
 /// Packages `apt-get -s` would upgrade: lines like
@@ -31,9 +42,23 @@ fn parse(out: &str) -> Pending {
             continue;
         };
         p.packages.push(name.to_string());
-        if rest.contains("-security") {
+        let security = rest.contains("-security");
+        if security {
             p.security += 1;
         }
+        let between = |open: char, close: char| {
+            rest.split_once(open)
+                .and_then(|(_, r)| r.split_once(close))
+                .map(|(v, _)| v.to_string())
+        };
+        p.details.push(Pkg {
+            name: name.to_string(),
+            from: between('[', ']').unwrap_or_default(),
+            to: between('(', ')')
+                .and_then(|v| v.split_whitespace().next().map(str::to_string))
+                .unwrap_or_default(),
+            security,
+        });
     }
     p
 }
@@ -92,9 +117,44 @@ fn apply(shared: &Shared, p: &Pending, reboot: bool) {
     notify::raise(shared, e);
 }
 
-/// How many packages `apt-get -s` would upgrade right now (None when apt is unavailable).
-pub async fn pending_count() -> Option<usize> {
-    pending().await.ok().map(|p| p.packages.len())
+/// What the Settings card shows: the waiting packages and how old the package lists are.
+pub struct Overview {
+    pub packages: Vec<Pkg>,
+    pub security: usize,
+    pub lists_age: Option<Duration>,
+}
+
+/// Look now (None when apt is unavailable).
+pub async fn overview() -> Option<Overview> {
+    let p = pending().await.ok()?;
+    Some(Overview {
+        security: p.security,
+        packages: p.details,
+        lists_age: lists_age(std::path::Path::new(APT_LISTS)),
+    })
+}
+
+/// Age of the newest `*Release` file in apt's lists directory: apt touches them on every
+/// successful `apt-get update`, even when nothing changed (None when unreadable).
+fn lists_age(dir: &std::path::Path) -> Option<Duration> {
+    let newest = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().ends_with("Release"))
+        .filter_map(|e| e.metadata().ok()?.modified().ok())
+        .max()?;
+    std::time::SystemTime::now().duration_since(newest).ok()
+}
+
+/// "just now", "12 min ago", "5 h ago", "3 days ago".
+pub fn age_text(d: Duration) -> String {
+    let m = d.as_secs() / 60;
+    match m {
+        0 => "just now".to_string(),
+        1..=59 => format!("{m} min ago"),
+        60..=2879 => format!("{} h ago", m / 60),
+        _ => format!("{} days ago", m / 1440),
+    }
 }
 
 /// Look again now and raise or clear the notification (used when an update run ends).
@@ -147,6 +207,47 @@ Conf curl (8.14.1-2 Debian:13.1/stable [amd64])\n";
         assert_eq!(p.packages, vec!["libc6", "curl"]);
         assert_eq!(p.security, 1);
         assert_eq!(parse("Reading package lists...\n"), Pending::default());
+    }
+
+    #[test]
+    fn keeps_versions_and_security_per_package() {
+        let p = parse(SAMPLE);
+        assert_eq!(
+            p.details[0],
+            Pkg {
+                name: "libc6".into(),
+                from: "2.41-1".into(),
+                to: "2.41-2".into(),
+                security: true
+            }
+        );
+        assert!(!p.details[1].security);
+        // A package that is newly installed has no old version.
+        let n = parse("Inst newpkg (1.0 Debian:13/stable [amd64])\n");
+        assert_eq!(
+            (n.details[0].from.as_str(), n.details[0].to.as_str()),
+            ("", "1.0")
+        );
+    }
+
+    #[test]
+    fn ages_read_naturally() {
+        let m = |n: u64| age_text(Duration::from_secs(n * 60));
+        assert_eq!(m(0), "just now");
+        assert_eq!(m(12), "12 min ago");
+        assert_eq!(m(5 * 60), "5 h ago");
+        assert_eq!(m(3 * 1440), "3 days ago");
+    }
+
+    #[test]
+    fn lists_age_uses_the_newest_release_file() {
+        let d = std::env::temp_dir().join(format!("dw-apt-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        assert_eq!(lists_age(&d), None);
+        std::fs::write(d.join("deb.debian.org_dists_trixie_InRelease"), "x").unwrap();
+        std::fs::write(d.join("other_Packages"), "x").unwrap();
+        assert!(lists_age(&d).unwrap() < Duration::from_secs(60));
+        std::fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]

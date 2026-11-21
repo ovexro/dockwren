@@ -342,7 +342,7 @@ pub fn router(auth: SharedAuth, notify: notify::Shared, ctl: Arc<Control>) -> Ro
 struct SettingTemplate {
     installed: bool,
     on: bool,
-    pending: Option<usize>,
+    pending: Option<Overview>,
     two_factor: bool,
     error: Option<&'static str>,
 }
@@ -357,11 +357,34 @@ struct LogTemplate {
     lines: Vec<String>,
 }
 
+/// What the template shows about the waiting updates.
+struct Overview {
+    count: usize,
+    security: usize,
+    packages: Vec<hostupdates::Pkg>,
+    lists: Option<String>,
+    stale: bool,
+}
+
+impl From<hostupdates::Overview> for Overview {
+    fn from(o: hostupdates::Overview) -> Self {
+        Overview {
+            count: o.packages.len(),
+            security: o.security,
+            packages: o.packages.into_iter().take(200).collect(),
+            lists: o.lists_age.map(hostupdates::age_text),
+            stale: o
+                .lists_age
+                .is_some_and(|a| a > Duration::from_secs(2 * 86400)),
+        }
+    }
+}
+
 async fn setting_html(s: &OsState, error: Option<&'static str>) -> Response {
     let installed = s.ctl.installed();
     let on = s.ctl.enabled();
     let pending = if installed && on {
-        hostupdates::pending_count().await
+        hostupdates::overview().await.map(Overview::from)
     } else {
         None
     };
@@ -638,6 +661,45 @@ mod tests {
     fn setup_rejects_relative_and_odd_paths() {
         assert!(setup(Path::new("./data")).unwrap_err().contains("absolute"));
         assert!(setup(Path::new("/does/not/exist")).is_err());
+    }
+
+    #[test]
+    fn the_card_lists_waiting_packages_and_warns_about_old_lists() {
+        let pkg = |n: &str, f: &str, t: &str, sec| hostupdates::Pkg {
+            name: n.into(),
+            from: f.into(),
+            to: t.into(),
+            security: sec,
+        };
+        let card = |stale| {
+            SettingTemplate {
+                installed: true,
+                on: true,
+                pending: Some(Overview {
+                    count: 2,
+                    security: 1,
+                    packages: vec![
+                        pkg("libc6", "2.41-1", "2.41-2", true),
+                        pkg("curl", "", "8.14", false),
+                    ],
+                    lists: Some("3 days ago".into()),
+                    stale,
+                }),
+                two_factor: false,
+                error: None,
+            }
+            .render()
+            .unwrap()
+        };
+        let html = card(true);
+        if let Ok(path) = std::env::var("DW_DUMP_OSCARD") {
+            std::fs::write(path, &html).unwrap();
+        }
+        assert!(html.contains("2 OS updates are waiting (1 security)"));
+        assert!(html.contains("Package lists refreshed 3 days ago."));
+        assert!(html.contains("libc6") && html.contains("2.41-1 &rarr; 2.41-2"));
+        assert!(html.contains("lists are old"));
+        assert!(!card(false).contains("lists are old"));
     }
 
     fn scratch(tag_: &str) -> PathBuf {

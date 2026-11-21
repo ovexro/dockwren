@@ -294,6 +294,9 @@ details.more > summary::after { content: " \25BE"; }
 .panel > h2, .panel > h3:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .panel > :last-child { margin-bottom: 0; }
 .panel > details { margin: 0; }
+.os-off { margin: 1.25rem 0 0; }
+.os-off > summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+.os-off > form { margin-top: .75rem; }
 .cf-disconnect { margin: 1rem 0 1.75rem; }
 .panel > details > summary { cursor: pointer; font-weight: 600; }
 @media (max-width: 40rem) { .panel { padding: .85rem .9rem 1rem; } }

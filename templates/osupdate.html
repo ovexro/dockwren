@@ -5,9 +5,18 @@
   <p>The panel only tells you when updates are available. To install them from here, set up a small root-owned helper once on this server: <code>sudo dockwren setup-osupdate --data-dir /path/to/dockwren-data</code>, then come back and turn this on.</p>
   {% else %}
   {% if on %}
-  <p>
-    {% if let Some(n) = pending %}{% if *n == 0 %}No OS updates are waiting.{% else if *n == 1 %}1 OS update is waiting.{% else %}{{ n }} OS updates are waiting.{% endif %}{% endif %}
-    It runs <code>apt-get update</code> and <code>apt-get full-upgrade</code> as root, never reboots, and logs each start. Each start asks for your password again.</p>
+  {% if let Some(o) = pending %}
+  <p>{% if o.count == 0 %}No OS updates are waiting.{% else if o.count == 1 %}1 OS update is waiting{% else %}{{ o.count }} OS updates are waiting{% endif %}{% if o.count > 0 && o.security > 0 %} ({{ o.security }} security){% endif %}{% if o.count > 0 %}.{% endif %}
+    {% if let Some(l) = o.lists %}<small>Package lists refreshed {{ l }}.</small>{% endif %}</p>
+  {% if o.stale %}<p role="alert">The package lists are old, so more updates may exist than shown. Starting an update refreshes them first.</p>{% endif %}
+  {% if o.count > 0 %}
+  <details>
+    <summary>Show the packages</summary>
+    <ul>{% for p in o.packages %}<li><code>{{ p.name }}</code> <small>{% if !p.from.is_empty() %}{{ p.from }} &rarr; {% endif %}{{ p.to }}</small>{% if p.security %} <span class="badge" data-state="restarting">security</span>{% endif %}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+  {% endif %}
+  <p>It runs <code>apt-get update</code> and <code>apt-get full-upgrade</code> as root, never reboots, and logs each start. Each start asks for your password again.</p>
   <form class="row" hx-post="/host/os-updates/run" hx-target="#osupdate" hx-swap="outerHTML" autocomplete="off">
     <label>Password, to confirm <input type="password" name="password" required autocomplete="current-password"></label>
     {% if two_factor %}<label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>{% endif %}
@@ -17,11 +26,13 @@
   {% else %}
   <p>Turning it on adds an "Install updates now" button here. It runs <code>apt-get full-upgrade</code> as root through a helper you set up on this server, and never reboots.</p>
   {% endif %}
+  {% if on %}<details class="os-off"><summary>Turn off OS updates</summary>{% endif %}
   <form class="row" hx-post="/settings/osupdates" hx-target="#osupdate" hx-swap="outerHTML" autocomplete="off">
     <input type="hidden" name="on" value="{% if on %}0{% else %}1{% endif %}">
     <label>Password, to confirm <input type="password" name="password" required autocomplete="current-password"></label>
     {% if two_factor %}<label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>{% endif %}
     <button type="submit"{% if !on %} class="primary"{% endif %}>{% if on %}Turn off{% else %}Turn on{% endif %}</button>
   </form>
+  {% if on %}</details>{% endif %}
   {% endif %}
 </div>
