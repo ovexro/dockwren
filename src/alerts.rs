@@ -140,7 +140,7 @@ pub fn check_host(shared: &Shared, m: &Metrics) {
                 metrics::fmt_bytes(d.used as f64),
                 metrics::fmt_bytes(d.total as f64)
             ))
-            .link("/metrics")
+            .link("/resources")
             .key(key),
         );
     }
@@ -173,7 +173,7 @@ pub fn check_host(shared: &Shared, m: &Metrics) {
                 "At the pace of the last week, {} ({pct:.0}% used now) fills up soon. Free space or old snapshots, or add disk.",
                 d.label
             ))
-            .link("/metrics")
+            .link("/resources")
             .key(key),
         );
     }
@@ -251,7 +251,7 @@ pub fn check_inodes(shared: &Shared, rows: &[(String, u64, u64)]) {
             .body(format!(
                 "{used} of {total} file slots (inodes) are taken. When they run out nothing new can be written even with free space; look for folders with millions of small files (caches, mail, sessions)."
             ))
-            .link("/metrics")
+            .link("/resources")
             .key(key),
         );
     }
@@ -281,7 +281,7 @@ pub fn check_load(shared: &Shared, load15: f64, cores: usize) {
                 &format!("Load is high ({load15:.1} on {cores} cores)"),
             )
             .body("The 15-minute load average is at least twice the number of cores: more work is waiting for the CPU or the disk than the server can handle. Check Containers for the busiest app.")
-            .link("/metrics"),
+            .link("/resources"),
         );
     } else {
         notify::resolve(shared, LOAD_KIND);
@@ -312,7 +312,7 @@ fn sustained(
                 &format!("{what} use is high ({avg:.0}%)"),
             )
             .body(format!("Averaged over the last {window}."))
-            .link("/metrics"),
+            .link("/resources"),
         );
     } else {
         notify::resolve(shared, kind);

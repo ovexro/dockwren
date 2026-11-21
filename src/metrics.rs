@@ -599,6 +599,17 @@ pub fn nice_pct(v: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cpu_label_is_short_and_handles_arm() {
+        let x86 = "processor\t: 0\nmodel name\t: 13th Gen Intel(R) Core(TM) i5-13420H\nprocessor\t: 1\nmodel name\t: 13th Gen Intel(R) Core(TM) i5-13420H\n";
+        assert_eq!(cpu_label(x86), "13th Gen Intel Core i5-13420H · 2 threads");
+        let old = "processor : 0\nmodel name : Intel(R) Xeon(R) CPU E5-2680 v4 @ 2.40GHz\n";
+        assert_eq!(cpu_label(old), "Intel Xeon E5-2680 v4 · 1 thread");
+        let arm = "processor : 0\nprocessor : 1\nModel : Raspberry Pi 5 Model B Rev 1.0\n";
+        assert_eq!(cpu_label(arm), "Raspberry Pi 5 Model B Rev 1.0 · 2 threads");
+        assert_eq!(cpu_label(""), "");
+    }
+
     use super::*;
 
     #[test]
@@ -935,9 +946,48 @@ pub struct Fact {
 const ICON_SERVER: &str = "M2 4h20v6H2z M2 14h20v6H2z M6 7h.01 M6 17h.01";
 const ICON_OS: &str = "M4 4h16v12H4z M8 20h8 M12 16v4";
 const ICON_CLOCK: &str = "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 7v5l3 2";
+const ICON_CPU: &str =
+    "M6 6h12v12H6z M9 9h6v6H9z M9 2v4 M15 2v4 M9 18v4 M15 18v4 M2 9h4 M2 15h4 M18 9h4 M18 15h4";
+const ICON_KERNEL: &str = "M8 6l-6 6 6 6 M16 6l6 6-6 6";
 const ICON_TAG: &str =
     "M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z M7.5 7.5h.01";
 pub const ICON_BACKUP: &str = "M21 8v13H3V8 M1 3h22v5H1z M10 12h4";
+
+/// "13th Gen Intel Core i5-13420H · 12 threads" from /proc/cpuinfo (x86 `model name`, ARM boards
+/// `Model`); empty when neither is there.
+fn cpu_label(cpuinfo: &str) -> String {
+    let field = |key: &str| {
+        cpuinfo.lines().find_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            (k.trim() == key && !v.trim().is_empty()).then(|| v.trim().to_string())
+        })
+    };
+    let Some(raw) = field("model name").or_else(|| field("Model")) else {
+        return String::new();
+    };
+    let clean = raw
+        .replace("(R)", "")
+        .replace("(TM)", "")
+        .split(" @ ")
+        .next()
+        .unwrap_or("")
+        .replace(" CPU", "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let threads = cpuinfo
+        .lines()
+        .filter(|l| {
+            l.split_once(':')
+                .is_some_and(|(k, _)| k.trim() == "processor")
+        })
+        .count();
+    match threads {
+        0 => clean,
+        1 => format!("{clean} · 1 thread"),
+        n => format!("{clean} · {n} threads"),
+    }
+}
 
 /// Identity facts of this server for the Overview; unknown ones are left out.
 pub fn host_facts() -> Vec<Fact> {
@@ -958,6 +1008,12 @@ pub fn host_facts() -> Vec<Fact> {
     [
         (ICON_SERVER, "Hostname", name),
         (ICON_OS, "OS", os),
+        (
+            ICON_KERNEL,
+            "Kernel",
+            read("/proc/sys/kernel/osrelease").trim().to_string(),
+        ),
+        (ICON_CPU, "CPU", cpu_label(&read("/proc/cpuinfo"))),
         (ICON_CLOCK, "Uptime", up),
         (ICON_TAG, "Dockwren", ver),
     ]

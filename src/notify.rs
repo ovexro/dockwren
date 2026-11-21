@@ -1039,6 +1039,54 @@ mod tests {
         assert!(b.starts_with("a\nb") && !b.contains('\u{7}'));
     }
 
+    /// Every literal `.link("...")` in the code must open a full page of the panel (not a
+    /// fragment like /metrics, and not a route that does not exist).
+    #[test]
+    fn notification_links_open_real_pages() {
+        const PAGES: &[&str] = &[
+            "/",
+            "/apps",
+            "/containers",
+            "/resources",
+            "/notifications",
+            "/cloudflare",
+            "/settings",
+            "/settings/doctor",
+            "/settings/audit",
+        ];
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    out.push(p);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut files,
+        );
+        let re = regex::Regex::new(r#"\.link\(\s*"([^"]+)"\s*\)"#).unwrap();
+        let mut seen = 0;
+        for f in files {
+            let text = std::fs::read_to_string(&f).unwrap();
+            // Skip the pattern as quoted in comments (the doc line above has `"..."`).
+            for c in re.captures_iter(&text).filter(|c| &c[1] != "...") {
+                seen += 1;
+                let path = c[1].split(['?', '#']).next().unwrap();
+                assert!(
+                    PAGES.contains(&path),
+                    "{}: link {path} is not a full page",
+                    f.display()
+                );
+            }
+        }
+        assert!(seen >= 10, "found only {seen} links: the pattern broke");
+    }
+
     #[test]
     fn only_in_panel_links_are_kept() {
         let mut s = Store::memory();

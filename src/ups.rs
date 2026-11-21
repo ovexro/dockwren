@@ -48,10 +48,11 @@ impl Ups {
 
     /// One line for the Health page and the notification bodies.
     pub fn summary(&self) -> String {
+        // The model NUT detected; the config identifier only when there is no model.
         let name = if self.model.is_empty() {
             self.name.clone()
         } else {
-            format!("{} ({})", self.model, self.name)
+            self.model.clone()
         };
         let state = if self.has("OB") {
             "on battery"
