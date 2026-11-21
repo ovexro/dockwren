@@ -670,6 +670,11 @@ fn app(
         .route("/settings/2fa/start", post(auth::twofa_start))
         .route("/settings/2fa/enable", post(auth::twofa_enable))
         .route("/settings/2fa/disable", post(auth::twofa_disable))
+        .route("/settings/sessions", get(auth::sessions_show))
+        .route(
+            "/settings/sessions/end-others",
+            post(auth::sessions_end_others),
+        )
         .route("/settings/passkeys", get(auth::passkeys_show))
         .route("/settings/passkeys/options", post(auth::passkey_options))
         .route("/settings/passkeys/register", post(auth::passkey_register))

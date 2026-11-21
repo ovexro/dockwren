@@ -433,6 +433,7 @@ pub async fn login_passkey(
     headers: header::HeaderMap,
     Json(a): Json<Assertion>,
 ) -> Response {
+    let hint = client_hint(&info, &headers);
     let src = source(info, &headers);
     let fail = |status: StatusCode, msg: &str| {
         (status, Json(json!({"ok": false, "error": msg}))).into_response()
@@ -458,7 +459,7 @@ pub async fn login_passkey(
     auth.record_success();
     crate::audit::record("login", &format!("{src} (passkey)"));
     crate::signin::success(&src);
-    let token = auth.create_session();
+    let token = auth.create_session(&hint);
     let mut res = Json(json!({"ok": true})).into_response();
     res.headers_mut()
         .insert(header::SET_COOKIE, auth.cookie(&token, SESSION_TTL_SECS));
@@ -478,6 +479,7 @@ pub async fn login_code(
     headers: header::HeaderMap,
     Form(f): Form<CodeLogin>,
 ) -> Response {
+    let hint = client_hint(&info, &headers);
     let src = source(info, &headers);
     if auth.locked() {
         crate::audit::record("login.locked", &src);
@@ -498,7 +500,7 @@ pub async fn login_code(
     auth.record_success();
     crate::audit::record("login", &src);
     crate::signin::success(&src);
-    let token = auth.create_session();
+    let token = auth.create_session(&hint);
     let mut res = Redirect::to("/").into_response();
     res.headers_mut()
         .insert(header::SET_COOKIE, auth.cookie(&token, SESSION_TTL_SECS));

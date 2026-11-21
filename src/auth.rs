@@ -62,6 +62,16 @@ struct Cred {
 struct Session {
     expires: u64, // unix seconds
     fp: String,
+    created: u64, // unix seconds
+    from: String, // client address hint, no spaces; empty when unknown
+}
+
+/// One signed-in browser, for the Sessions panel.
+pub struct SessionRow {
+    pub created: String,
+    pub expires: String,
+    pub from: String,
+    pub current: bool,
 }
 
 pub struct Auth {
@@ -282,7 +292,7 @@ impl Auth {
         if let Some(path) = &self.sessions_path {
             let text: String = sessions
                 .iter()
-                .map(|(k, s)| format!("{k} {} {}\n", s.expires, s.fp))
+                .map(|(k, s)| format!("{k} {} {} {} {}\n", s.expires, s.fp, s.created, s.from))
                 .collect();
             if let Err(e) = write_private(path, &text) {
                 eprintln!("warning: cannot save sessions: {e}");
@@ -290,7 +300,7 @@ impl Auth {
         }
     }
 
-    fn create_session(&self) -> String {
+    fn create_session(&self, from: &str) -> String {
         let (_, fp) = self.credential();
         let token = random_token();
         let now = now_unix();
@@ -301,6 +311,8 @@ impl Auth {
             Session {
                 expires: now + SESSION_TTL_SECS,
                 fp,
+                created: now,
+                from: clean_hint(from),
             },
         );
         self.persist(&sessions);
@@ -320,6 +332,40 @@ impl Auth {
         if sessions.remove(&sha_hex(token)).is_some() {
             self.persist(&sessions);
         }
+    }
+
+    /// Live sessions of the current credential, newest first. `current` is this browser's token.
+    pub fn session_rows(&self, current: Option<&str>) -> Vec<SessionRow> {
+        let (_, fp) = self.credential();
+        let now = now_unix();
+        let me = current.map(sha_hex);
+        let sessions = self.sessions.lock().unwrap();
+        let mut list: Vec<(&String, &Session)> = sessions
+            .iter()
+            .filter(|(_, s)| s.expires > now && s.fp == fp)
+            .collect();
+        list.sort_by_key(|(_, s)| std::cmp::Reverse(s.created));
+        list.into_iter()
+            .map(|(k, s)| SessionRow {
+                created: crate::apps::utc_stamp(s.created),
+                expires: crate::apps::utc_stamp(s.expires),
+                from: s.from.clone(),
+                current: me.as_deref() == Some(k.as_str()),
+            })
+            .collect()
+    }
+
+    /// Ends every session except `keep`; returns how many were ended.
+    fn end_other_sessions(&self, keep: &str) -> usize {
+        let keep = sha_hex(keep);
+        let mut sessions = self.sessions.lock().unwrap();
+        let before = sessions.len();
+        sessions.retain(|k, _| *k == keep);
+        let ended = before - sessions.len();
+        if ended > 0 {
+            self.persist(&sessions);
+        }
+        ended
     }
 
     /// Valid session token in `headers`, if any.
@@ -364,7 +410,21 @@ fn load_sessions(path: &Path) -> HashMap<String, Session> {
             let key = parts.next()?.to_string();
             let expires: u64 = parts.next()?.parse().ok()?;
             let fp = parts.next()?.to_string();
-            (expires > now && key.len() == 64).then_some((key, Session { expires, fp }))
+            // Older files have no creation time or address: assume a full-length session.
+            let created: u64 = parts
+                .next()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_else(|| expires.saturating_sub(SESSION_TTL_SECS));
+            let from = parts.next().unwrap_or("").to_string();
+            (expires > now && key.len() == 64).then_some((
+                key,
+                Session {
+                    expires,
+                    fp,
+                    created,
+                    from,
+                },
+            ))
         })
         .collect()
 }
@@ -432,12 +492,35 @@ fn source(info: Option<Extension<ConnectInfo<SocketAddr>>>, headers: &header::He
     }
 }
 
+/// Short address hint stored with a session: the proxy's client address when a proxy header
+/// is present (a hint only), otherwise the peer address.
+fn client_hint(
+    info: &Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: &header::HeaderMap,
+) -> String {
+    ["cf-connecting-ip", "x-forwarded-for"]
+        .iter()
+        .find_map(|h| headers.get(*h).and_then(|v| v.to_str().ok()))
+        .map(String::from)
+        .or_else(|| info.as_ref().map(|c| c.0.0.ip().to_string()))
+        .unwrap_or_default()
+}
+
+/// Keeps only characters of an IP address, so the value is safe in the one-line session file.
+fn clean_hint(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_hexdigit() || matches!(c, '.' | ':'))
+        .take(45)
+        .collect()
+}
+
 pub async fn login_submit(
     State(auth): State<SharedAuth>,
     info: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: header::HeaderMap,
     Form(form): Form<LoginForm>,
 ) -> Response {
+    let hint = client_hint(&info, &headers);
     let src = source(info, &headers);
     if auth.locked() {
         crate::audit::record("login.locked", &src);
@@ -470,7 +553,7 @@ pub async fn login_submit(
     auth.record_success();
     crate::audit::record("login", &src);
     crate::signin::success(&src);
-    let token = auth.create_session();
+    let token = auth.create_session(&hint);
     let mut res = Redirect::to("/").into_response();
     res.headers_mut()
         .insert(header::SET_COOKIE, auth.cookie(&token, SESSION_TTL_SECS));
@@ -488,6 +571,41 @@ pub async fn logout(State(auth): State<SharedAuth>, headers: header::HeaderMap) 
     res
 }
 
+#[derive(Template)]
+#[template(path = "sessions.html")]
+struct SessionsTemplate {
+    rows: Vec<SessionRow>,
+    ended: Option<usize>,
+}
+
+fn render_sessions(auth: &Auth, headers: &header::HeaderMap, ended: Option<usize>) -> Html<String> {
+    let rows = auth.session_rows(session_token(headers));
+    Html(
+        SessionsTemplate { rows, ended }
+            .render()
+            .expect("sessions template renders"),
+    )
+}
+
+pub async fn sessions_show(
+    State(auth): State<SharedAuth>,
+    headers: header::HeaderMap,
+) -> Html<String> {
+    render_sessions(&auth, &headers, None)
+}
+
+/// "Sign out everywhere else": ends every session but this browser's.
+pub async fn sessions_end_others(
+    State(auth): State<SharedAuth>,
+    headers: header::HeaderMap,
+) -> Html<String> {
+    let ended = session_token(&headers).map(|t| auth.end_other_sessions(t));
+    if let Some(n) = ended {
+        crate::audit::record("sessions.end_others", &format!("{n} ended"));
+    }
+    render_sessions(&auth, &headers, ended)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,7 +619,7 @@ mod tests {
         let dir = temp_dir();
         let (_, _) = load_or_create(&dir).unwrap();
         let first = Auth::open(&dir, false).unwrap();
-        let token = first.create_session();
+        let token = first.create_session("");
         assert!(first.session_valid(&token));
 
         let stored = fs::read_to_string(dir.join(SESSION_FILE)).unwrap();
@@ -515,13 +633,62 @@ mod tests {
     }
 
     #[test]
+    fn end_other_sessions_keeps_only_this_browser() {
+        let dir = temp_dir();
+        let (_, _) = load_or_create(&dir).unwrap();
+        let auth = Auth::open(&dir, false).unwrap();
+        let mine = auth.create_session("198.51.100.5");
+        let other = auth.create_session("203.0.113.9");
+        let rows = auth.session_rows(Some(&mine));
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.iter().filter(|r| r.current).count(), 1);
+        assert!(rows.iter().any(|r| r.from == "203.0.113.9" && !r.current));
+
+        assert_eq!(auth.end_other_sessions(&mine), 1);
+        assert!(auth.session_valid(&mine));
+        assert!(!auth.session_valid(&other));
+        // persisted: a restart sees the same
+        let again = Auth::open(&dir, false).unwrap();
+        assert!(again.session_valid(&mine) && !again.session_valid(&other));
+        assert_eq!(again.end_other_sessions(&mine), 0);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn old_session_files_without_created_or_address_still_load() {
+        let dir = temp_dir();
+        let (_, _) = load_or_create(&dir).unwrap();
+        let auth = Auth::open(&dir, false).unwrap();
+        let token = auth.create_session("");
+        let (_, fp) = auth.credential();
+        let expires = now_unix() + 600;
+        let old = format!("{} {expires} {fp}\n", sha_hex(&token));
+        fs::write(dir.join(SESSION_FILE), old).unwrap();
+        let again = Auth::open(&dir, false).unwrap();
+        assert!(again.session_valid(&token));
+        let rows = again.session_rows(Some(&token));
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].current && rows[0].from.is_empty());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn client_hint_keeps_only_address_characters() {
+        assert_eq!(clean_hint("203.0.113.9"), "203.0.113.9");
+        assert_eq!(clean_hint("2001:db8::1"), "2001:db8::1");
+        // spaces or newlines would break the one-line session file
+        assert_eq!(clean_hint("1.2.3.4 evil\nline"), "1.2.3.4ee");
+        assert!(clean_hint(&"1".repeat(200)).len() <= 45);
+    }
+
+    #[test]
     fn set_password_applies_live_and_signs_everyone_out() {
         use std::os::unix::fs::PermissionsExt;
         let dir = temp_dir();
         let (_, old_pw) = load_or_create(&dir).unwrap();
         let old_pw = old_pw.unwrap();
         let auth = Auth::open(&dir, false).unwrap();
-        let token = auth.create_session();
+        let token = auth.create_session("");
         assert!(auth.verify(&old_pw));
 
         // make sure the mtime differs even on coarse clocks

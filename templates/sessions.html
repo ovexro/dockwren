@@ -1,0 +1,20 @@
+<div id="sessions">
+  {% if let Some(n) = ended %}<p role="status">{% if *n == 0 %}No other sessions were signed in.{% else %}Signed out {{ n }} other session{% if *n != 1 %}s{% endif %}.{% endif %}</p>{% endif %}
+  <p><small>Browsers signed in now (times in UTC). A session lasts 12 hours; changing the password signs out all of them.</small></p>
+  {% if rows.is_empty() %}
+  <p class="muted">No session list available.</p>
+  {% else %}
+  <table>
+    <thead><tr><th>Signed in</th><th>Expires</th><th>From</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rows %}<tr><td>{{ r.created }}</td><td>{{ r.expires }}</td><td>{% if r.from.is_empty() %}<small>unknown</small>{% else %}<code>{{ r.from }}</code>{% endif %}</td><td>{% if r.current %}<span class="badge" data-state="running">this browser</span>{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if rows.len() > 1 %}
+  <p><form hx-post="/settings/sessions/end-others" hx-target="#sessions" hx-swap="outerHTML" hx-confirm="Sign out every other browser? This one stays signed in.">
+    <button type="submit">Sign out everywhere else</button>
+  </form></p>
+  {% endif %}
+  {% endif %}
+</div>
