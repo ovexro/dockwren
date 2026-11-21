@@ -222,8 +222,14 @@ pub(super) fn app(
 
 /// Content Security Policy for every panel page: scripts only from the panel's own origin (no inline
 /// handlers or script bodies; a test scans the templates), everything else locked to it too.
-/// Styles keep `'unsafe-inline'` because templates use `style=` attributes and htmx adds a style tag.
+/// Styles come from the panel's own origin only: templates have no `style=` attributes (a test scans them)
+/// and htmx's indicator style tag is off (`includeIndicatorStyles`; dockwren.css has the rules).
 pub(super) const CSP: &str = "default-src 'self'; script-src 'self'; \
+style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; \
+object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+
+/// The same policy for the web terminal page only: xterm.js creates `<style>` elements at runtime.
+pub(super) const CSP_TERMINAL: &str = "default-src 'self'; script-src 'self'; \
 style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; \
 object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 

@@ -5,7 +5,6 @@ Open items only, one line each, with the date it was last verified open. Deliver
 
 ## Open
 - Hardening, remaining (2026-11-21): external independent review (semgrep + cargo audit/deny done, clean); Docker socket proxy (later); optional: re-gate stored third-party templates at load (model_gate is async, load_all sync). Roadmap: memory hardening-roadmap.
-- CSP: `style-src` still has 'unsafe-inline' (htmx indicator style tag; xterm may inject styles). Templates now have ZERO `style=` attributes (CSS audit, 2026-11-21, unreleased), so dropping it is possible: set htmx `includeIndicatorStyles:false`, test terminal + all pages with `tools/shots_css.py` and test_csp_ui.py. The 7 classes without CSS rules are JS/htmx hooks only (no change needed).
 - Watch: `audit.yml` ignores RUSTSEC-2026-0374 (basic-toml via askama, build-time only); drop the `--ignore` when askama moves off it. Remaining big files if wanted: `install.rs`, `template.rs`.
 - More catalog templates (35 in `apps/`, all VPS-tested; Paperless-AI 4.4.0 tested 2026-11-21: install, healthy via image HEALTHCHECK, setup wizard answers, backup, verify, restore; image has tar, runs as root with cap_drop ALL; needs a separate Paperless-ngx + AI provider, configured in its wizard). Next: pick another popular app (none queued). Forgejo reserves the name admin (default user forgejo-admin). (2026-11-20)
 - Security: PHP recheck at next release: wordpress 7.1.5 = PHP 8.3.37 OK; nextcloud 35.0.3 = 8.5.12, roundcube 1.7.6 = 8.4.27 (8.5.13 exists, images not rebuilt). (2026-11-20)

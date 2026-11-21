@@ -319,7 +319,13 @@ async fn page(State(s): State<TermState>, Path(id): Path<String>, headers: Heade
         two_factor: s.auth.two_factor_enabled(),
         assets: crate::asset_version(),
     };
-    Html(page.render().expect("terminal template renders")).into_response()
+    // xterm.js injects <style> elements at runtime, so only this page allows inline styles; every
+    // other panel page keeps the strict policy (see `routes::CSP`).
+    (
+        [(header::CONTENT_SECURITY_POLICY, crate::routes::CSP_TERMINAL)],
+        Html(page.render().expect("terminal template renders")),
+    )
+        .into_response()
 }
 
 #[derive(Deserialize)]

@@ -415,6 +415,10 @@ async fn security_headers_on_every_response() {
             "{uri}: scripts must not allow inline"
         );
         assert!(
+            csp.contains("style-src 'self';"),
+            "{uri}: styles must not allow inline"
+        );
+        assert!(
             !h.contains_key(header::STRICT_TRANSPORT_SECURITY),
             "{uri}: no HSTS over plain HTTP"
         );
