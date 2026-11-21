@@ -42,4 +42,6 @@ document.addEventListener("click", function (e) {
 document.addEventListener("htmx:beforeRequest", function (e) {
   var t = e.detail && e.detail.elt;
   if (t && t.id === "instances" && document.querySelector("#instances details.more[open]")) e.preventDefault();
+  // Same for the container list while a graph is open (was an hx-trigger filter, which needs eval and so breaks the CSP).
+  if (t && t.id === "containers" && document.querySelector("#containers details[open]")) e.preventDefault();
 });

@@ -5,6 +5,9 @@ Everything Dockwren does today, in detail. The short version is in the [README](
 
 - Single-admin login: strong generated password, Argon2id hash, `HttpOnly` + `SameSite=Strict`
   session cookie, login rate limit, sessions that survive restarts.
+- Browser hardening on every response: Content-Security-Policy (own origin only, no framing, no plugins),
+  `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin`, a restrictive Permissions-Policy, and
+  HSTS when the panel is reached over HTTPS through a proxy or tunnel.
 - Overview: all containers (running or not) with image, state and status, refreshed every 5 s. Below the tiles it shows the hostname, OS, uptime, Dockwren version and (once apps are installed) the time since the last backup.
 - Status API for monitoring: `sudo -u dockwren env DOCKWREN_DATA=/var/lib/dockwren dockwren status-token` prints a read-only token once (only its hash is kept; running it again replaces it, `--revoke` deletes it). `curl -H "Authorization: Bearer <token>" https://<panel>/api/status` then returns JSON with each app's health, last backup time and snapshot count, image scan counts, and the newest backup overall. No hostnames, ports or secrets; the token cannot sign in or change anything. For Prometheus, scrape `/api/metrics` with the same token (`authorization: {type: Bearer, credentials: <token>}`): `dockwren_app_healthy`, `_public_up`, `_update_available`, `_backup_snapshots`, `_last_backup_timestamp_seconds` and the image-scan counts per app, plus `dockwren_last_backup_timestamp_seconds`.
 - Resource graphs: CPU, memory, network and disk space as plain one-colour lines (last 1 h, 24 h, 7 days or 30 days), plus CPU/memory per running container. Sampled every 10 s; the 1 h and 24 h views live in memory, while 5-minute averages are kept 30 days in `metrics.log` in the data directory and survive restarts. A disk above 85% is flagged.

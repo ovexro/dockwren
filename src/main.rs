@@ -57,8 +57,8 @@ use auth::SharedAuth;
 use axum::{
     Router,
     extract::{FromRef, Path, Query, State},
-    http::{HeaderMap, StatusCode, header},
-    middleware::from_fn_with_state,
+    http::{HeaderMap, HeaderValue, Request, StatusCode, header},
+    middleware::{self, Next, from_fn_with_state},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
@@ -746,6 +746,43 @@ fn app(
         .merge(os_routes)
         .merge(su_routes)
         .merge(policy_routes)
+        .layer(middleware::from_fn(security_headers))
+}
+
+/// Content Security Policy for every panel page. The templates still use a few inline `onclick`
+/// handlers and one inline reload script, so `script-src` keeps `'unsafe-inline'` for now (BACKLOG
+/// hardening phase 2); everything else is locked to the panel's own origin.
+const CSP: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; \
+style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; \
+object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+
+/// Adds the browser hardening headers to every response. A header a handler already set (the app
+/// icon route sends its own stricter CSP) is kept. HSTS is sent only when the request arrived over
+/// HTTPS through a proxy or tunnel, so a plain-HTTP LAN panel is never pinned to HTTPS.
+async fn security_headers(req: Request<axum::body::Body>, next: Next) -> Response {
+    let https = req
+        .headers()
+        .get("x-forwarded-proto")
+        .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"https"));
+    let mut res = next.run(req).await;
+    let h = res.headers_mut();
+    let mut set = |name: header::HeaderName, value: &'static str| {
+        if !h.contains_key(&name) {
+            h.insert(name, HeaderValue::from_static(value));
+        }
+    };
+    set(header::CONTENT_SECURITY_POLICY, CSP);
+    set(header::X_FRAME_OPTIONS, "DENY");
+    set(header::X_CONTENT_TYPE_OPTIONS, "nosniff");
+    set(header::REFERRER_POLICY, "same-origin");
+    set(
+        header::HeaderName::from_static("permissions-policy"),
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=(), publickey-credentials-get=(self)",
+    );
+    if https {
+        set(header::STRICT_TRANSPORT_SECURITY, "max-age=15552000");
+    }
+    res
 }
 
 /// `dockwren install <app> [KEY=VALUE...]`: resolve, prepare, bring up.
@@ -2114,6 +2151,76 @@ mod tests {
             assert_eq!(res.status(), StatusCode::OK, "{path}");
             assert_eq!(res.headers()[header::CONTENT_TYPE], ct, "{path}");
         }
+    }
+
+    #[tokio::test]
+    async fn security_headers_on_every_response() {
+        let get = |uri: &'static str, proto: Option<&'static str>| {
+            let mut r = Request::get(uri);
+            if let Some(p) = proto {
+                r = r.header("x-forwarded-proto", p);
+            }
+            test_app().oneshot(r.body(Body::empty()).unwrap())
+        };
+        // Public page, a redirect and a 404 all carry the headers.
+        for uri in ["/login", "/", "/no-such-page"] {
+            let res = get(uri, None).await.unwrap();
+            let h = res.headers();
+            assert_eq!(h[header::X_FRAME_OPTIONS], "DENY", "{uri}");
+            assert_eq!(h[header::X_CONTENT_TYPE_OPTIONS], "nosniff", "{uri}");
+            assert_eq!(h[header::REFERRER_POLICY], "same-origin", "{uri}");
+            assert!(
+                h["permissions-policy"]
+                    .to_str()
+                    .unwrap()
+                    .contains("camera=()"),
+                "{uri}"
+            );
+            let csp = h[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+            assert!(
+                csp.contains("frame-ancestors 'none'") && csp.contains("object-src 'none'"),
+                "{uri}"
+            );
+            assert!(
+                !h.contains_key(header::STRICT_TRANSPORT_SECURITY),
+                "{uri}: no HSTS over plain HTTP"
+            );
+        }
+        // HSTS only behind an https proxy.
+        let res = get("/login", Some("https")).await.unwrap();
+        assert!(
+            res.headers()
+                .contains_key(header::STRICT_TRANSPORT_SECURITY)
+        );
+        let res = get("/login", Some("http")).await.unwrap();
+        assert!(
+            !res.headers()
+                .contains_key(header::STRICT_TRANSPORT_SECURITY)
+        );
+    }
+
+    #[tokio::test]
+    async fn handler_csp_is_not_overridden() {
+        let app = Router::new()
+            .route(
+                "/x",
+                get(|| async {
+                    (
+                        [(header::CONTENT_SECURITY_POLICY, "default-src 'none'")],
+                        "ok",
+                    )
+                }),
+            )
+            .layer(middleware::from_fn(security_headers));
+        let res = app
+            .oneshot(Request::get("/x").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            res.headers()[header::CONTENT_SECURITY_POLICY],
+            "default-src 'none'"
+        );
+        assert_eq!(res.headers()[header::X_FRAME_OPTIONS], "DENY");
     }
 
     #[tokio::test]

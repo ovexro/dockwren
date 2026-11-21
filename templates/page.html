@@ -9,6 +9,7 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <meta name="theme-color" content="#b4601c">
   <link rel="stylesheet" href="/static/dockwren.css?v={{ assets }}">
+  <meta name="htmx-config" content='{"allowEval":false}'>
   <script src="/static/htmx.min.js?v={{ assets }}" defer></script>
   <script src="/static/confirm.js?v={{ assets }}" defer></script>
 </head>
@@ -38,7 +39,7 @@
     <section id="install"></section>
     {% endif %}
     {% else if active == "containers" %}
-    <div id="containers" hx-get="/containers/list" hx-trigger="load, every 5s [!document.querySelector('#containers details[open]')]" hx-swap="innerHTML">Loading…</div>
+    <div id="containers" hx-get="/containers/list" hx-trigger="load, every 5s" hx-swap="innerHTML">Loading…</div>
     <section id="logs"></section>
     {% else if active == "notifications" %}
     <div id="notifications" hx-get="/notifications/list" hx-trigger="load" hx-swap="outerHTML">Loading…</div>
