@@ -45,7 +45,7 @@ Off by default and needs two separate steps by you: running `sudo dockwren setup
 server (as root), and turning it on in Settings (password and 2FA code required; flag file
 `osupdate.enabled` in the data directory).
 
-The panel stays sandboxed and unprivileged: it cannot run `apt-get` and gets no sudo or polkit rule.
+The panel stays sandboxed and unprivileged (a systemd unit with no capabilities, no private devices, a syscall allow-list, no kernel tunables or modules, and only the socket families it needs; rated 1.3 by `systemd-analyze security`): it cannot run `apt-get` and gets no sudo or polkit rule.
 It can only create the file `osupdate.trigger` in its own data directory. A root-owned systemd path
 unit (`dockwren-osupdate.path`) watches for that file and starts `dockwren-osupdate.service`, which
 runs a fixed script (`/usr/local/lib/dockwren/osupdate.sh`): `apt-get update`, then

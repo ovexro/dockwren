@@ -87,10 +87,31 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+`systemd-analyze security dockwren` rates this unit 1.3 (OK); the default for a plain service is 8+. An install made before v0.1.108 keeps its old unit until you run `install.sh` again (it only rewrites the unit and restarts the panel).
 
 Read the first-run password with `journalctl -u dockwren -o cat | grep -A1 'First run'`.
 
