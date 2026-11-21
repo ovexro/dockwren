@@ -152,15 +152,33 @@ fn random_hex() -> Result<String, String> {
     Ok(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
+/// Create or empty `path` and fill it, never readable by anyone but the owner: a new file is
+/// created 0600, and an old one is tightened to 0600 before any content goes in.
+fn write_owner_only(path: &str, body: &str) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let err = |e: std::io::Error| format!("cannot write {path}: {e}");
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(path)
+        .map_err(err)?;
+    f.set_permissions(std::fs::Permissions::from_mode(0o600))
+        .map_err(err)?;
+    f.set_len(0).map_err(err)?;
+    f.write_all(body.as_bytes()).map_err(err)
+}
+
 /// Write a file readable by root and the `nut` group only (it may hold the internal password).
+/// It is root-only while the content is written, and opened to the group last.
 fn write_private(name: &str, body: &str) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
     let p = format!("{NUT_DIR}/{name}");
-    std::fs::write(&p, body).map_err(|e| format!("cannot write {p}: {e}"))?;
-    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o640))
-        .map_err(|e| e.to_string())?;
+    write_owner_only(&p, body)?;
     run("chown", &["root:nut", &p])?;
-    Ok(())
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o640)).map_err(|e| e.to_string())
 }
 
 fn read_or_empty(name: &str) -> String {
@@ -263,6 +281,24 @@ pub fn setup() -> Result<Vec<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secret_files_are_owner_only_from_the_first_byte() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = std::env::temp_dir().join(format!("dw-nut-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let f = d.join("upsd.users");
+        let p = f.display().to_string();
+        let mode = || std::fs::metadata(&f).unwrap().permissions().mode() & 0o777;
+        write_owner_only(&p, "password = a-long-secret\n").unwrap();
+        assert_eq!(mode(), 0o600);
+        // An older, looser file is tightened before it is rewritten, and fully replaced.
+        std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o644)).unwrap();
+        write_owner_only(&p, "x").unwrap();
+        assert_eq!(mode(), 0o600);
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "x");
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     const SCAN: &str = "Scanning USB bus.\n[nutdev1]\n\tdriver = \"usbhid-ups\"\n\tport = \"auto\"\n\tvendorid = \"0463\"\n\tproductid = \"FFFF\"\n\tproduct = \"Eaton 5E\"\n\tserial = \"BLANK\"\n\tvendor = \"EATON\"\n[nutdev2]\n\tdriver = \"other\"\n";
 

@@ -63,13 +63,22 @@ impl Log {
     }
 
     fn trim(&self) {
+        use std::os::unix::fs::OpenOptionsExt;
         let Ok(text) = std::fs::read_to_string(&self.path) else {
             return;
         };
         let lines: Vec<&str> = text.lines().collect();
         let keep = &lines[lines.len().saturating_sub(KEEP)..];
         let tmp = self.path.with_extension("tmp");
-        if std::fs::write(&tmp, keep.join("\n") + "\n").is_ok() {
+        // A stale temp file would keep its old mode, so start from nothing; 0600 like the log.
+        let _ = std::fs::remove_file(&tmp);
+        let written = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)
+            .and_then(|mut f| f.write_all((keep.join("\n") + "\n").as_bytes()));
+        if written.is_ok() {
             let _ = std::fs::rename(&tmp, &self.path);
         }
     }
@@ -169,7 +178,13 @@ mod tests {
         let r = log.recent(usize::MAX);
         assert!(r.len() <= 4000 && r.len() >= KEEP, "{}", r.len());
         assert_eq!(r[0].at, 3999);
-        assert!(std::fs::metadata(d.join(FILE)).unwrap().len() < MAX_BYTES + 1000);
+        let meta = std::fs::metadata(d.join(FILE)).unwrap();
+        assert!(meta.len() < MAX_BYTES + 1000);
+        // The rewritten log stays owner-only.
+        assert_eq!(
+            std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o777,
+            0o600
+        );
         std::fs::remove_dir_all(&d).unwrap();
     }
 

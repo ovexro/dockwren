@@ -30,7 +30,8 @@ pub fn save(instance_dir: &Path, epoch: u64, compose: &str, env: &str) -> std::i
     let dir = base.join(id.to_string());
     std::fs::create_dir_all(&dir)?;
     crate::runner::write_private(&dir.join("compose.yaml"), compose)?;
-    crate::runner::write_private(&dir.join("env"), env)?;
+    // The saved `.env` holds passwords: owner only, like the live file.
+    crate::runner::write_secret(&dir.join("env"), env)?;
     let ids = list_ids(instance_dir);
     for old in ids.iter().skip(KEEP) {
         let _ = std::fs::remove_dir_all(base.join(old.to_string()));
@@ -111,6 +112,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn the_saved_env_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tmp("mode");
+        save(&d, 5, "services: {}", "DB_PASSWORD='x'").unwrap();
+        let mode = |n: &str| {
+            std::fs::metadata(root(&d).join("5").join(n))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777
+        };
+        assert_eq!(mode("env"), 0o600);
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

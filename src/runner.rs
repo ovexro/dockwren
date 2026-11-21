@@ -106,6 +106,16 @@ pub(crate) fn write_private(path: &Path, content: &str) -> std::io::Result<()> {
     f.write_all(content.as_bytes())
 }
 
+/// A new file readable by this user only (0600): for copies of `.env` and other secrets.
+pub(crate) fn write_secret(path: &Path, content: &str) -> std::io::Result<()> {
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
+    f.write_all(content.as_bytes())
+}
+
 /// Replace an existing file atomically (temp file + rename, mode 0640).
 pub(crate) fn replace_private(path: &Path, content: &str) -> std::io::Result<()> {
     let tmp = path.with_extension("tmp");
