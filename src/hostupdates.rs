@@ -46,16 +46,20 @@ fn parse(out: &str) -> Pending {
         if security {
             p.security += 1;
         }
-        let between = |open: char, close: char| {
-            rest.split_once(open)
+        // `[old]` comes before the `(new origin [arch])` part; a new package has no `[old]`.
+        let (head, tail) = rest.split_once('(').unwrap_or((rest, ""));
+        let between = |text: &str, open: char, close: char| {
+            text.split_once(open)
                 .and_then(|(_, r)| r.split_once(close))
                 .map(|(v, _)| v.to_string())
         };
         p.details.push(Pkg {
             name: name.to_string(),
-            from: between('[', ']').unwrap_or_default(),
-            to: between('(', ')')
-                .and_then(|v| v.split_whitespace().next().map(str::to_string))
+            from: between(head, '[', ']').unwrap_or_default(),
+            to: tail
+                .split_whitespace()
+                .next()
+                .map(str::to_string)
                 .unwrap_or_default(),
             security,
         });
