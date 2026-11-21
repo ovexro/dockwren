@@ -1,7 +1,7 @@
 <div id="selfupdate">
   {% if restarting %}
   <p><strong>Updating…</strong> The panel is restarting and installing the new release. This page reconnects by itself; reload in about half a minute.</p>
-  <script>setTimeout(function(){location.reload()},30000)</script>
+  <span data-reload-after="30000" hidden></span>
   {% else %}
   {% if let Some(e) = error %}<p role="alert">{{ e }}</p>{% endif %}
   {% if let Some(n) = note %}<p role="alert">Last update attempt: {{ n }}</p>{% endif %}

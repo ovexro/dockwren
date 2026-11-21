@@ -19,5 +19,5 @@
   {% else %}
   <button hx-post="/instances/{{ instance }}/skip-update" hx-target="#update-preview" hx-swap="innerHTML" title="No notification and no auto-update for this version; a newer release is offered again">Skip this version</button>
   {% endif %}
-  <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
+  <button type="button" data-clear="install">Close</button>
 </div>

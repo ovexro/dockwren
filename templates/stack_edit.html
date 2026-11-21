@@ -16,7 +16,7 @@
   {% endif %}<p><label>Environment (optional)
   <textarea name="env" rows="4" spellcheck="false" placeholder="KEY=value, one per line" style="font-family:monospace;width:100%">{{ env }}</textarea></label></p>
   <button class="primary" type="submit">Check, back up and apply</button>
-  <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
+  <button type="button" data-clear="install">Close</button>
   </form>
   {% if !versions.is_empty() %}<details><summary>Earlier versions ({{ versions.len() }})</summary>
   <p><small>Each saved edit keeps the file it replaced (last 20). Loading one only fills the form above.</small></p>

@@ -14,6 +14,6 @@
     </label>{% if !f.help.is_empty() %}<br><small>{{ f.help }}</small>{% endif %}</p>
   {% endfor %}
     <button class="primary" type="submit">Save and restart</button>
-    <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
+    <button type="button" data-clear="install">Close</button>
   </form>
 </div>

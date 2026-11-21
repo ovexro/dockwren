@@ -749,10 +749,10 @@ fn app(
         .layer(middleware::from_fn(security_headers))
 }
 
-/// Content Security Policy for every panel page. The templates still use a few inline `onclick`
-/// handlers and one inline reload script, so `script-src` keeps `'unsafe-inline'` for now (BACKLOG
-/// hardening phase 2); everything else is locked to the panel's own origin.
-const CSP: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; \
+/// Content Security Policy for every panel page: scripts only from the panel's own origin (no inline
+/// handlers or script bodies; a test scans the templates), everything else locked to it too.
+/// Styles keep `'unsafe-inline'` because templates use `style=` attributes and htmx adds a style tag.
+const CSP: &str = "default-src 'self'; script-src 'self'; \
 style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; \
 object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
@@ -2182,6 +2182,10 @@ mod tests {
                 "{uri}"
             );
             assert!(
+                csp.contains("script-src 'self';"),
+                "{uri}: scripts must not allow inline"
+            );
+            assert!(
                 !h.contains_key(header::STRICT_TRANSPORT_SECURITY),
                 "{uri}: no HSTS over plain HTTP"
             );
@@ -2197,6 +2201,53 @@ mod tests {
             !res.headers()
                 .contains_key(header::STRICT_TRANSPORT_SECURITY)
         );
+    }
+
+    /// The CSP forbids inline scripts, so no template (or HTML built in Rust) may use them.
+    #[test]
+    fn no_inline_scripts_or_handlers() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(dir.join("templates"))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        files.extend(
+            std::fs::read_dir(dir.join("src"))
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .filter(|p| p.extension().is_some_and(|x| x == "rs")),
+        );
+        let handler = regex_lite_on_attr;
+        for f in files {
+            let text = std::fs::read_to_string(&f).unwrap();
+            // Lines of test code legitimately mention these strings as hostile input.
+            let body = text.split("#[cfg(test)]").next().unwrap();
+            assert!(
+                !handler(body),
+                "{}: inline event handler (use a data- attribute and static/confirm.js)",
+                f.display()
+            );
+            for part in body.split("<script").skip(1) {
+                assert!(
+                    part.trim_start().starts_with("src=")
+                        || part.contains("src=") && part.find("src=") < part.find('>'),
+                    "{}: inline <script> body is blocked by the CSP",
+                    f.display()
+                );
+            }
+        }
+    }
+
+    /// True when the text has an ` onxxx=` attribute (plain or backslash-escaped quote).
+    fn regex_lite_on_attr(text: &str) -> bool {
+        text.match_indices(" on").any(|(i, _)| {
+            let rest = &text[i + 3..];
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_lowercase())
+                .collect();
+            !name.is_empty() && rest[name.len()..].starts_with('=')
+        })
     }
 
     #[tokio::test]

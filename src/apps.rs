@@ -2135,7 +2135,7 @@ pub async fn power_submit(
     );
     crate::audit::record("app.power", &format!("{name}: {note}"));
     Ok(Html(format!(
-        "<div id=\"power\"><p>{note}</p><button type=\"button\" onclick=\"document.getElementById('install').innerHTML=''\">Close</button></div>"
+        "<div id=\"power\"><p>{note}</p><button type=\"button\" data-clear=\"install\">Close</button></div>"
     )))
 }
 
@@ -2208,7 +2208,7 @@ pub async fn needs_submit(
                 format!("{name} needs {}.", clean.join(", "))
             };
             Ok(Html(format!(
-                "<div id=\"needs\"><p>{note}</p><button type=\"button\" onclick=\"document.getElementById('install').innerHTML=''\">Close</button></div>"
+                "<div id=\"needs\"><p>{note}</p><button type=\"button\" data-clear=\"install\">Close</button></div>"
             )))
         }
         Err(e) => Ok(render(needs_view(&apps, &name, Some(&wanted), Some(e)))),

@@ -45,3 +45,17 @@ document.addEventListener("htmx:beforeRequest", function (e) {
   // Same for the container list while a graph is open (was an hx-trigger filter, which needs eval and so breaks the CSP).
   if (t && t.id === "containers" && document.querySelector("#containers details[open]")) e.preventDefault();
 });
+
+// Inline onclick/<script> are not allowed by the Content-Security-Policy, so these two small behaviours live here.
+// "Close" buttons: data-clear="<id>" empties that element.
+document.addEventListener("click", function (e) {
+  var b = e.target.closest && e.target.closest("[data-clear]");
+  var t = b && document.getElementById(b.getAttribute("data-clear"));
+  if (t) t.innerHTML = "";
+});
+// The self-update "restarting" note reloads the page after data-reload-after milliseconds.
+document.addEventListener("htmx:load", function (e) {
+  var t = e.target;
+  var m = t && (t.matches && t.matches("[data-reload-after]") ? t : t.querySelector && t.querySelector("[data-reload-after]"));
+  if (m) setTimeout(function () { location.reload(); }, parseInt(m.getAttribute("data-reload-after"), 10) || 30000);
+});

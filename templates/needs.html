@@ -6,6 +6,6 @@
   <form hx-post="/instances/{{ name }}/needs" hx-target="#install" hx-swap="innerHTML show:#install:top">
   {% for (n, on) in choices %}<p><label><input type="checkbox" name="need" value="{{ n }}"{% if *on %} checked{% endif %}> {{ n }}</label></p>
   {% endfor %}<button class="primary" type="submit">Save</button>
-  <button type="button" onclick="document.getElementById('install').innerHTML=''">Close</button>
+  <button type="button" data-clear="install">Close</button>
   </form>{% endif %}
 </div>

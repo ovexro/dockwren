@@ -5,7 +5,7 @@ Everything Dockwren does today, in detail. The short version is in the [README](
 
 - Single-admin login: strong generated password, Argon2id hash, `HttpOnly` + `SameSite=Strict`
   session cookie, login rate limit, sessions that survive restarts.
-- Browser hardening on every response: Content-Security-Policy (own origin only, no framing, no plugins),
+- Browser hardening on every response: Content-Security-Policy (scripts from the panel's own origin only, no inline scripts, no framing, no plugins),
   `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin`, a restrictive Permissions-Policy, and
   HSTS when the panel is reached over HTTPS through a proxy or tunnel.
 - Overview: all containers (running or not) with image, state and status, refreshed every 5 s. Below the tiles it shows the hostname, OS, uptime, Dockwren version and (once apps are installed) the time since the last backup.

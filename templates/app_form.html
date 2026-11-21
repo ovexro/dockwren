@@ -18,5 +18,5 @@
 {% if !lan_ports.is_empty() %}  <p class="confirm"><label><input type="checkbox" name="LAN_OK" value="on" required> I understand and want these ports open to my network</label></p>
 {% endif %}
   <button type="submit">Install</button>
-  <button type="button" onclick="document.getElementById('install').innerHTML=''">Cancel</button>
+  <button type="button" data-clear="install">Cancel</button>
 </form>

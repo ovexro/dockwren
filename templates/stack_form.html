@@ -11,5 +11,5 @@
   <textarea name="env" rows="4" spellcheck="false" placeholder="KEY=value, one per line (what you would put in .env)" style="font-family:monospace;width:100%">{{ env }}</textarea></label><br>
   <small>Stored on this server in the stack's <code>.env</code> (readable only by the panel's user). Use it for variables the file refers to as <code>${NAME}</code>.</small></p>
   <button type="submit" class="primary">Check and install</button>
-  <button type="button" onclick="document.getElementById('install').innerHTML=''">Cancel</button>
+  <button type="button" data-clear="install">Cancel</button>
 </form>
