@@ -18,6 +18,11 @@ Only the latest release receives fixes while the project is pre-1.0.
 See "Security notes" in the README: keep the default loopback bind, put TLS and an identity layer
 in front, and never expose the panel on a public port without HTTPS.
 
+The panel itself sends a strict Content-Security-Policy (scripts only from its own origin, no inline
+scripts, no framing), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin` and a restrictive
+Permissions-Policy on every response, plus HSTS when it is reached over HTTPS through a proxy or tunnel.
+Dependencies are audited with `cargo audit` on every change and weekly.
+
 ## Updating the panel from Settings
 
 Off until you run `sudo dockwren self-update` once (or install with the current `install.sh`), which
