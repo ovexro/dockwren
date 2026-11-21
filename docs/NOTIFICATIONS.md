@@ -41,7 +41,7 @@ Rules:
    are closed. Nothing else is needed for the switch.
 2. Raise from your feature, using that kind string.
 3. Test it with `Store::memory()`: raise, check `open_events()`, resolve, check again.
-   See `src/release.rs` and the tests at the bottom of `src/apps.rs` for examples.
+   See `src/release.rs` and the tests at the bottom of `src/apps/mod.rs` for examples.
 
 ## Storage
 
