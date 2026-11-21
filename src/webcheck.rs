@@ -35,14 +35,19 @@ struct Track {
     fails: u32,
 }
 
-fn statuses() -> &'static Mutex<HashMap<String, Status>> {
-    static S: OnceLock<Mutex<HashMap<String, Status>>> = OnceLock::new();
+fn statuses() -> &'static Mutex<HashMap<String, (Status, u64)>> {
+    static S: OnceLock<Mutex<HashMap<String, (Status, u64)>>> = OnceLock::new();
     S.get_or_init(Default::default)
+}
+
+/// Epoch of the last probe that settled an app's public status.
+pub fn checked_at(name: &str) -> Option<u64> {
+    statuses().lock().unwrap().get(name).map(|s| s.1)
 }
 
 /// Last known state of an app's public URL; None until it has been probed.
 pub fn status(name: &str) -> Option<Status> {
-    statuses().lock().unwrap().get(name).copied()
+    statuses().lock().unwrap().get(name).map(|s| s.0)
 }
 
 /// Whether an HTTP status code from curl (000 when there was no answer) means reachable.
@@ -195,7 +200,7 @@ async fn run_once(apps: &Apps, shared: &Shared, tracks: &mut HashMap<String, Tra
         } else {
             continue;
         };
-        statuses().lock().unwrap().insert(name.clone(), st);
+        statuses().lock().unwrap().insert(name.clone(), (st, now()));
         match verdict {
             Some(true) => {
                 notify::raise(

@@ -86,6 +86,7 @@ pub(super) async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
             .and_then(|p| p.file_name()?.to_str()?.parse::<u64>().ok());
         let last_backup = last_backup_at.map(|e| utc_stamp(e).trim_end_matches(" UTC").to_string());
         let name_for_upstream = name.clone();
+        let now_epoch = crate::schedule::now();
         let editable = apps
             .template(&state.template)
             .is_some_and(|t| t.manifest.fields.iter().any(|f| f.editable));
@@ -115,6 +116,18 @@ pub(super) async fn instance_views(apps: &Apps) -> Vec<InstanceView> {
                 .map(|s| s == crate::webcheck::Status::Up),
             uptime: crate::webcheck::uptime_line(&dir),
             vulns: crate::vulnscan::summary(&name_for_upstream).and_then(|v| v.line()),
+            // Cached results say how old they are: upstream and scans refresh daily (stale after
+            // 3 days), the public probe every few minutes (stale after 30 min).
+            upstream_age: apps
+                .upstream
+                .lock()
+                .unwrap()
+                .get(&name_for_upstream)
+                .map(|f| crate::metrics::age_note(f.checked, now_epoch, 3 * 86400)),
+            public_age: crate::webcheck::checked_at(&name_for_upstream)
+                .map(|t| crate::metrics::age_note(t, now_epoch, 1800)),
+            vulns_age: crate::vulnscan::summary(&name_for_upstream)
+                .map(|v| crate::metrics::age_note(v.scanned, now_epoch, 3 * 86400)),
             editable,
             stack_editable,
             deletable: status_is_stopped && crate::public::read(&dir).is_none(),

@@ -926,6 +926,13 @@ pub struct OverviewTemplate {
 }
 
 /// Seconds as a short span: "5m", "3h 20m", "13d 2h".
+/// How old a cached value is: ("5h 3m ago", true when older than `stale_after` seconds).
+/// Used wherever the panel shows a result that was computed earlier, so it never reads as live.
+pub fn age_note(then: u64, now: u64, stale_after: u64) -> (String, bool) {
+    let age = now.saturating_sub(then);
+    (format!("{} ago", short_span(age)), age > stale_after)
+}
+
 pub fn short_span(secs: u64) -> String {
     let (d, h, m) = (secs / 86400, secs % 86400 / 3600, secs % 3600 / 60);
     match (d, h) {

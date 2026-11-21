@@ -252,6 +252,9 @@ mod tests {
             public_up: None,
             uptime: None,
             vulns: None,
+            upstream_age: None,
+            public_age: None,
+            vulns_age: None,
             editable: false,
             stack_editable: false,
             deletable: stopped,
@@ -285,6 +288,61 @@ mod tests {
         assert!(page.contains("/instances/db/start"));
         assert!(!page.contains("/instances/api/start"));
         assert!(page.contains("api needs it and will stop working."));
+    }
+
+    #[test]
+    fn cached_results_show_their_age() {
+        let mk = |fresh: bool| {
+            let mut v = InstanceView {
+                name: "web".into(),
+                app: "custom".into(),
+                ports: String::new(),
+                status: "healthy".into(),
+                update: None,
+                update_skipped: false,
+                upstream: Some("Upstream has 2.0".into()),
+                snapshots: 0,
+                last_backup: None,
+                last_backup_at: None,
+                hostname: Some("x.example".into()),
+                public_up: Some(true),
+                uptime: None,
+                vulns: Some("1 critical".into()),
+                upstream_age: None,
+                public_age: None,
+                vulns_age: None,
+                editable: false,
+                stack_editable: false,
+                deletable: false,
+                limitable: false,
+                has_passwords: false,
+                needs: vec![],
+                stopped: false,
+                drift: Vec::new(),
+                power: None,
+                stop_confirm: String::new(),
+                delete_confirm: String::new(),
+                uncapped: false,
+            };
+            let (a, stale) =
+                crate::metrics::age_note(0, if fresh { 60 } else { 5 * 86400 }, 3 * 86400);
+            v.upstream_age = Some((a.clone(), stale));
+            v.public_age = Some((a.clone(), stale));
+            v.vulns_age = Some((a, stale));
+            render(InstancesPage {
+                instances: vec![v],
+                picked: Vec::new(),
+                error: None,
+                note: None,
+            })
+            .0
+        };
+        let fresh = mk(true);
+        assert!(fresh.contains("Checked 1m ago."), "{fresh}");
+        assert!(!fresh.contains("<em>(checked"));
+        let old = mk(false);
+        assert!(old.contains("<em>(checked 5d 0h ago)</em>"));
+        assert!(old.contains("<em>(scanned 5d 0h ago)</em>"));
     }
 
     #[test]

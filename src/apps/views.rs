@@ -92,6 +92,10 @@ pub(super) struct InstanceView {
     pub(super) uptime: Option<String>,
     /// Last image scan: "2 critical, 5 high" (None when clean or not scanned yet).
     pub(super) vulns: Option<String>,
+    /// How old the cached results above are: (text, older than it should be).
+    pub(super) upstream_age: Option<(String, bool)>,
+    pub(super) public_age: Option<(String, bool)>,
+    pub(super) vulns_age: Option<(String, bool)>,
     /// The template has settings that can be changed after install.
     pub(super) editable: bool,
     /// A pasted stack: its Compose file can be edited here.

@@ -30,6 +30,8 @@ pub struct Found {
     pub minor: Option<String>,
     /// Highest newer tag with a higher first number (may need a migration).
     pub major: Option<String>,
+    /// Epoch of the last successful registry lookup (a failed one keeps the old answer).
+    pub checked: u64,
 }
 
 impl Found {
@@ -342,6 +344,7 @@ async fn run_once(apps: &Apps, shared: &Shared) {
                         current,
                         minor: minor.clone(),
                         major: major.clone(),
+                        checked: crate::schedule::now(),
                     },
                 );
             }
@@ -498,6 +501,7 @@ mod tests {
                 current: "28.3.0".into(),
                 minor: Some("28.4.0".into()),
                 major: None,
+                checked: 0,
             },
         );
         sync(&s, &m);
