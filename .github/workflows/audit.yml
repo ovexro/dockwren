@@ -13,7 +13,7 @@ jobs:
   cargo-audit:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       # RUSTSEC-2026-0374: basic-toml is unmaintained; it is a build-time dependency of askama's derive macro
@@ -24,7 +24,7 @@ jobs:
   cargo-deny:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked
       # deny.toml: permissive licenses only, crates.io as the only source, wildcard versions refused.

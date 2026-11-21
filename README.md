@@ -45,6 +45,9 @@ ssh -L 8080:127.0.0.1:8080 you@your-server
 then open `http://localhost:8080`. Read the script before piping it to a shell; options are
 described at its top (for example `--binary` to use a binary you copied yourself). Release
 binaries and `SHA256SUMS` are on the [releases page](https://github.com/ovexro/dockwren/releases).
+The installer checks the binary against that release's `SHA256SUMS` and stops on a mismatch. Each
+binary also carries a signed build attestation; to check where it was built, run
+`gh attestation verify dockwren-x86_64-linux --repo ovexro/dockwren`.
 
 ## What you get
 
