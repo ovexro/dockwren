@@ -19,3 +19,4 @@ security headers
 sign out everywhere
 vulnerability scan
 signed release
+watchdog

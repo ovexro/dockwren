@@ -59,7 +59,7 @@ Dockwren does not try to list the most apps. It tries to be the panel you can le
 - **Backups you can trust.** Snapshots are verified, and a weekly test restore proves that one really comes back. Off-host copies are encrypted.
 - **Closed by default.** The panel listens on localhost and apps bind to `127.0.0.1`. Reaching them from outside is your choice: a built-in Cloudflare Tunnel (with DNS handling and optional Cloudflare Access) or direct HTTPS.
 - **Tested on real servers.** Every bundled template is installed on a real server before it ships, and the code has almost 400 automated tests, including fuzzing of everything that reads untrusted input: templates, pasted Compose files and config imports.
-- **Careful about itself.** The panel runs as a tightly sandboxed systemd service (rated OK by `systemd-analyze security`), the installer and self-update check an offline-key signature and the release checksums, release binaries carry signed build attestations, and CI audits dependencies and licenses.
+- **Careful about itself.** The panel runs as a tightly sandboxed systemd service (rated OK by `systemd-analyze security`), the installer and self-update check an offline-key signature and the release checksums, release binaries carry signed build attestations, and CI audits dependencies and licenses. A systemd watchdog restarts the panel if it ever stops answering its own `/health`.
 - **Small and calm.** One static binary, no database, no agents, and each page has one job.
 
 ## What you get

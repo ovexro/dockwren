@@ -262,6 +262,12 @@ UNIT
 TimeoutStartSec=300
 ExecStartPre=-+/usr/local/bin/dockwren self-update --on-start
 DROPIN
+  # systemd restarts the panel if its own /health stops answering (a hang, not only a crash).
+  cat > /etc/systemd/system/dockwren.service.d/watchdog.conf <<'WATCHDOG'
+[Service]
+WatchdogSec=90
+NotifyAccess=main
+WATCHDOG
   systemctl daemon-reload
   systemctl enable dockwren.service
   systemctl restart dockwren.service

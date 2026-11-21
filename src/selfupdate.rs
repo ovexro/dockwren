@@ -37,6 +37,9 @@ use crate::{auth::SharedAuth, release};
 const DROPIN_DIR: &str = "/etc/systemd/system/dockwren.service.d";
 const DROPIN_FILE: &str = "self-update.conf";
 const DROPIN: &str = "[Service]\nTimeoutStartSec=300\nExecStartPre=-+/usr/local/bin/dockwren self-update --on-start\n";
+const WATCHDOG_FILE: &str = "watchdog.conf";
+/// systemd restarts the panel when its own `/health` stops answering (see src/watchdog.rs).
+const WATCHDOG: &str = "[Service]\nWatchdogSec=90\nNotifyAccess=main\n";
 const REQUEST: &str = "selfupdate.requested";
 const FAILED: &str = "selfupdate.failed";
 const BASE: &str = "https://github.com/ovexro/dockwren/releases/download";
@@ -162,6 +165,7 @@ async fn install_dropin() -> Result<(), String> {
     let dir = Path::new(DROPIN_DIR);
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     std::fs::write(dir.join(DROPIN_FILE), DROPIN).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join(WATCHDOG_FILE), WATCHDOG).map_err(|e| e.to_string())?;
     // Without a reload systemd would not run the hook until the next reboot.
     let st = tokio::process::Command::new("systemctl")
         .arg("daemon-reload")

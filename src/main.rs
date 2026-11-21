@@ -53,6 +53,7 @@ mod ups;
 mod upssetup;
 mod upstream;
 mod vulnscan;
+mod watchdog;
 mod webcheck;
 
 use std::sync::Arc;
@@ -670,6 +671,7 @@ async fn main() {
         .await
         .unwrap_or_else(|e| panic!("cannot bind {}: {e}", cfg.bind));
     println!("dockwren listening on http://{}", cfg.bind);
+    watchdog::spawn(&cfg.bind);
     let templates = apps::catalog(&cfg).unwrap_or_else(|e| panic!("bad template: {e}"));
     audit::init(&cfg.data_dir);
     let notify = notify::shared(&cfg.data_dir);

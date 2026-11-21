@@ -113,6 +113,8 @@ WantedBy=multi-user.target
 
 `systemd-analyze security dockwren` rates this unit 1.3 (OK); the default for a plain service is 8+. An install made before the sandbox was added keeps its old unit until you run `install.sh` again (it only rewrites the unit and restarts the panel).
 
+**Watchdog.** `install.sh` (and `sudo dockwren self-update`) also write a drop-in, `/etc/systemd/system/dockwren.service.d/watchdog.conf`, with `WatchdogSec=90` and `NotifyAccess=main`. The panel then pings systemd every 22 seconds, but only after a real `GET /health` to itself succeeded, so a deadlocked or frozen panel stops pinging and systemd restarts it (`journalctl -u dockwren` shows `Watchdog timeout`). Without the drop-in the panel behaves as before.
+
 Read the first-run password with `journalctl -u dockwren -o cat | grep -A1 'First run'`.
 
 
