@@ -1099,3 +1099,52 @@ mod tests {
         assert!(validate(&m, OK).is_err());
     }
 }
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Edit a valid text: delete a span, insert junk, or duplicate a span (on char boundaries).
+    fn mutate(text: &str, a: usize, b: usize, junk: &str, op: u8) -> String {
+        let cs: Vec<char> = text.chars().collect();
+        let (i, j) = (a % (cs.len() + 1), b % (cs.len() + 1));
+        let (i, j) = (i.min(j), i.max(j));
+        let head: String = cs[..i].iter().collect();
+        let mid: String = cs[i..j].iter().collect();
+        let tail: String = cs[j..].iter().collect();
+        match op % 3 {
+            0 => format!("{head}{tail}"),
+            1 => format!("{head}{junk}{mid}{tail}"),
+            _ => format!("{head}{mid}{mid}{tail}"),
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        /// Arbitrary text as manifest and compose: an Ok or an Err, never a panic.
+        #[test]
+        fn parse_never_panics_on_arbitrary_text(m in "\\PC{0,300}", c in "\\PC{0,300}") {
+            let _ = parse(&m, &c);
+        }
+
+        /// Edited copies of every real template (manifest and compose): same guarantee, and
+        /// anything that still parses must also satisfy `validate` again.
+        #[test]
+        fn parse_survives_edited_real_templates(
+            which in any::<usize>(), edit_manifest in any::<bool>(),
+            a in any::<usize>(), b in any::<usize>(), junk in "\\PC{0,8}", op in any::<u8>(),
+        ) {
+            let (_, man, comp) = BUNDLED[which % BUNDLED.len()];
+            let (m, c) = if edit_manifest {
+                (mutate(man, a, b, &junk, op), comp.to_string())
+            } else {
+                (man.to_string(), mutate(comp, a, b, &junk, op))
+            };
+            if let Ok(t) = parse(&m, &c) {
+                prop_assert!(validate(&t.manifest, &t.compose).is_ok());
+            }
+        }
+    }
+}

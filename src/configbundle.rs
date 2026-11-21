@@ -425,3 +425,132 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use proptest::prelude::*;
+
+    const PASS: &str = "long enough passphrase";
+
+    fn scratch(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "dw-fuzz-{tag}-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir_all(d.join("instances")).unwrap();
+        d
+    }
+
+    /// Everything under `root`, as relative paths.
+    fn tree(root: &Path) -> Vec<String> {
+        fn walk(dir: &Path, base: &Path, out: &mut Vec<String>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                out.push(e.path().strip_prefix(base).unwrap().display().to_string());
+                if e.path().is_dir() {
+                    walk(&e.path(), base, out);
+                }
+            }
+        }
+        let mut v = Vec::new();
+        walk(root, root, &mut v);
+        v.sort();
+        v
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(24))]
+
+        /// Arbitrary bytes, with and without the right magic: an error, never a panic,
+        /// and nothing is written.
+        #[test]
+        fn open_rejects_arbitrary_bytes(tail in proptest::collection::vec(any::<u8>(), 0..200),
+                                        magic in any::<bool>()) {
+            let mut data = if magic { MAGIC.to_vec() } else { Vec::new() };
+            data.extend(tail);
+            let d = scratch("bytes");
+            prop_assert!(import_bytes(&d.join("instances"), &data, PASS, true).is_err());
+            prop_assert!(tree(&d) == vec!["instances".to_string()]);
+            let _ = std::fs::remove_dir_all(&d);
+        }
+
+        /// A genuine export with one flipped byte or a cut end is refused (the AEAD tag
+        /// covers everything), and nothing is written.
+        #[test]
+        fn damaged_export_is_refused(flip in any::<usize>(), cut in any::<usize>(), truncate in any::<bool>()) {
+            let mut b = Bundle::default();
+            b.instances.insert("app".into(), BTreeMap::from([
+                ("state.toml".to_string(), "x".to_string()),
+                ("compose.yaml".to_string(), "y".to_string()),
+                (".env".to_string(), "z".to_string()),
+            ]));
+            let mut data = seal(&b, PASS, MIN_PASSPHRASE).unwrap();
+            if truncate {
+                data.truncate(cut % data.len());
+            } else {
+                let i = flip % data.len();
+                data[i] ^= 1;
+            }
+            let d = scratch("damaged");
+            prop_assert!(import_bytes(&d.join("instances"), &data, PASS, true).is_err());
+            prop_assert!(tree(&d) == vec!["instances".to_string()]);
+            let _ = std::fs::remove_dir_all(&d);
+        }
+
+        /// A validly sealed export with hostile contents (path tricks in instance, file and
+        /// panel names): import either refuses or writes only valid names inside the data
+        /// directory, never anywhere else.
+        #[test]
+        fn hostile_contents_never_escape(
+            inst in proptest::collection::btree_map(
+                prop_oneof!["[a-z][a-z0-9-]{1,10}", "\\PC{0,12}", Just("../evil".to_string()), Just("a/../../x".to_string())],
+                proptest::collection::btree_map(
+                    prop_oneof![
+                        Just("state.toml".to_string()), Just("compose.yaml".to_string()), Just(".env".to_string()),
+                        Just("limits.toml".to_string()), "\\PC{0,12}", Just("../x".to_string()), Just("/etc/x".to_string())],
+                    "\\PC{0,20}", 0..5),
+                0..4),
+            panel in proptest::collection::btree_map(
+                prop_oneof![Just("admin.hash".to_string()), Just("../instances/x".to_string()), "\\PC{0,12}", Just("/tmp/x".to_string())],
+                "\\PC{0,10}", 0..3),
+            complete in any::<bool>(),
+        ) {
+            let d = scratch("hostile");
+            let mut inst = inst;
+            if complete {
+                // Give every instance the required files so the write path is reached too.
+                for files in inst.values_mut() {
+                    for f in ["state.toml", "compose.yaml", ".env"] {
+                        files.entry(f.to_string()).or_default();
+                    }
+                }
+            }
+            let b = Bundle { instances: inst, hosts: BTreeMap::new(), panel };
+            let data = seal(&b, PASS, MIN_PASSPHRASE).unwrap();
+            let before = tree(&d);
+            let r = import_bytes(&d.join("instances"), &data, PASS, true);
+            let after = tree(&d);
+            if r.is_err() && b.instances.keys().any(|n| !crate::runner::valid_name(n)) {
+                prop_assert!(after == before || after == vec!["instances".to_string()]);
+            }
+            for p in &after {
+                let first = p.split('/').next().unwrap();
+                prop_assert!(
+                    first == "instances" || PANEL_FILES.contains(&first),
+                    "unexpected path {p}"
+                );
+                if let Some(rest) = p.strip_prefix("instances/") {
+                    let mut it = rest.split('/');
+                    prop_assert!(crate::runner::valid_name(it.next().unwrap()), "bad instance dir {p}");
+                    if let Some(f) = it.next() {
+                        prop_assert!(FILES.contains(&f), "bad file {p}");
+                    }
+                }
+            }
+            // Nothing leaked next to the data directory.
+            prop_assert!(!d.parent().unwrap().join("evil").exists());
+            let _ = std::fs::remove_dir_all(&d);
+        }
+    }
+}
