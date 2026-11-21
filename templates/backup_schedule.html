@@ -17,6 +17,7 @@
     <label>Update window, from hour (UTC) <input name="update_from" type="number" min="0" max="23" value="{{ update_from }}"></label>
     <label>to hour (same value = any time) <input name="update_to" type="number" min="0" max="23" value="{{ update_to }}"></label>
     <label><input name="restore_test" type="checkbox" value="1"{% if restore_test %} checked{% endif %}> Test restores: about once a week, restore each app's newest snapshot into a throwaway copy, check that it starts healthy, then delete the copy (the running app is not touched; skipped when memory is low). You are notified if it fails.</label>
+    {% if mode != "off" && !restore_test %}<p role="note"><small>Backups are on, but no restore has ever been tried. Tick <strong>Test restores</strong> to find out now, not on the day you need the backup, that a snapshot does not come back.</small></p>{% endif %}
     <button type="submit" class="primary">Save</button>
   </form>
 </div>

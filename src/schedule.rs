@@ -90,7 +90,10 @@ impl Default for Settings {
             auto_update: false,
             update_from: default_update_from(),
             update_to: default_update_to(),
-            restore_test: false,
+            // On for a fresh setup: a backup that was never restored is only a hope. Files saved
+            // before this option existed lack the field and keep false (`#[serde(default)]`), so an
+            // upgrade never starts throwaway copies on its own.
+            restore_test: true,
         }
     }
 }
@@ -277,6 +280,14 @@ mod tests {
         // On Sunday itself, before the hour, the previous Sunday still counts.
         assert_eq!(last_slot(sun - 1, Mode::Weekly, 3), Some(sun - 7 * 86_400));
         assert_eq!(last_slot(sun, Mode::Weekly, 3), Some(sun));
+    }
+
+    #[test]
+    fn restore_test_is_on_for_a_fresh_setup_but_not_for_old_files() {
+        assert!(Settings::default().restore_test);
+        // A file saved before the option existed has no such field: it stays off.
+        let old: Settings = toml::from_str("mode = \"daily\"\nhour = 3\nkeep = 7\n").unwrap();
+        assert!(!old.restore_test);
     }
 
     #[test]

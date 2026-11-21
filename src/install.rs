@@ -289,34 +289,35 @@ pub fn port_is_free(port: u16) -> bool {
     std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
 }
 
-/// Is something already listening on this port (any address)? Read from /proc/net because a
-/// bind attempt cannot tell "in use" from "not allowed" for ports below 1024 without root.
+/// Is something already using this port (any address)? Two independent checks, either one
+/// says "taken": a bind attempt, which asks the kernel the way Docker will and cannot miss a
+/// socket; and the /proc/net tables, which still catch what a bind cannot tell apart from
+/// "not allowed" (ports below 1024 without root). The tables alone are not enough: they are read
+/// in pieces and, while other programs open and close sockets, can leave out a socket that exists
+/// (measured: ~14% of reads with another process churning UDP sockets).
 pub fn lan_port_free(port: u16, protocol: &str) -> bool {
-    let files: &[&str] = if protocol == "udp" {
+    let udp = protocol == "udp";
+    if bind_says_taken(port, udp) {
+        return false;
+    }
+    let files: &[&str] = if udp {
         &["/proc/net/udp", "/proc/net/udp6"]
     } else {
         &["/proc/net/tcp", "/proc/net/tcp6"]
     };
-    let mut readable = false;
-    for f in files {
-        let Ok(text) = std::fs::read_to_string(f) else {
-            continue;
-        };
-        readable = true;
-        if listening_on(&text, port, protocol == "udp") {
-            return false;
-        }
-    }
-    if readable {
-        return true;
-    }
-    // No /proc/net: fall back to a bind attempt.
-    let err = if protocol == "udp" {
+    !files
+        .iter()
+        .any(|f| std::fs::read_to_string(f).is_ok_and(|text| listening_on(&text, port, udp)))
+}
+
+/// Does binding the port on all addresses fail because something else holds it?
+fn bind_says_taken(port: u16, udp: bool) -> bool {
+    let err = if udp {
         std::net::UdpSocket::bind(("0.0.0.0", port)).err()
     } else {
         std::net::TcpListener::bind(("0.0.0.0", port)).err()
     };
-    err.is_none_or(|e| e.kind() != std::io::ErrorKind::AddrInUse)
+    err.is_some_and(|e| e.kind() == std::io::ErrorKind::AddrInUse)
 }
 
 /// Does a /proc/net/{tcp,udp}[6] table hold a listening socket on `port`?
@@ -672,11 +673,18 @@ mod tests {
     }
 
     #[test]
-    fn lan_port_in_use_is_detected() {
-        let l = std::net::UdpSocket::bind(("0.0.0.0", 0)).unwrap();
-        let p = l.local_addr().unwrap().port();
-        assert!(!lan_port_free(p, "udp"));
-        drop(l);
-        assert!(lan_port_free(p, "udp"));
+    fn a_held_port_is_reported_taken_without_relying_on_proc() {
+        // Deterministic: we hold the sockets, so the kernel must refuse a second bind. This is the
+        // path that stays right when /proc/net omits a socket under load.
+        let u = std::net::UdpSocket::bind(("0.0.0.0", 0)).unwrap();
+        let up = u.local_addr().unwrap().port();
+        assert!(bind_says_taken(up, true));
+        assert!(!lan_port_free(up, "udp"));
+        let t = std::net::TcpListener::bind(("0.0.0.0", 0)).unwrap();
+        let tp = t.local_addr().unwrap().port();
+        assert!(bind_says_taken(tp, false));
+        assert!(!lan_port_free(tp, "tcp"));
+        // No "free again after drop" check on purpose: any other process may take that ephemeral
+        // port in between. `proc_net_tables_are_parsed` covers the free case on fixed input.
     }
 }
