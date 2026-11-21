@@ -431,9 +431,11 @@ impl Store {
     fn from_log(text: &str, now: u64) -> Self {
         let mut events: Vec<Event> = Vec::new();
         for line in text.lines() {
-            let Ok(e) = serde_json::from_str::<Event>(line) else {
+            let Ok(mut e) = serde_json::from_str::<Event>(line) else {
                 continue;
             };
+            // The file is ours, but links end up in href: never trust it blindly.
+            e.link = e.link.as_deref().and_then(clean_link);
             match events.iter_mut().find(|x| x.id == e.id) {
                 Some(slot) => *slot = e,
                 None => events.push(e),
@@ -1169,6 +1171,33 @@ mod tests {
         let s = Store::from_log(&format!("not json\n{good}\n{{\"id\":1}}\n\n"), 20);
         assert_eq!(s.open_events().len(), 1);
         assert_eq!(s.next_id, 8);
+    }
+
+    #[test]
+    fn loaded_log_drops_unsafe_links() {
+        let mk = |id: u64, link: &str| {
+            serde_json::to_string(&Event {
+                id,
+                ts: 10,
+                source: "a".into(),
+                kind: "k".into(),
+                severity: Severity::Info,
+                title: "t".into(),
+                body: None,
+                link: Some(link.into()),
+                key: format!("k{id}"),
+                state: State::New,
+                notified: None,
+                clear_pending: false,
+            })
+            .unwrap()
+                + "\n"
+        };
+        let log = mk(1, "/apps") + &mk(2, "javascript:alert(1)") + &mk(3, "//evil.example/x");
+        let s = Store::from_log(&log, 20);
+        let links: Vec<_> = s.open_events().iter().map(|e| e.link.clone()).collect();
+        assert_eq!(links.len(), 3);
+        assert_eq!(links.iter().flatten().collect::<Vec<_>>(), vec!["/apps"]);
     }
 
     #[test]
