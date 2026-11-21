@@ -1111,7 +1111,7 @@ async fn offsite_form_validates_and_turns_off_without_docker() {
         }
     };
     let bad = post("kind=s3&endpoint=ftp%3A%2F%2Fx&bucket=b").await;
-    assert!(bad.contains("must be a URL"), "{bad}");
+    assert!(bad.contains("must be a plain URL"), "{bad}");
     let bad = post("kind=sftp&host=h&user=u&path=..%2Fx&private_key=k").await;
     assert!(bad.contains("folder may only"), "{bad}");
     let off = post("kind=off").await;

@@ -74,6 +74,8 @@ pub struct Config {
 }
 
 /// What the settings form submits. Empty secret fields mean "keep the saved one".
+// Debug only in tests: the form carries secrets that must never reach a log.
+#[cfg_attr(test, derive(Debug))]
 #[derive(Default, Deserialize)]
 pub struct Form {
     pub kind: String,
@@ -141,12 +143,14 @@ impl Config {
             Kind::S3 => {
                 let endpoint = f.endpoint.trim().trim_end_matches('/');
                 if !(endpoint.starts_with("https://") || endpoint.starts_with("http://"))
-                    || endpoint
+                    || !endpoint
                         .chars()
-                        .any(|c| c.is_whitespace() || c == '\'' || c == '"')
+                        .all(|c| c.is_ascii_alphanumeric() || "-._~:/%".contains(c))
                     || endpoint.len() > 200
                 {
-                    return Err("The endpoint must be a URL starting with https:// (or http://).");
+                    return Err(
+                        "The endpoint must be a plain URL starting with https:// (or http://), without credentials, ? or #.",
+                    );
                 }
                 if !plain(f.bucket.trim(), &['.', '-', '_', '/']) {
                     return Err("The bucket may only contain letters, digits and . - _ /");
@@ -165,7 +169,8 @@ impl Config {
                 }
             }
             Kind::Sftp => {
-                if !plain(f.host.trim(), &['.', '-']) {
+                // The first character is a letter or digit: `-x@host` would be read by ssh as an option.
+                if !plain(f.host.trim(), &['.', '-']) || f.host.trim().starts_with(['-', '.']) {
                     return Err("The host may only contain letters, digits, . and -");
                 }
                 let port: u16 = if f.port.trim().is_empty() {
@@ -178,7 +183,8 @@ impl Config {
                         .filter(|p| *p > 0)
                         .ok_or("The port must be 1 to 65535.")?
                 };
-                if !plain(f.user.trim(), &['.', '-', '_']) {
+                if !plain(f.user.trim(), &['.', '-', '_']) || f.user.trim().starts_with(['-', '.'])
+                {
                     return Err("The user may only contain letters, digits, . - _");
                 }
                 let path = f.path.trim();
@@ -708,6 +714,121 @@ impl Offsite {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn endpoints_with_fragments_queries_or_credentials_are_refused() {
+        for bad in [
+            "https://s3.example.test#x",
+            "https://s3.example.test?x=1",
+            "https://user:pw@s3.example.test",
+            "https://s3.example.test/\u{1e8a1}",
+        ] {
+            let f = Form {
+                endpoint: bad.into(),
+                ..s3_form()
+            };
+            assert!(Config::from_form(&f, &Config::default()).is_err(), "{bad}");
+        }
+        for (host, user) in [("-oX", "backup"), ("backup.example.test", "-F"), ("-", "u")] {
+            let f = Form {
+                host: host.into(),
+                user: user.into(),
+                path: "backups".into(),
+                private_key: key(),
+                ..form("sftp")
+            };
+            assert!(
+                Config::from_form(&f, &Config::default()).is_err(),
+                "{host} {user}"
+            );
+        }
+    }
+
+    mod hostile {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// Strings with the characters that matter for a shell, a URL, ssh options or a path.
+        fn nasty() -> impl Strategy<Value = String> {
+            prop_oneof![
+                "[a-zA-Z0-9.-]{0,12}",
+                "[a-zA-Z0-9._/-]{0,12}",
+                "(-|--|-o|-J|\\.\\.|/|//|:|@|=|,| |'|\"|`|\\$|;|&|\\|\\n|\\t|%|\\\\|[a-z0-9]){0,10}",
+                "\\PC{0,20}",
+            ]
+        }
+
+        fn arb_form() -> impl Strategy<Value = Form> {
+            (
+                prop_oneof![Just("s3"), Just("sftp"), Just("off"), Just("x")],
+                prop::collection::vec(nasty(), 9),
+            )
+                .prop_map(|(kind, v)| Form {
+                    kind: kind.into(),
+                    endpoint: format!("{}{}", ["https://", "http://", ""][v[0].len() % 3], v[0]),
+                    bucket: v[1].clone(),
+                    access_key: v[2].clone(),
+                    secret_key: v[3].clone(),
+                    host: v[4].clone(),
+                    port: v[5].clone(),
+                    user: v[6].clone(),
+                    path: v[7].clone(),
+                    private_key: format!("-----BEGIN OPENSSH PRIVATE KEY-----{}", v[8]),
+                    password: v[8].clone(),
+                })
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(4000))]
+
+            #[test]
+            fn from_form_never_panics_and_accepted_values_are_inert(f in arb_form()) {
+                let Ok((c, _)) = Config::from_form(&f, &Config::default()) else { return Ok(()); };
+                let bad = |s: &str| s.chars().any(|ch| ch.is_control() || ch.is_whitespace()
+                    || "'\"`$;&|\\".contains(ch));
+                match c.kind {
+                    Kind::Off => {}
+                    Kind::S3 => {
+                        prop_assert!(c.endpoint.starts_with("http"), "{c:?}");
+                        prop_assert!(c.endpoint.chars().all(|ch| ch.is_ascii_alphanumeric() || "-._~:/%".contains(ch)), "{c:?}");
+                        prop_assert!(!bad(&c.bucket), "{c:?}");
+                        // The keys travel as environment variables, never in a shell line.
+                        prop_assert!(![&c.access_key, &c.secret_key].iter().any(|k| k.chars().any(|ch| ch.is_control() || ch.is_whitespace())), "{c:?}");
+                        prop_assert!(!c.repo().contains(char::is_whitespace));
+                    }
+                    Kind::Sftp => {
+                        for (n, v) in [("host", &c.host), ("user", &c.user)] {
+                            prop_assert!(!v.is_empty() && !v.starts_with('-'), "{n} {v:?} would be read as an ssh option");
+                            prop_assert!(v.chars().all(|ch| ch.is_ascii_alphanumeric() || ".-_".contains(ch)), "{n} {v:?}");
+                        }
+                        prop_assert!(c.port > 0);
+                        prop_assert!(!c.path.contains("..") && !bad(&c.path), "{c:?}");
+                        // Fixed shape: only the three words we put there can contain the values.
+                        let cmd = c.sftp_command();
+                        prop_assert_eq!(cmd.split_whitespace().filter(|w| w.contains('@')).count(), 1, "{}", cmd);
+                    }
+                }
+                prop_assert!(c.kind == Kind::Off || c.password.len() >= 8);
+            }
+
+            #[test]
+            fn describe_and_repo_never_leak_secrets(f in arb_form()) {
+                let Ok((c, _)) = Config::from_form(&f, &Config::default()) else { return Ok(()); };
+                let d = c.describe();
+                for sec in c.secrets() {
+                    if sec.len() >= 8 {
+                        prop_assert!(!d.contains(sec), "{d}");
+                    }
+                }
+            }
+
+            #[test]
+            fn masking_removes_long_secrets(text in "\\PC{0,60}", sec in "[a-zA-Z0-9]{8,16}") {
+                let t = format!("{text}{sec}{text}");
+                prop_assert!(!mask(&t, &[&sec]).contains(&sec));
+            }
+        }
+    }
 
     fn form(kind: &str) -> Form {
         Form {
