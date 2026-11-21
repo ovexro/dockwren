@@ -318,7 +318,7 @@ else
   if [ "$FANCY" = 1 ]; then ok_line "$LABEL" "$((SECONDS - T0))" "$size, $((SECONDS - T0))s"; else ok_line "$LABEL" "$((SECONDS - T0))" "ok, $size"; fi
 fi
 
-run "Verifying the binary (SHA256)" verify_binary
+run "Verifying the binary (signature and SHA256)" verify_binary
 run "Installing the service" setup_service
 run "Starting the panel" wait_panel
 
