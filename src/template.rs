@@ -322,6 +322,11 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/memos/icon.svg"),
     ),
     (
+        include_str!("../apps/freshrss/manifest.toml"),
+        include_str!("../apps/freshrss/compose.yaml"),
+        include_str!("../apps/freshrss/icon.svg"),
+    ),
+    (
         include_str!("../apps/paperless-ai/manifest.toml"),
         include_str!("../apps/paperless-ai/compose.yaml"),
         include_str!("../apps/paperless-ai/icon.svg"),
@@ -841,6 +846,7 @@ mod tests {
                 "changedetection",
                 "custom",
                 "forgejo",
+                "freshrss",
                 "ghost",
                 "gitea",
                 "grafana",
@@ -874,7 +880,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 35);
+        assert_eq!(c.len(), 36);
     }
 
     #[test]
@@ -921,6 +927,7 @@ mod tests {
                 "changedetection",
                 "custom",
                 "forgejo",
+                "freshrss",
                 "ghost",
                 "gitea",
                 "grafana",

@@ -1,0 +1,58 @@
+[app]
+id = "freshrss"
+name = "FreshRSS"
+description = "Self-hosted RSS and Atom feed reader"
+homepage = "https://github.com/FreshRSS/FreshRSS"
+changelog = "https://github.com/FreshRSS/FreshRSS/releases"
+version = 1
+note = "Your feeds, read anywhere, with a mobile-app API. The admin password is generated and shown once; feeds refresh every 30 minutes. To use a phone app, enable the API in Settings, Authentication, and set an API password in your profile."
+public_url_field = "PUBLIC_URL"
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "freshrss"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "PUBLIC_URL"
+label = "Public URL"
+type = "url"
+default = "http://127.0.0.1:${WEB_PORT}"
+help = "The address people use to reach this app. Leave it as it is for now: when you publish the app with a public hostname, Dockwren fills this in for you."
+
+[[fields]]
+key = "ADMIN_USER"
+label = "Admin user"
+type = "string"
+default = "admin"
+pattern = "^[a-z][a-z0-9_-]{2,30}$"
+help = "The username you will sign in with. Dockwren creates a strong password for you and shows it once after the install, so copy it then."
+
+[[secrets]]
+key = "ADMIN_PASSWORD"
+kind = "password"
+length = 20
+reveal = true
+
+[[services]]
+name = "freshrss"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/80'"], interval = "15s", start_period = "30s" }
+
+[backup]
+paths = ["data", "extensions"]
+
+[update]
+image_pins = ["freshrss/freshrss"]
+pre_update = ["backup"]

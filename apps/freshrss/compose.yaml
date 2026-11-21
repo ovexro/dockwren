@@ -1,0 +1,23 @@
+services:
+  freshrss:
+    image: freshrss/freshrss:1.30.4
+    restart: unless-stopped
+    environment:
+      TZ: UTC
+      CRON_MIN: "3,33"
+      FRESHRSS_ENV: production
+      FRESHRSS_INSTALL: |-
+        --api-enabled
+        --base-url ${PUBLIC_URL}
+        --db-type sqlite
+        --default-user ${ADMIN_USER}
+        --language en
+      FRESHRSS_USER: |-
+        --user ${ADMIN_USER}
+        --password ${ADMIN_PASSWORD}
+        --api-password ${ADMIN_PASSWORD}
+    volumes:
+      - ./data:/var/www/FreshRSS/data
+      - ./extensions:/var/www/FreshRSS/extensions
+    ports:
+      - "127.0.0.1:${WEB_PORT}:80"
