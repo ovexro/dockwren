@@ -1,7 +1,7 @@
 name: audit
 on:
   push:
-    paths: ["Cargo.toml", "Cargo.lock", ".github/workflows/audit.yml"]
+    paths: ["Cargo.toml", "Cargo.lock", "deny.toml", ".github/workflows/audit.yml"]
   schedule:
     - cron: "17 5 * * 1"   # weekly: new advisories appear without any commit
   workflow_dispatch:
@@ -20,3 +20,14 @@ jobs:
       # (not in the binary) and nothing can be upgraded on our side. Any other warning or vulnerability fails.
       - name: Audit
         run: cargo audit --deny warnings --ignore RUSTSEC-2026-0374
+
+  cargo-deny:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+      # deny.toml: permissive licenses only, crates.io as the only source, wildcard versions refused.
+      # Duplicate crate versions are a warning (rand/digest generations), not a failure.
+      - name: Deny
+        run: cargo deny check
