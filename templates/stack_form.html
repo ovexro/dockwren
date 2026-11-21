@@ -6,9 +6,9 @@
   <input type="text" name="name" value="{{ name }}" placeholder="my-stack" required pattern="[a-z][a-z0-9-]{1,30}"></label><br>
   <small>Names the folder and the containers on this server. Lower-case letters, digits and hyphens.</small></p>
   <p><label>docker-compose.yml
-  <textarea name="compose" rows="16" spellcheck="false" required style="font-family:monospace;width:100%">{{ compose }}</textarea></label></p>
+  <textarea name="compose" rows="16" spellcheck="false" required class="wide">{{ compose }}</textarea></label></p>
   <p><label>Environment (optional)
-  <textarea name="env" rows="4" spellcheck="false" placeholder="KEY=value, one per line (what you would put in .env)" style="font-family:monospace;width:100%">{{ env }}</textarea></label><br>
+  <textarea name="env" rows="4" spellcheck="false" placeholder="KEY=value, one per line (what you would put in .env)" class="wide">{{ env }}</textarea></label><br>
   <small>Stored on this server in the stack's <code>.env</code> (readable only by the panel's user). Use it for variables the file refers to as <code>${NAME}</code>.</small></p>
   <button type="submit" class="primary">Check and install</button>
   <button type="button" data-clear="install">Cancel</button>

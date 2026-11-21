@@ -323,3 +323,13 @@ fieldset.row { display: flex; }
 
 h2:has(> .h-badge) { display: flex; align-items: center; gap: .5rem; }
 .h-badge { display: inline-flex; align-items: center; }
+
+/* Helpers that replaced inline styles (the CSP and one place to look) */
+table td.l, table th.l { text-align: left; white-space: normal; }
+textarea.wide { max-width: none; width: 100%; }
+pre.scroll { max-height: 16em; overflow: auto; }
+form.inline { display: inline; }
+.actions.center { align-items: center; }
+.inline-field { display: flex; align-items: center; gap: .5rem; white-space: nowrap; }
+.inline-field select { margin-top: 0; }
+td.nw { white-space: nowrap; }

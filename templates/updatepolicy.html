@@ -1,13 +1,13 @@
 <div id="updatepolicy">
   <table>
-    <thead><tr><th>Part</th><th>How it updates</th><th style="text-align:left">Notified</th></tr></thead>
+    <thead><tr><th>Part</th><th>How it updates</th><th class="l">Notified</th></tr></thead>
     <tbody>
-      <tr><td>Apps (bundled templates)</td><td>Optional automatic, inside your time window: snapshot first, rolled back if the app is not healthy. Recommended.<br>{% if auto_on %}<span class="badge" data-state="running">On</span>{% else %}<span class="badge" data-state="exited">Off</span>{% endif %} <strong>{{ auto_apps }}</strong></td><td style="text-align:left">Yes: update available, updated automatically, or failed</td></tr>
-      <tr><td>Newer image upstream (PHP, WordPress, databases)</td><td>Never automatic. Arrives as a tested template in a Dockwren release.</td><td style="text-align:left">Yes: newer upstream version</td></tr>
-      <tr><td>Database major versions</td><td>Never automatic: they need a manual migration.</td><td style="text-align:left">Yes, as above</td></tr>
-      <tr><td>OS packages</td><td>Only when you press the button, or with <code>apt</code> on the server. Never automatic.<br>{% if os_on %}<span class="badge" data-state="running">On</span>{% else %}<span class="badge" data-state="exited">Off</span>{% endif %} <strong>{{ os_button }}</strong></td><td style="text-align:left">Yes: updates available, reboot needed</td></tr>
-      <tr><td>Kernel and reboots</td><td>Always manual.</td><td style="text-align:left">Yes: reboot needed</td></tr>
-      <tr><td>Dockwren itself</td><td>Only when you press the button (checksum verified, old binary kept). Never automatic.<br>{% if self_on %}<span class="badge" data-state="running">On</span>{% else %}<span class="badge" data-state="exited">Off</span>{% endif %} <strong>{{ self_button }}</strong></td><td style="text-align:left">Yes: new release</td></tr>
+      <tr><td>Apps (bundled templates)</td><td>Optional automatic, inside your time window: snapshot first, rolled back if the app is not healthy. Recommended.<br>{% if auto_on %}<span class="badge" data-state="running">On</span>{% else %}<span class="badge" data-state="exited">Off</span>{% endif %} <strong>{{ auto_apps }}</strong></td><td class="l">Yes: update available, updated automatically, or failed</td></tr>
+      <tr><td>Newer image upstream (PHP, WordPress, databases)</td><td>Never automatic. Arrives as a tested template in a Dockwren release.</td><td class="l">Yes: newer upstream version</td></tr>
+      <tr><td>Database major versions</td><td>Never automatic: they need a manual migration.</td><td class="l">Yes, as above</td></tr>
+      <tr><td>OS packages</td><td>Only when you press the button, or with <code>apt</code> on the server. Never automatic.<br>{% if os_on %}<span class="badge" data-state="running">On</span>{% else %}<span class="badge" data-state="exited">Off</span>{% endif %} <strong>{{ os_button }}</strong></td><td class="l">Yes: updates available, reboot needed</td></tr>
+      <tr><td>Kernel and reboots</td><td>Always manual.</td><td class="l">Yes: reboot needed</td></tr>
+      <tr><td>Dockwren itself</td><td>Only when you press the button (checksum verified, old binary kept). Never automatic.<br>{% if self_on %}<span class="badge" data-state="running">On</span>{% else %}<span class="badge" data-state="exited">Off</span>{% endif %} <strong>{{ self_button }}</strong></td><td class="l">Yes: new release</td></tr>
     </tbody>
   </table>
   <p><small>Each notification can be switched off, and sent to ntfy or a webhook, under Notifications.</small></p>

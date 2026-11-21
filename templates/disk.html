@@ -6,10 +6,10 @@
   {% else %}
   <p><small>Data = the app's folder; snapshots = local backups; images = what Docker stores for the app (an upper bound: apps can share layers). A "+" means some files belong to another user and could not be counted.</small></p>
   <table>
-    <thead><tr><th style="text-align:left">App</th><th>Data</th><th>Old restore copies</th><th>Snapshots</th><th>Images</th><th>Total</th><th></th></tr></thead>
+    <thead><tr><th class="l">App</th><th>Data</th><th>Old restore copies</th><th>Snapshots</th><th>Images</th><th>Total</th><th></th></tr></thead>
     <tbody>
     {% for r in rows %}<tr>
-      <td style="text-align:left">{{ r.name }}</td>
+      <td class="l">{{ r.name }}</td>
       <td>{{ r.data }}{% if r.partial %}+{% endif %}</td>
       <td>{{ r.leftovers }}</td>
       <td>{{ r.snapshots }} ({{ r.snapshot_bytes }})</td>
@@ -31,8 +31,8 @@
   <h3>Unused Docker volumes</h3>
   <p>{{ orphans.volumes.len() }} volume{% if orphans.volumes.len() != 1 %}s{% endif %} ({{ orphan_size }}) that no container uses, usually left behind by removed or test apps. Anything an installed app owns is kept{% if orphans.kept_volumes > 0 %} ({{ orphans.kept_volumes }} kept){% endif %}.</p>
   <details><summary>Show the list</summary>
-    <table><thead><tr><th style="text-align:left">Volume</th><th>Size</th></tr></thead><tbody>
-    {% for v in orphans.volumes.iter().take(50) %}<tr><td style="text-align:left"><code>{% if v.anonymous %}{{ v.name|truncate(12) }} (anonymous){% else %}{{ v.name }}{% endif %}</code></td><td>{{ v.size }}</td></tr>
+    <table><thead><tr><th class="l">Volume</th><th>Size</th></tr></thead><tbody>
+    {% for v in orphans.volumes.iter().take(50) %}<tr><td class="l"><code>{% if v.anonymous %}{{ v.name|truncate(12) }} (anonymous){% else %}{{ v.name }}{% endif %}</code></td><td>{{ v.size }}</td></tr>
     {% endfor %}</tbody></table>
     {% if orphans.volumes.len() > 50 %}<p><small>Biggest 50 shown.</small></p>{% endif %}
   </details>

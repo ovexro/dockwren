@@ -9,7 +9,7 @@
     {% for (name, key) in logins %}
     <li>
       <code>{{ name }}</code>
-      <form hx-post="/settings/registries/logout" hx-target="#registries" hx-swap="outerHTML" hx-confirm="Log out of {{ name }}? Private images from it can no longer be pulled." style="display:inline">
+      <form hx-post="/settings/registries/logout" hx-target="#registries" hx-swap="outerHTML" hx-confirm="Log out of {{ name }}? Private images from it can no longer be pulled." class="inline">
         <input type="hidden" name="server" value="{{ key }}">
         <button type="submit">Log out</button>
       </form>
