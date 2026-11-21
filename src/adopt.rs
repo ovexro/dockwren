@@ -96,6 +96,11 @@ async fn resolve(data_dir: &Path, project: &str, file: &str, wd: &str) -> Result
     if !wd_path.is_absolute() {
         return Err("the project directory was not recorded".into());
     }
+    // The folder is written into the copied compose file: a line break in its name would
+    // add lines of YAML.
+    if wd.chars().any(char::is_control) {
+        return Err("the project directory name contains control characters".into());
+    }
     let out = tokio::process::Command::new("docker")
         .env_clear()
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
@@ -287,8 +292,8 @@ pub async fn adopt(
 
 /// Joins a relative path onto `base` lexically (`.` and `..` resolved, no filesystem access).
 fn join_lexical(base: &str, rel: &str) -> String {
-    let mut parts: Vec<&str> = base.split('/').filter(|p| !p.is_empty()).collect();
-    for seg in rel.split('/') {
+    let mut parts: Vec<&str> = Vec::new();
+    for seg in base.split('/').chain(rel.split('/')) {
         match seg {
             "" | "." => {}
             ".." => {
@@ -461,6 +466,126 @@ mod tests {
         assert!(e.contains("db") && e.contains("/etc/pg"), "{e}");
         let ok = json!({"services": {"db": {"volumes": [{"type": "volume", "source": "pg", "target": "/d"}]}}});
         assert_eq!(lint_adoption(&ok), Ok(()));
+    }
+
+    #[test]
+    fn dot_segments_are_refused_and_bases_normalized() {
+        assert!(crate::backup::bind_source_ok("/srv/./data").is_err());
+        assert!(crate::backup::bind_source_ok("/srv/../etc/x").is_err());
+        assert!(crate::backup::bind_source_ok("/srv/data").is_ok());
+        assert_eq!(join_lexical("/a/../b/./c", "d"), "/b/c/d");
+    }
+
+    mod hostile {
+        use super::*;
+        use proptest::prelude::*;
+
+        const DENY: [&str; 12] = [
+            "/proc",
+            "/sys",
+            "/dev",
+            "/run",
+            "/boot",
+            "/etc",
+            "/usr",
+            "/bin",
+            "/sbin",
+            "/lib",
+            "/var/run",
+            "/var/lib/docker",
+        ];
+
+        /// Path-like strings with the nasty pieces over-represented.
+        fn pathish() -> impl Strategy<Value = String> {
+            let seg = prop_oneof![
+                Just(".".to_string()),
+                Just("..".to_string()),
+                Just("".to_string()),
+                Just("etc".to_string()),
+                Just("var".to_string()),
+                Just("lib".to_string()),
+                Just("docker".to_string()),
+                Just("a:b".to_string()),
+                Just("a,b".to_string()),
+                Just("a\nb".to_string()),
+                "[a-z0-9 _.-]{0,6}",
+                "\\PC{0,4}",
+            ];
+            (prop::bool::ANY, prop::collection::vec(seg, 0..6))
+                .prop_map(|(abs, v)| format!("{}{}", if abs { "/" } else { "" }, v.join("/")))
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(4000))]
+
+            #[test]
+            fn suggested_name_is_always_a_valid_instance_name(project in "\\PC{0,80}") {
+                let n = Candidate {
+                    project, working_dir: String::new(), containers: vec![], verdict: Ok(()),
+                }.suggested_name();
+                prop_assert!(!n.is_empty() && n.len() <= 31, "{n:?}");
+                prop_assert!(n.starts_with(|c: char| c.is_ascii_lowercase()), "{n:?}");
+                prop_assert!(n.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'), "{n:?}");
+            }
+
+            #[test]
+            fn join_lexical_stays_absolute_and_clean(base in pathish(), rel in pathish()) {
+                let r = join_lexical(&base, &rel);
+                prop_assert!(r.starts_with('/'));
+                prop_assert!(r == "/" || !r.ends_with('/'), "{r:?}");
+                prop_assert!(r.split('/').skip(1).all(|s| (r == "/" || !s.is_empty()) && s != "." && s != ".."), "{r:?}");
+            }
+
+            #[test]
+            fn absolutize_never_panics(text in "(\\PC|\n|\r|\t){0,200}", wd in pathish()) {
+                let _ = absolutize_binds(&text, &wd);
+            }
+
+            #[test]
+            fn absolutize_is_idempotent(text in "(\\PC|\n|\t){0,200}", wd in "/[a-z/.]{0,12}") {
+                let once = absolutize_binds(&text, &wd);
+                prop_assert_eq!(absolutize_binds(&once, &wd), once);
+            }
+
+            #[test]
+            fn absolutize_on_compose_shaped_lines(
+                lines in prop::collection::vec(
+                    (0usize..6, prop_oneof![
+                        Just("- ".to_string()), Just("- \"".to_string()), Just("- '".to_string()),
+                        Just("source: ".to_string()), Just("source: \"".to_string()), Just("".to_string())],
+                     pathish(), "(:/x(:ro)?)?( #c)?"),
+                    0..8),
+                wd in "/[a-z/.]{0,12}",
+            ) {
+                let text: String = lines.iter()
+                    .map(|(ind, pre, path, tail)| format!("{}{pre}{path}{tail}\n", " ".repeat(*ind)))
+                    .collect();
+                let once = absolutize_binds(&text, &wd);
+                prop_assert_eq!(once.lines().count(), text.lines().count());
+                prop_assert_eq!(absolutize_binds(&once, &wd), once);
+            }
+
+            /// Whatever the path, an accepted host folder is something the panel can mount.
+            #[test]
+            fn accepted_bind_sources_are_plain(src in pathish()) {
+                if crate::backup::bind_source_ok(&src).is_ok() {
+                    prop_assert!(src.starts_with('/'));
+                    prop_assert!(!src.chars().any(|c| c.is_control() || c == ',' || c == ':'), "{src:?}");
+                    prop_assert!(src.split('/').all(|s| s != "." && s != ".."), "{src:?}");
+                    // No spelling of a system folder gets through.
+                    let norm = join_lexical("/", &src);
+                    prop_assert!(!DENY.iter().any(|d| Path::new(&norm).starts_with(d)), "{src:?}");
+                    prop_assert!(norm.matches('/').count() >= 2, "{src:?}");
+                }
+            }
+
+            #[test]
+            fn lint_adoption_agrees_with_bind_source_ok(src in pathish()) {
+                let m = json!({"services": {"a": {"volumes": [
+                    {"type": "bind", "source": src, "target": "/d"}]}}});
+                prop_assert_eq!(lint_adoption(&m).is_ok(), crate::backup::bind_source_ok(&src).is_ok());
+            }
+        }
     }
 
     /// Real Docker: two throw-away projects (created, never started) with a named volume and

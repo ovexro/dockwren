@@ -46,12 +46,14 @@ pub fn bind_source_ok(src: &str) -> Result<(), String> {
             "has a path the panel cannot back up (relative, or it contains , : or control characters)",
         );
     }
-    if p.components().any(|c| {
-        matches!(
-            c,
-            std::path::Component::ParentDir | std::path::Component::CurDir
-        )
-    }) {
+    if src.split('/').any(|s| s == "." || s == "..")
+        || p.components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::ParentDir | std::path::Component::CurDir
+            )
+        })
+    {
         return bad("contains . or .. in its path");
     }
     // The parent folder is what gets mounted for a restore, so it must not be the root.
