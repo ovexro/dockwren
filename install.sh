@@ -177,14 +177,26 @@ copy_local() {
 }
 
 verify_binary() {
-  local want="" name="dockwren-${ARCH}-linux"
+  local want="" name="dockwren-${ARCH}-linux" base="https://github.com/ovexro/dockwren/releases/latest/download"
   if [ -n "$BINARY" ]; then
     echo "local binary supplied with --binary: not checked against a release"
   elif [ -n "${DOCKWREN_SHA256:-}" ]; then
     want="$DOCKWREN_SHA256"
   elif [ -z "${DOCKWREN_URL:-}" ]; then
-    curl -fsSL "https://github.com/ovexro/dockwren/releases/latest/download/SHA256SUMS" -o "$TMP/SHA256SUMS" \
+    command -v openssl >/dev/null 2>&1 || die "openssl is needed to check the release signature (apt-get install openssl)"
+    curl -fsSL "$base/SHA256SUMS" -o "$TMP/SHA256SUMS" \
       || die "could not download SHA256SUMS from the release"
+    curl -fsSL "$base/SHA256SUMS.sig" -o "$TMP/SHA256SUMS.sig" \
+      || die "could not download SHA256SUMS.sig: the release is not signed"
+    # Public half of the offline release signing key (ed25519); the private half is never on GitHub.
+    cat > "$TMP/release-pub.pem" <<'PUBKEY'
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEANKDv7EXn0FWWzFlQpSf34dAaTu/erkqKHKtz27IfO/A=
+-----END PUBLIC KEY-----
+PUBKEY
+    openssl pkeyutl -verify -pubin -inkey "$TMP/release-pub.pem" -rawin -in "$TMP/SHA256SUMS" \
+      -sigfile "$TMP/SHA256SUMS.sig" >/dev/null 2>&1 \
+      || die "bad signature on SHA256SUMS: the release was not signed by the Dockwren key"
     want="$(awk -v n="$name" '$2 == n || $2 == "*" n { print $1 }' "$TMP/SHA256SUMS")"
     [ -n "$want" ] || die "$name is not listed in the release SHA256SUMS"
   else

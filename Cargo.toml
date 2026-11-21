@@ -11,6 +11,7 @@ askama = "0.16.1"
 axum = { version = "0.8.9", features = ["form", "ws"] }
 bollard = "0.21.1"
 chacha20poly1305 = "0.11.0"
+ed25519-dalek = { version = "3.0.0", default-features = false }
 futures-util = "0.3.34"
 p256 = { version = "0.14", default-features = false, features = ["ecdsa"] }
 qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }

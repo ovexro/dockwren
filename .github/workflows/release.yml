@@ -51,6 +51,8 @@ jobs:
         run: |
           cd dist
           cat SHA256SUMS-* > SHA256SUMS
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+          # A draft: nobody can install it until scripts/sign-release.sh adds SHA256SUMS.sig
+          # (offline key) and publishes it.
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
             --title "$GITHUB_REF_NAME" --generate-notes \
             dockwren-x86_64-linux dockwren-aarch64-linux SHA256SUMS

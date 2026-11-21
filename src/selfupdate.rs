@@ -1,4 +1,4 @@
-//! Update the panel itself to the latest GitHub release, checked against the release's SHA256SUMS.
+//! Update the panel itself to the latest GitHub release, checked against the release's SHA256SUMS, which must carry a valid ed25519 signature.
 //!
 //! Two ways in, one code path (`root_update`):
 //! * `sudo dockwren self-update` downloads, verifies, installs and restarts the service.
@@ -28,6 +28,7 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
@@ -40,6 +41,23 @@ const REQUEST: &str = "selfupdate.requested";
 const FAILED: &str = "selfupdate.failed";
 const BASE: &str = "https://github.com/ovexro/dockwren/releases/download";
 const MAX_BYTES: u64 = 100 * 1024 * 1024;
+
+/// Public half of the release signing key (ed25519). The private half stays off the build
+/// machines, so a compromised GitHub account or workflow cannot produce a signature that passes.
+const RELEASE_KEY: [u8; 32] = [
+    0x34, 0xa0, 0xef, 0xec, 0x45, 0xe7, 0xd0, 0x55, 0x96, 0xcc, 0x59, 0x50, 0xa5, 0x27, 0xf7, 0xe1,
+    0xd0, 0x1a, 0x4e, 0xef, 0xde, 0xae, 0x4a, 0x8a, 0x1c, 0xab, 0x73, 0xdb, 0xb2, 0x1f, 0x3b, 0xf0,
+];
+
+/// Accept `sums` only if `sig` (raw 64-byte ed25519) was made over exactly these bytes by `key`.
+fn verify_signature(key: &[u8; 32], sums: &[u8], sig: &[u8]) -> Result<(), String> {
+    let key = VerifyingKey::from_bytes(key).map_err(|_| "the built-in release key is invalid")?;
+    let sig =
+        Signature::from_slice(sig).map_err(|_| "SHA256SUMS.sig is not an ed25519 signature")?;
+    key.verify(sums, &sig).map_err(|_| {
+        "SHA256SUMS.sig does not match: the release is not signed by the Dockwren key".to_string()
+    })
+}
 
 fn arch() -> Option<&'static str> {
     match std::env::consts::ARCH {
@@ -99,6 +117,10 @@ async fn download_verified(tag: &str) -> Result<Vec<u8>, String> {
     let a = arch().ok_or("unsupported CPU")?;
     let name = format!("dockwren-{a}-linux");
     let sums = fetch(&format!("{BASE}/{tag}/SHA256SUMS"), 1 << 20).await?;
+    let sig = fetch(&format!("{BASE}/{tag}/SHA256SUMS.sig"), 4096)
+        .await
+        .map_err(|e| format!("release signature missing: {e}"))?;
+    verify_signature(&RELEASE_KEY, &sums, &sig)?;
     let want = hash_for(&String::from_utf8_lossy(&sums), &name)
         .ok_or_else(|| format!("{name} is not listed in SHA256SUMS"))?;
     let bin = fetch(&format!("{BASE}/{tag}/{name}"), MAX_BYTES).await?;
@@ -440,6 +462,72 @@ mod tests {
                 "dockwren-x86_64-linux"
             ),
             None
+        );
+    }
+
+    #[test]
+    fn signature_must_match_key_and_content() {
+        use ed25519_dalek::{Signer, SigningKey};
+        let sk = SigningKey::from_bytes(&[7u8; 32]);
+        let other = SigningKey::from_bytes(&[8u8; 32]);
+        let pk = sk.verifying_key().to_bytes();
+        let sums = b"aaaa  dockwren-x86_64-linux\n";
+        let sig = sk.sign(sums).to_bytes();
+        assert!(verify_signature(&pk, sums, &sig).is_ok());
+        assert!(verify_signature(&pk, b"tampered", &sig).is_err());
+        assert!(verify_signature(&pk, sums, &other.sign(sums).to_bytes()).is_err());
+        assert!(verify_signature(&pk, sums, &sig[..63]).is_err());
+        assert!(verify_signature(&pk, sums, b"").is_err());
+    }
+
+    #[test]
+    fn accepts_a_signature_made_by_openssl() {
+        // `openssl pkeyutl -sign -rawin` is what scripts/sign-release.sh and install.sh use.
+        let unhex = |h: &str| -> Vec<u8> {
+            (0..h.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap())
+                .collect()
+        };
+        let key: [u8; 32] =
+            unhex("a6b61961f8d0330549786fe04296c47ae8fb9739ce8c4f1416444be82846ac42")
+                .try_into()
+                .unwrap();
+        let sig = unhex(
+            "6f0cb330d7585f4fd2fbced6e512c7c877e4ae0e0d82491ac51639b98dbd8233582e29a4ffcd16b8db77fd106a05dfc8b9afc9cb68aad28fd9344f0196ab7f04",
+        );
+        assert!(verify_signature(&key, b"abc  dockwren-x86_64-linux\n", &sig).is_ok());
+        assert!(verify_signature(&key, b"abc  dockwren-x86_64-linux", &sig).is_err());
+    }
+
+    #[test]
+    fn installer_embeds_the_same_release_key() {
+        // Encode the expected SubjectPublicKeyInfo (fixed ed25519 prefix + our key) as base64.
+        let mut der = vec![
+            0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+        ];
+        der.extend_from_slice(&RELEASE_KEY);
+        const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut b64 = String::new();
+        for c in der.chunks(3) {
+            let n = c
+                .iter()
+                .enumerate()
+                .fold(0u32, |a, (i, b)| a | (*b as u32) << (16 - 8 * i));
+            for k in 0..4 {
+                if k <= c.len() {
+                    b64.push(A[(n >> (18 - 6 * k) & 63) as usize] as char);
+                } else {
+                    b64.push('=');
+                }
+            }
+        }
+        let sh = include_str!("../install.sh");
+        assert!(
+            sh.contains(&format!(
+                "-----BEGIN PUBLIC KEY-----\n{b64}\n-----END PUBLIC KEY-----"
+            )),
+            "install.sh must embed the same release key as src/selfupdate.rs"
         );
     }
 

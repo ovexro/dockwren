@@ -34,10 +34,13 @@ adds a systemd drop-in. The button needs a session, a same-origin request and yo
 2FA code). The panel itself only writes the file `selfupdate.requested` in its data directory and
 exits; systemd restarts it and a root-run `ExecStartPre` hook (`dockwren self-update --on-start`)
 fetches the newest release **itself** from GitHub over HTTPS and installs it only if the binary matches
-the release's `SHA256SUMS`. The panel never supplies a binary or a version to root, so a compromised
-panel can at most trigger an update to the newest genuine release. Limitation: the checksum file comes
-from the same GitHub release as the binary, so this protects against corruption and tampering in
-transit, not against a compromised release account. The previous binary is kept as `dockwren.prev`.
+the release's `SHA256SUMS`, and only if `SHA256SUMS.sig` is a valid ed25519 signature by the Dockwren release key (public key built into the binary). The panel never supplies a binary or a version to root, so a compromised
+panel can at most trigger an update to the newest genuine release. The private key is kept off GitHub
+and off the build machines (passphrase-protected); the release workflow only creates a draft, and
+`scripts/sign-release.sh` signs and publishes it, so a compromised GitHub account or workflow cannot
+publish a binary that installs. Limitations: the key is not rotatable without a new release of the
+installer and binary (a lost or leaked key means telling users to reinstall), and a signature does not
+bind a version, so self-update also refuses anything not newer than the running version. The previous binary is kept as `dockwren.prev`.
 
 ## Installing OS updates from the panel
 

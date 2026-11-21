@@ -18,3 +18,4 @@ UPS
 security headers
 sign out everywhere
 vulnerability scan
+signed release
