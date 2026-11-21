@@ -111,7 +111,7 @@ CapabilityBoundingSet=
 WantedBy=multi-user.target
 ```
 
-`systemd-analyze security dockwren` rates this unit 1.3 (OK); the default for a plain service is 8+. An install made before v0.1.108 keeps its old unit until you run `install.sh` again (it only rewrites the unit and restarts the panel).
+`systemd-analyze security dockwren` rates this unit 1.3 (OK); the default for a plain service is 8+. An install made before the sandbox was added keeps its old unit until you run `install.sh` again (it only rewrites the unit and restarts the panel).
 
 Read the first-run password with `journalctl -u dockwren -o cat | grep -A1 'First run'`.
 
