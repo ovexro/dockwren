@@ -1,0 +1,22 @@
+name: audit
+on:
+  push:
+    paths: ["Cargo.toml", "Cargo.lock", ".github/workflows/audit.yml"]
+  schedule:
+    - cron: "17 5 * * 1"   # weekly: new advisories appear without any commit
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      # RUSTSEC-2026-0374: basic-toml is unmaintained; it is a build-time dependency of askama's derive macro
+      # (not in the binary) and nothing can be upgraded on our side. Any other warning or vulnerability fails.
+      - name: Audit
+        run: cargo audit --deny warnings --ignore RUSTSEC-2026-0374
