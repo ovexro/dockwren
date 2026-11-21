@@ -1,0 +1,17 @@
+services:
+  paperless-ai:
+    image: clusterzx/paperless-ai:4.4.0
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges=true
+    environment:
+      PAPERLESS_AI_PORT: "3000"
+      TRUST_PROXY: "1"
+    volumes:
+      - ./data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${WEB_PORT}:3000"

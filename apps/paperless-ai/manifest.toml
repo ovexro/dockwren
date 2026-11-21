@@ -1,0 +1,37 @@
+[app]
+id = "paperless-ai"
+name = "Paperless-AI"
+description = "AI tagging and titles for your Paperless-ngx documents"
+homepage = "https://github.com/clusterzx/paperless-ai"
+changelog = "https://github.com/clusterzx/paperless-ai/releases"
+version = 1
+note = "Works next to a Paperless-ngx you already run (it can be another Dockwren app). On first visit the setup wizard asks for the Paperless-ngx address and API token and for an AI provider: an OpenAI-compatible key, or Ollama running on a machine you control. Documents are sent to that provider for analysis."
+accepts_public_host = true
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "paperless-ai"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[services]]
+name = "paperless-ai"
+main = true
+health = { source = "image" }
+
+[backup]
+paths = ["data"]
+
+[update]
+image_pins = ["clusterzx/paperless-ai"]
+pre_update = ["backup"]
