@@ -22,7 +22,8 @@ for d in apps/*/; do
 done
 
 # 3. Every CLI subcommand in the usage string appears in the README CLI line.
-usage=$(grep -m1 '^const USAGE' src/main.rs)
+usage=$(grep -hm1 -E '^(pub\([a-z]+\) )?const USAGE' src/*.rs || true)
+[ -n "$usage" ] || fail "const USAGE not found in src/*.rs"
 cli=$(grep -m1 '^CLI:' README.md || true)
 for w in $(printf '%s' "$usage" | sed -E 's/^[^[]*\[//; s/\]";?$//' | tr '|' '\n' | awk '{print $1}'); do
   case "$w" in -*) continue ;; esac
