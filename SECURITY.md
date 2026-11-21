@@ -23,6 +23,10 @@ scripts, no framing), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same
 Permissions-Policy on every response, plus HSTS when it is reached over HTTPS through a proxy or tunnel.
 Dependencies are audited with `cargo audit` on every change and weekly.
 
+Sessions last 12 hours and are stored hashed (never the raw cookie). Settings → Security lists the live
+sessions with the client address as the proxy reports it (a hint, not proof) and can end all but the
+current one; changing the password ends all of them.
+
 ## Updating the panel from Settings
 
 Off until you run `sudo dockwren self-update` once (or install with the current `install.sh`), which

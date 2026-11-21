@@ -16,3 +16,4 @@ off-host
 restore
 UPS
 security headers
+sign out everywhere
