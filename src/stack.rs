@@ -265,8 +265,18 @@ pub fn precheck(compose: &str) -> Result<(), String> {
     if compose.len() > MAX_COMPOSE_BYTES {
         return Err("the compose file is larger than 64 KiB".into());
     }
+    // YAML lets a key be written "include" : or 'include' : or in flow style, so look at the
+    // text with quotes and whitespace removed. A double-quoted key can also be spelled with
+    // \u / \x escapes, which no text search can follow, so those are refused outright.
+    if ["\\u", "\\x", "\\U"].iter().any(|e| compose.contains(e)) {
+        return Err("escape sequences (\\u, \\x) are not supported in a pasted compose file: write the characters themselves".into());
+    }
+    let flat: String = compose
+        .chars()
+        .filter(|c| !c.is_whitespace() && !matches!(c, '"' | '\''))
+        .collect();
     for w in FILE_READERS {
-        if compose.contains(w) {
+        if flat.contains(w) {
             return Err(format!(
                 "\"{w}\" is not supported: it reads other files from the host. Paste one self-contained file with ready-made images"
             ));
@@ -638,5 +648,233 @@ mod tests {
         let left: Vec<_> = std::fs::read_dir(&data).unwrap().flatten().collect();
         assert!(left.is_empty(), "{left:?}");
         std::fs::remove_dir_all(&data).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use proptest::prelude::*;
+    use serde_json::{Map, json};
+
+    const DIR: &str = "/srv/stack-1";
+    /// Keys that must never survive the lint with a real value (independent of SERVICE_KEYS).
+    const DANGEROUS: &[&str] = &[
+        "privileged",
+        "cap_add",
+        "network_mode",
+        "pid",
+        "ipc",
+        "uts",
+        "devices",
+        "security_opt",
+        "userns_mode",
+        "sysctls",
+        "volumes_from",
+        "build",
+        "env_file",
+        "extends",
+        "configs",
+        "secrets",
+        "device_cgroup_rules",
+        "cgroup_parent",
+        "runtime",
+        "links",
+        "external_links",
+    ];
+
+    fn leaf() -> impl Strategy<Value = Value> {
+        prop_oneof![
+            Just(Value::Null),
+            any::<bool>().prop_map(Value::Bool),
+            any::<i32>().prop_map(|n| json!(n)),
+            "\\PC{0,12}".prop_map(Value::String),
+        ]
+    }
+
+    fn any_json() -> impl Strategy<Value = Value> {
+        leaf().prop_recursive(4, 48, 6, |inner| {
+            prop_oneof![
+                prop::collection::vec(inner.clone(), 0..5).prop_map(Value::Array),
+                prop::collection::btree_map("\\PC{0,10}", inner, 0..5)
+                    .prop_map(|m| Value::Object(m.into_iter().collect())),
+            ]
+        })
+    }
+
+    fn pick(items: &'static [&'static str]) -> impl Strategy<Value = String> {
+        prop::sample::select(items).prop_map(str::to_string)
+    }
+
+    fn port() -> impl Strategy<Value = Value> {
+        (
+            prop::option::of(pick(&[
+                "127.0.0.1",
+                "0.0.0.0",
+                "",
+                "::",
+                "127.0.0.2",
+                "localhost",
+            ])),
+            pick(&["80", "8123", "x", ""]),
+        )
+            .prop_map(|(ip, p)| {
+                let mut o = json!({"target": 80, "published": p, "protocol": "tcp"});
+                if let Some(ip) = ip {
+                    o["host_ip"] = json!(ip);
+                }
+                o
+            })
+    }
+
+    fn mount() -> impl Strategy<Value = Value> {
+        (
+            pick(&["bind", "volume", "tmpfs", "npipe", "cluster", "image", ""]),
+            pick(&[
+                "/srv/stack-1/data",
+                "/srv/stack-1/data/db",
+                "/srv/stack-1/data/../../etc",
+                "/srv/stack-1/database",
+                "/srv/stack-1",
+                "/etc",
+                "/",
+                "..",
+                "named",
+                "",
+                "/srv/stack-1/data/..",
+                "/srv/stack-10/data",
+                "/srv/stack-1/data/a/../b",
+            ]),
+        )
+            .prop_map(|(t, s)| json!({"type": t, "source": s, "target": "/d"}))
+    }
+
+    /// A service built from allowed and dangerous keys with arbitrary values.
+    fn service() -> impl Strategy<Value = Value> {
+        let keys: Vec<&'static str> = SERVICE_KEYS.iter().chain(DANGEROUS).copied().collect();
+        (
+            prop::collection::btree_map(prop::sample::select(keys), any_json(), 0..6),
+            prop::option::of(prop::collection::vec(port(), 0..3)),
+            prop::option::of(prop::collection::vec(mount(), 0..4)),
+            prop::option::of(pick(&["nginx:1", ""])),
+        )
+            .prop_map(|(m, ports, vols, image)| {
+                let mut o: Map<String, Value> =
+                    m.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+                if let Some(p) = ports {
+                    o.insert("ports".into(), Value::Array(p));
+                }
+                if let Some(v) = vols {
+                    o.insert("volumes".into(), Value::Array(v));
+                }
+                if let Some(i) = image {
+                    o.insert("image".into(), json!(i));
+                }
+                Value::Object(o)
+            })
+    }
+
+    fn model() -> impl Strategy<Value = Value> {
+        (
+            prop::collection::btree_map("[a-z]{1,4}", service(), 0..3),
+            prop::collection::btree_map(
+                pick(&[
+                    "name", "services", "volumes", "networks", "secrets", "configs", "include",
+                    "x-a",
+                ]),
+                any_json(),
+                0..4,
+            ),
+        )
+            .prop_map(|(svcs, top)| {
+                let mut o: Map<String, Value> = top.into_iter().collect();
+                o.insert("services".into(), Value::Object(svcs.into_iter().collect()));
+                Value::Object(o)
+            })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(2000))]
+
+        /// Any JSON at all: an Ok or an Err, never a panic.
+        #[test]
+        fn lint_never_panics_on_arbitrary_json(v in any_json(), host in any::<bool>()) {
+            let _ = lint_model_opts(&v, Path::new(DIR), host);
+            let _ = first_published_port(&v);
+        }
+
+        /// If the lint says Ok, none of the dangerous things is in the model.
+        #[test]
+        fn lint_ok_means_no_dangerous_setting(m in model()) {
+            if lint_model(&m, Path::new(DIR)).is_ok() {
+                for k in m.as_object().unwrap().keys() {
+                    prop_assert!(["name", "services", "volumes", "networks"].contains(&k.as_str()) || k.starts_with("x-"), "top-level {k}");
+                }
+                for (name, s) in m["services"].as_object().unwrap() {
+                    let s = s.as_object().unwrap();
+                    for (k, v) in s {
+                        if v.is_null() || k.starts_with("x-") { continue; }
+                        prop_assert!(!DANGEROUS.contains(&k.as_str()), "{name}: {k} passed");
+                    }
+                    prop_assert!(s.get("image").and_then(Value::as_str).is_some_and(|i| !i.is_empty()));
+                    for p in s.get("ports").and_then(Value::as_array).into_iter().flatten() {
+                        prop_assert_eq!(p.get("host_ip").and_then(Value::as_str), Some("127.0.0.1"));
+                    }
+                    for v in s.get("volumes").and_then(Value::as_array).into_iter().flatten() {
+                        let t = v.get("type").and_then(Value::as_str).unwrap_or("");
+                        prop_assert!(["bind", "volume", "tmpfs"].contains(&t), "mount type {t}");
+                        if t == "bind" {
+                            let src = v.get("source").and_then(Value::as_str).unwrap_or("");
+                            let ok = (src == "/srv/stack-1/data" || src.starts_with("/srv/stack-1/data/"))
+                                && !src.split('/').any(|p| p == "..");
+                            prop_assert!(ok, "bind source {src}");
+                        }
+                    }
+                }
+            }
+        }
+
+        /// The raw-text gate: no spelling of a file-reading key gets through, whatever the
+        /// quoting, spacing, nesting or JSON-style syntax around it.
+        #[test]
+        fn precheck_blocks_file_readers_in_any_spelling(
+            idx in 0..FILE_READERS.len(), quote in 0u8..3, gap in 0usize..3,
+            json_style in any::<bool>(), nest in any::<bool>(),
+        ) {
+            let key = FILE_READERS[idx].trim_end_matches(':');
+            let q = ["", "\"", "'"][quote as usize];
+            let sp = " ".repeat(gap);
+            let text = if json_style {
+                let inner = format!("{{{q}{key}{q}{sp}: [\"/etc/x.yml\"]}}");
+                if nest { format!("{{\"services\":{{\"web\":{{\"image\":\"nginx:1\",\"k\":{inner}}}}}}}") } else { inner }
+            } else {
+                let line = format!("{q}{key}{q}{sp}: [/etc/x.yml]");
+                if nest { format!("services:\n  web:\n    image: nginx:1\n    {line}\n") } else { format!("{line}\n") }
+            };
+            prop_assert!(precheck(&text).is_err(), "let through: {text}");
+        }
+
+        /// Escapes can spell any key in a double-quoted scalar, so they are refused outright.
+        #[test]
+        fn precheck_refuses_escaped_keys(idx in 0..FILE_READERS.len(), esc in prop::sample::select(vec!["\\u0069", "\\x69", "\\U00000069"])) {
+            let key = FILE_READERS[idx].trim_end_matches(':');
+            let text = format!("{{\"{esc}{}\": 1}}", &key[1..]);
+            prop_assert!(precheck(&text).is_err(), "let through: {text}");
+        }
+
+        #[test]
+        fn precheck_never_panics(t in "\\PC{0,200}") { let _ = precheck(&t); }
+
+        /// `.env` text: Ok or Err, and every accepted name is a valid variable name.
+        #[test]
+        fn parse_env_is_total_and_names_are_clean(t in "\\PC{0,200}") {
+            if let Ok(m) = parse_env(&t) {
+                for (k, v) in m {
+                    prop_assert!(!k.is_empty() && !k.starts_with(|c: char| c.is_ascii_digit()));
+                    prop_assert!(k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+                    prop_assert!(!v.chars().any(char::is_control));
+                }
+            }
+        }
     }
 }

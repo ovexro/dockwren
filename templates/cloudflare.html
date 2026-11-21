@@ -28,9 +28,9 @@
     {% endif %}
     {% endif %}
     {% if !env_managed %}
-    <form hx-post="/settings/cloudflare/disconnect" hx-target="#cloudflare" hx-swap="outerHTML"
+    <form class="cf-disconnect" hx-post="/settings/cloudflare/disconnect" hx-target="#cloudflare" hx-swap="outerHTML"
           hx-confirm="Forget the saved Cloudflare token? Published apps stay online; you just can't publish new ones from here.">
-      <button type="submit">Disconnect (forget the token)</button>
+      <button class="danger" type="submit">Disconnect (forget the token)</button>
     </form>
     {% endif %}
   {% endif %}
