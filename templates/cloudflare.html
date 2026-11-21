@@ -1,4 +1,5 @@
 <div id="cloudflare">
+  <section class="panel">
   <h2>Connect your domain</h2>
   <p>Dockwren publishes each app on its own address, for example <code>blog.yourdomain.com</code> for WordPress or <code>mail.yourdomain.com</code> for a mail client. For that it needs permission to manage the domain you added to Cloudflare. You give it that permission once, with a <strong>token</strong>, and every app you install later reuses it.</p>
   {% if let Some((ok, text)) = message %}
@@ -41,6 +42,8 @@
     <button class="primary" type="submit">Connect</button>
     <p><small>Dockwren checks it with Cloudflare, finds your domains and tunnel by itself, and stores it on this server only (never shown again).</small></p>
   </form>
+  </section>
+  <section class="panel">
   <details {% if !has_token %}open{% endif %}>
     <summary>How do I get a token? (about 2 minutes)</summary>
     <p><small>Before you start: your domain must already be added to Cloudflare (Cloudflare shows it as <em>Active</em>). A token is like a key card: it only opens what you tick below.</small></p>
@@ -64,5 +67,8 @@
     </ol>
     <p><small>You also need a Cloudflare Tunnel that is already connected to this server (Zero Trust, Networks, Tunnels). The tunnel is the secure link that lets visitors reach your apps without opening any port. Never share the token in chats or put it in a repository.</small></p>
   </details>
+  </section>
+  {% else %}
+  </section>
   {% endif %}
 </div>

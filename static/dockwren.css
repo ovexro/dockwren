@@ -293,6 +293,8 @@ details.more > summary::after { content: " \25BE"; }
 .panel h3 { margin: 1.3rem 0 .6rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 1rem; }
 .panel > h2, .panel > h3:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .panel > :last-child { margin-bottom: 0; }
+.panel > details { margin: 0; }
+.panel > details > summary { cursor: pointer; font-weight: 600; }
 @media (max-width: 40rem) { .panel { padding: .85rem .9rem 1rem; } }
 
 .ic { flex: none; vertical-align: -.2em; margin-right: .55rem; }
