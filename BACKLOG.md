@@ -4,6 +4,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 (delete the line in the SAME commit that delivers it; grep this file for the feature's keywords first).
 
 ## Open
+- CSP: web terminal page alone keeps `style-src 'unsafe-inline'` (xterm.js injects <style> at runtime); revisit if xterm gets a nonce/CSSOM-only mode. (2026-11-21)
 - Hardening, remaining (2026-11-21): external independent review (semgrep + cargo audit/deny done, clean); Docker socket proxy (later); optional: re-gate stored third-party templates at load (model_gate is async, load_all sync). Roadmap: memory hardening-roadmap.
 - Watch: `audit.yml` ignores RUSTSEC-2026-0374 (basic-toml via askama, build-time only); drop the `--ignore` when askama moves off it. Remaining big files if wanted: `install.rs`, `template.rs`.
 - More catalog templates (35 in `apps/`, all VPS-tested; Paperless-AI 4.4.0 tested 2026-11-21: install, healthy via image HEALTHCHECK, setup wizard answers, backup, verify, restore; image has tar, runs as root with cap_drop ALL; needs a separate Paperless-ngx + AI provider, configured in its wizard). Next: pick another popular app (none queued). Forgejo reserves the name admin (default user forgejo-admin). (2026-11-20)
