@@ -27,6 +27,7 @@ pub(super) fn app(
         .route("/metrics", get(metrics::page))
         .route("/apps", get(apps_page))
         .route("/apps/tab/{tab}", get(apps_tab))
+        .route("/apps/{id}/vulns", get(vulns_page))
         .route("/containers", get(containers_page))
         .route("/resources", get(resources_page))
         .route("/settings", get(settings_page))

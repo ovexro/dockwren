@@ -1437,3 +1437,59 @@ async fn apps_ui_renders_and_rejects_bad_input() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn the_vulnerability_report_page_shows_findings_and_refuses_bad_names() {
+    use crate::vulnscan::{Detail, Summary};
+    let app = test_app();
+    let cookie = cookie_of(&app.clone().oneshot(login_req(PASSWORD)).await.unwrap());
+    crate::vulnscan::set_for_test(
+        "report-demo",
+        Summary {
+            scanned: 1_700_000_000,
+            critical: 1,
+            high: 0,
+            fixable_critical: 1,
+            ids: vec!["CVE-2024-1".into()],
+            notified: vec![],
+            details: vec![Detail {
+                id: "CVE-2024-1".into(),
+                critical: true,
+                pkg: "libssl".into(),
+                installed: "3.0.1".into(),
+                fixed: "3.0.2".into(),
+                title: "<script>alert(1)</script> bad".into(),
+            }],
+        },
+    );
+    let get = |path: &'static str, cookie: Option<String>| {
+        let app = app.clone();
+        async move {
+            let mut req = Request::get(path);
+            if let Some(c) = cookie {
+                req = req.header(header::COOKIE, c);
+            }
+            app.oneshot(req.body(Body::empty()).unwrap()).await.unwrap()
+        }
+    };
+    let anon = get("/apps/report-demo/vulns", None).await;
+    assert_ne!(anon.status(), StatusCode::OK, "the report needs a session");
+    let res = get("/apps/report-demo/vulns", Some(cookie.clone())).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let html = body_of(res).await;
+    if let Ok(path) = std::env::var("DW_DUMP_VULNS") {
+        std::fs::write(path, &html).unwrap();
+    }
+    assert!(html.contains("Vulnerabilities: report-demo"));
+    assert!(html.contains("libssl") && html.contains("3.0.2"));
+    assert!(html.contains("https://avd.aquasec.com/nvd/cve-2024-1"));
+    assert!(!html.contains("<script>alert(1)"), "titles are escaped");
+    assert_eq!(
+        get("/apps/Bad_Name/vulns", Some(cookie.clone()))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let none = body_of(get("/apps/never-scanned/vulns", Some(cookie)).await).await;
+    assert!(none.contains("has not been scanned yet"));
+}

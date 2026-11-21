@@ -31,7 +31,9 @@
       <a href="/apps/tab/installed"{% if tab == "installed" %} aria-current="page"{% endif %}>{{ icons::ic("installed") }}Installed</a>
       <a href="/apps/tab/add"{% if tab == "add" %} aria-current="page"{% endif %}>{{ icons::ic("add") }}Add an app</a>
     </nav>
-    {% if tab == "add" %}
+    {% if tab == "vulns" %}
+    {{ extra|safe }}
+    {% else if tab == "add" %}
     <div id="catalog" hx-get="/catalog" hx-trigger="load" hx-swap="innerHTML">Loading…</div>
     <section id="install"></section>
     {% else %}

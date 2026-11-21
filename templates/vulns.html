@@ -1,0 +1,27 @@
+<section class="panel">
+  <h2>{{ label }}</h2>
+  {% if let Some(when) = scanned %}
+  <p>Scanned {{ when }} with Trivy. {% if details.is_empty() && has_counts %}The details were not saved by the scan that ran before this report existed; the next daily scan fills them in.{% else if details.is_empty() %}No critical or high findings.{% else %}{{ critical }} critical and {{ high }} high ({{ details.len() }} listed, the worst first).{% endif %}</p>
+  {% else %}
+  <p>This app has not been scanned yet. The scan runs once a day, shortly after the app is installed.</p>
+  {% endif %}
+  {% if !details.is_empty() %}
+  <p><small>"Fixed in" means a newer package version exists. For the app to get it, its image has to be rebuilt by the app's maker: Dockwren delivers image updates with its releases, and Apps shows the update when there is one. Findings without a fix cannot be acted on yet.</small></p>
+  <table class="report">
+    <thead><tr><th>Severity</th><th>CVE</th><th>Package</th><th>Installed</th><th>Fixed in</th><th>What it is</th></tr></thead>
+    <tbody>
+    {% for d in details %}
+    <tr>
+      <td><span class="badge" data-state="{% if d.critical %}exited{% else %}restarting{% endif %}">{{ d.severity() }}</span></td>
+      <td>{% if let Some(u) = d.url() %}<a href="{{ u }}" target="_blank" rel="noopener">{{ d.id }}</a>{% else %}{{ d.id }}{% endif %}</td>
+      <td><code>{{ d.pkg }}</code></td>
+      <td>{{ d.installed }}</td>
+      <td>{% if d.fixed.is_empty() %}<small>no fix yet</small>{% else %}<strong>{{ d.fixed }}</strong>{% endif %}</td>
+      <td><small>{{ d.title }}</small></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  <p><a href="/apps">&larr; Back to Apps</a></p>
+</section>

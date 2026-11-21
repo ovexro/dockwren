@@ -11,6 +11,19 @@ pub(super) struct PageTemplate {
     version: &'static str,
     assets: String,
     tab: &'static str,
+    /// Ready-made HTML for pages that are not a plain list (the vulnerability report).
+    extra: String,
+}
+
+#[derive(Template)]
+#[template(path = "vulns.html")]
+struct VulnsTemplate {
+    label: String,
+    scanned: Option<String>,
+    has_counts: bool,
+    critical: usize,
+    high: usize,
+    details: Vec<crate::vulnscan::Detail>,
 }
 
 /// Tabs of the Settings page: (key, label). The first is the default.
@@ -53,6 +66,7 @@ pub(super) fn page_tab(active: &'static str, tab: &'static str) -> Html<String> 
         version: env!("CARGO_PKG_VERSION"),
         assets: asset_version(),
         tab,
+        extra: String::new(),
     };
     Html(page.render().expect("page template renders"))
 }
@@ -108,6 +122,33 @@ pub(super) async fn apps_tab(Path(tab): Path<String>) -> Response {
         Some(t) => page_tab("apps", t.0).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }
+}
+/// `GET /apps/{name}/vulns`: the last image scan of one app, every finding.
+pub(super) async fn vulns_page(Path(name): Path<String>) -> Response {
+    if !crate::vulnscan::is_reportable(&name) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let sum = crate::vulnscan::summary(&name);
+    let body = VulnsTemplate {
+        label: format!("Vulnerabilities: {}", crate::vulnscan::display_name(&name)),
+        scanned: sum.as_ref().map(|s| crate::apps::utc_stamp(s.scanned)),
+        has_counts: sum.as_ref().is_some_and(|s| s.critical + s.high > 0),
+        critical: sum.as_ref().map_or(0, |s| s.critical),
+        high: sum.as_ref().map_or(0, |s| s.high),
+        details: sum.map(|s| s.details).unwrap_or_default(),
+    }
+    .render()
+    .expect("vulns template renders");
+    let page = PageTemplate {
+        title: "Vulnerabilities",
+        active: "apps",
+        nav: &NAV,
+        version: env!("CARGO_PKG_VERSION"),
+        assets: asset_version(),
+        tab: "vulns",
+        extra: body,
+    };
+    Html(page.render().expect("page template renders")).into_response()
 }
 pub(super) async fn containers_page() -> Html<String> {
     page("containers")

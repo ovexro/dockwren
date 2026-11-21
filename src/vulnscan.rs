@@ -51,6 +51,9 @@ pub struct Summary {
     /// IDs a notification was already raised for.
     #[serde(default)]
     pub notified: Vec<String>,
+    /// Every finding, worst first, for the report page (empty in scans made before it existed).
+    #[serde(default)]
+    pub details: Vec<Detail>,
 }
 
 impl Summary {
@@ -72,17 +75,73 @@ fn store() -> &'static Store {
     S.get_or_init(Default::default)
 }
 
+/// Test hook: put a scan result into the store.
+#[cfg(test)]
+pub fn set_for_test(name: &str, s: Summary) {
+    store().lock().unwrap().insert(name.to_string(), s);
+}
+
+/// Where the report of one app is shown.
+pub fn report_path(name: &str) -> String {
+    format!("/apps/{name}/vulns")
+}
+
+/// Name shown for a scanned item (the bundled Caddy has a store key that is not an app name).
+pub fn display_name(name: &str) -> &str {
+    label(name)
+}
+
+/// True for names that can have a report: an installed app's name or the bundled Caddy.
+pub fn is_reportable(name: &str) -> bool {
+    name == CADDY || runner::valid_name(name)
+}
+
 /// Last scan result of an app.
 pub fn summary(name: &str) -> Option<Summary> {
     store().lock().unwrap().get(name).cloned()
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct Finding {
     id: String,
     critical: bool,
     fixable: bool,
+    pkg: String,
+    installed: String,
+    fixed: String,
+    title: String,
 }
+
+/// One finding as the report page shows it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Detail {
+    pub id: String,
+    pub critical: bool,
+    pub pkg: String,
+    pub installed: String,
+    /// Empty when no fixed version exists yet.
+    pub fixed: String,
+    pub title: String,
+}
+
+impl Detail {
+    pub fn severity(&self) -> &'static str {
+        if self.critical { "critical" } else { "high" }
+    }
+
+    /// Public description of a CVE (None for other id schemes).
+    pub fn url(&self) -> Option<String> {
+        let ok = self.id.starts_with("CVE-")
+            && self
+                .id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-');
+        ok.then(|| format!("https://avd.aquasec.com/nvd/{}", self.id.to_lowercase()))
+    }
+}
+
+/// The report keeps at most this many rows per app (the worst first).
+const MAX_DETAILS: usize = 300;
 
 /// Findings of one Trivy JSON report (only HIGH and CRITICAL are asked for).
 fn parse(json: &[u8]) -> Option<Vec<Finding>> {
@@ -100,11 +159,18 @@ fn parse(json: &[u8]) -> Option<Vec<Finding>> {
                 "HIGH" => false,
                 _ => continue,
             };
-            let fixable = f["FixedVersion"].as_str().is_some_and(|s| !s.is_empty());
+            let text = |k: &str, max: usize| -> String {
+                f[k].as_str().unwrap_or("").chars().take(max).collect()
+            };
+            let fixed = text("FixedVersion", 120);
             out.push(Finding {
                 id: id.chars().take(40).collect(),
                 critical,
-                fixable,
+                fixable: !fixed.is_empty(),
+                pkg: text("PkgName", 80),
+                installed: text("InstalledVersion", 80),
+                fixed,
+                title: text("Title", 140),
             });
         }
     }
@@ -126,6 +192,33 @@ fn summarize(findings: &[Finding], now: u64, previous: Option<&Summary>) -> Summ
         .filter(|(_, (c, fix))| *c && *fix)
         .map(|(id, _)| id.to_string())
         .collect();
+    // The report: one row per CVE and package, critical before high, fixable before not.
+    let mut details: Vec<Detail> = Vec::new();
+    for f in findings {
+        let d = Detail {
+            id: f.id.clone(),
+            critical: f.critical,
+            pkg: f.pkg.clone(),
+            installed: f.installed.clone(),
+            fixed: f.fixed.clone(),
+            title: f.title.clone(),
+        };
+        if !details
+            .iter()
+            .any(|x| x.id == d.id && x.pkg == d.pkg && x.installed == d.installed)
+        {
+            details.push(d);
+        }
+    }
+    details.sort_by(|a, b| {
+        (!a.critical, a.fixed.is_empty(), &a.id, &a.pkg).cmp(&(
+            !b.critical,
+            b.fixed.is_empty(),
+            &b.id,
+            &b.pkg,
+        ))
+    });
+    details.truncate(MAX_DETAILS);
     Summary {
         scanned: now,
         critical,
@@ -133,6 +226,7 @@ fn summarize(findings: &[Finding], now: u64, previous: Option<&Summary>) -> Summ
         fixable_critical: ids.len(),
         ids,
         notified: previous.map(|p| p.notified.clone()).unwrap_or_default(),
+        details,
     }
 }
 
@@ -174,7 +268,7 @@ fn sync(shared: &Shared, name: &str, s: &mut Summary) {
             shown.join(", "),
             if more > 0 { format!(" and {more} more") } else { String::new() }
         ))
-        .link("/apps")
+        .link(report_path(name))
         .key(key),
     );
     s.notified = s.ids.clone();
@@ -367,6 +461,65 @@ mod tests {
         assert_eq!(summarize(&[], 1, None).line(), None);
     }
 
+    const FULL: &str = r#"{"Results":[{"Target":"a","Vulnerabilities":[
+        {"VulnerabilityID":"CVE-2","Severity":"HIGH","PkgName":"zlib","InstalledVersion":"1.0","FixedVersion":"1.1","Title":"zlib overflow"},
+        {"VulnerabilityID":"CVE-9","Severity":"CRITICAL","PkgName":"openssl","InstalledVersion":"3.0","Title":"no fix yet"},
+        {"VulnerabilityID":"CVE-1","Severity":"CRITICAL","PkgName":"libc","InstalledVersion":"2.1","FixedVersion":"2.2","Title":"libc bug"},
+        {"VulnerabilityID":"CVE-1","Severity":"CRITICAL","PkgName":"libc","InstalledVersion":"2.1","FixedVersion":"2.2","Title":"libc bug"}]}]}"#;
+
+    #[test]
+    fn the_report_lists_every_finding_worst_first_without_duplicates() {
+        let s = summarize(&parse(FULL.as_bytes()).unwrap(), 7, None);
+        let order: Vec<&str> = s.details.iter().map(|d| d.id.as_str()).collect();
+        // critical with a fix, critical without, then high.
+        assert_eq!(order, vec!["CVE-1", "CVE-9", "CVE-2"]);
+        assert_eq!(s.details[0].pkg, "libc");
+        assert_eq!(s.details[0].fixed, "2.2");
+        assert_eq!(s.details[1].fixed, "");
+        assert_eq!(
+            s.details[0].url().as_deref(),
+            Some("https://avd.aquasec.com/nvd/cve-1")
+        );
+        assert_eq!(s.details[0].severity(), "critical");
+    }
+
+    #[test]
+    fn long_reports_are_capped_and_odd_ids_get_no_link() {
+        let many: Vec<Finding> = (0..MAX_DETAILS + 50)
+            .map(|i| Finding {
+                id: format!("CVE-{i}"),
+                critical: false,
+                fixable: false,
+                pkg: "p".into(),
+                installed: "1".into(),
+                fixed: String::new(),
+                title: String::new(),
+            })
+            .collect();
+        assert_eq!(summarize(&many, 1, None).details.len(), MAX_DETAILS);
+        let d = Detail {
+            id: "GHSA-x\"><b>".into(),
+            critical: false,
+            pkg: String::new(),
+            installed: String::new(),
+            fixed: String::new(),
+            title: String::new(),
+        };
+        assert_eq!(d.url(), None);
+    }
+
+    #[test]
+    fn an_old_store_file_without_details_still_loads() {
+        let old = r#"{"scanned":5,"critical":1,"high":0,"fixable_critical":1,"ids":["CVE-1"]}"#;
+        let s: Summary = serde_json::from_str(old).unwrap();
+        assert!(s.details.is_empty());
+        let back: Summary = serde_json::from_str(
+            &serde_json::to_string(&summarize(&parse(FULL.as_bytes()).unwrap(), 7, None)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(back.details.len(), 3);
+    }
+
     fn open(shared: &Shared) -> usize {
         shared.lock().unwrap().open_events().len()
     }
@@ -378,6 +531,7 @@ mod tests {
             id: id.into(),
             critical: true,
             fixable: true,
+            ..Default::default()
         };
         let mut s = summarize(&[fx("CVE-1")], 1, None);
         sync(&shared, "app", &mut s);
@@ -403,6 +557,7 @@ mod tests {
                 id: "CVE-7".into(),
                 critical: true,
                 fixable: false,
+                ..Default::default()
             }],
             5,
             None,
@@ -429,6 +584,7 @@ mod tests {
                 id: "CVE-1".into(),
                 critical: true,
                 fixable: true,
+                ..Default::default()
             }],
             1,
             None,
