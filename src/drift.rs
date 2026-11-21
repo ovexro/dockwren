@@ -28,7 +28,9 @@ fn parse_running(ps: &str) -> Vec<(String, String, String)> {
     let rows: Vec<serde_json::Value> = if t.starts_with('[') {
         serde_json::from_str(t).unwrap_or_default()
     } else {
-        t.lines().filter_map(|l| serde_json::from_str(l).ok()).collect()
+        t.lines()
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect()
     };
     rows.iter()
         .map(|r| {
@@ -76,8 +78,12 @@ pub fn compare(wanted_out: &str, ps: &str) -> Vec<String> {
 
 /// Check one app against its files. `None` on any docker error (not drift: unknown).
 pub async fn check(inst: &Instance) -> Option<Vec<String>> {
-    let wanted = runner::compose(inst, &["config", "--hash", "*"]).await.ok()?;
-    let ps = runner::compose(inst, &["ps", "-a", "--format", "json"]).await.ok()?;
+    let wanted = runner::compose(inst, &["config", "--hash", "*"])
+        .await
+        .ok()?;
+    let ps = runner::compose(inst, &["ps", "-a", "--format", "json"])
+        .await
+        .ok()?;
     Some(compare(&wanted, &ps))
 }
 
@@ -86,20 +92,26 @@ mod tests {
     use super::*;
 
     fn row(svc: &str, state: &str, hash: &str) -> String {
-        format!(
-            r#"{{"Service":"{svc}","State":"{state}","Labels":"a=b,{HASH_LABEL}={hash},c=d"}}"#
-        )
+        format!(r#"{{"Service":"{svc}","State":"{state}","Labels":"a=b,{HASH_LABEL}={hash},c=d"}}"#)
     }
 
     #[test]
     fn same_hashes_mean_no_drift() {
-        let ps = format!("{}\n{}", row("web", "running", "h1"), row("db", "running", "h2"));
+        let ps = format!(
+            "{}\n{}",
+            row("web", "running", "h1"),
+            row("db", "running", "h2")
+        );
         assert!(compare("web h1\ndb h2\n", &ps).is_empty());
     }
 
     #[test]
     fn changed_missing_and_extra_services_are_reported() {
-        let ps = format!("{}\n{}", row("web", "running", "old"), row("gone", "running", "x"));
+        let ps = format!(
+            "{}\n{}",
+            row("web", "running", "old"),
+            row("gone", "running", "x")
+        );
         let d = compare("web new\ndb h2\n", &ps);
         assert_eq!(
             d,

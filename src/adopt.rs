@@ -429,7 +429,10 @@ mod tests {
         let r = absolutize_binds(t, "/srv/app");
         assert!(r.contains("      - /srv/app/data:/d\n"), "{r}");
         assert!(r.contains("      - \"/srv/shared:/s:ro\"\n"), "{r}");
-        assert!(r.contains("      - pg:/p\n") && r.contains("      - /abs:/x\n"), "{r}");
+        assert!(
+            r.contains("      - pg:/p\n") && r.contains("      - /abs:/x\n"),
+            "{r}"
+        );
         assert!(r.contains("        source: /srv/app/conf # note\n"), "{r}");
         assert!(r.contains("command: [\"./run:x\"]"), "{r}");
         assert_eq!(absolutize_binds("a: 1", "/srv"), "a: 1");
