@@ -215,6 +215,62 @@ pub fn review(f: &Fetched, source: Option<String>) -> Result<Template, String> {
     Ok(t)
 }
 
+/// The line scans above can be spelled around in valid YAML (`"privileged": true`,
+/// `pid: "host"`, `key : value`). So the compose file is also resolved by Docker, with a
+/// placeholder for every variable, and the resulting model goes through the allow-list used for
+/// pasted stacks (host folders only inside the instance folder, host ports only on loopback or
+/// as declared in the manifest). Nothing is started.
+pub async fn model_gate(data: &Path, t: &Template) -> Result<(), String> {
+    let compose = &t.compose;
+    let names: std::collections::BTreeSet<&str> = template::var_refs(compose)
+        .into_iter()
+        .map(|r| r.split([':', '-', '?', '+']).next().unwrap_or(r))
+        .filter(|n| !n.is_empty())
+        .collect();
+    // A variable that starts a volume item is a host folder the user types in; anything
+    // else gets "1" (valid as a port, a number or a tag).
+    let is_folder = |n: &str| {
+        compose.lines().any(|l| {
+            let l = l.trim().trim_start_matches("- ").trim_matches(['"', '\'']);
+            l.strip_prefix(&format!("${{{n}"))
+                .is_some_and(|r| r.contains(':'))
+        })
+    };
+    let env: String = names
+        .iter()
+        .map(|n| {
+            format!(
+                "{n}={}\n",
+                if is_folder(n) {
+                    "/srv/placeholder"
+                } else {
+                    "1"
+                }
+            )
+        })
+        .collect();
+    let (model, canon) = crate::stack::resolve_raw(data, compose, &env)
+        .await
+        .map_err(|e| format!("Docker's view of compose.yaml is refused: {e}"))?;
+    let lan: Vec<(u16, &str)> = t
+        .manifest
+        .lan_ports
+        .iter()
+        .map(|l| (l.port, l.protocol.as_str()))
+        .collect();
+    crate::stack::lint_model_with(
+        &model,
+        &canon,
+        &crate::stack::LintOpts {
+            host_folders: false,
+            binds_in_project: true,
+            lan_ports: &lan,
+            bind_ok: &["/srv/placeholder"],
+        },
+    )
+    .map_err(|e| format!("Docker's view of compose.yaml is refused: {e}"))
+}
+
 /// The normal template check is a line scan written for trusted authors. For third-party
 /// files, also refuse the Compose keys and shapes that could reach the host or hide a
 /// port/volume from that scan (long volume syntax, inline lists, devices, extra privileges).
@@ -450,6 +506,7 @@ pub async fn review_submit(
     let result = async {
         let fetched = fetch(&data, &url, &sha).await?;
         let t = review(&fetched, None)?;
+        model_gate(&data, &t).await?;
         Ok::<_, String>((fetched, t))
     }
     .await;
@@ -499,6 +556,8 @@ pub async fn add_submit(
     let (url, sha) = (f.url.trim().to_string(), f.sha.trim().to_ascii_lowercase());
     let result = async {
         let fetched = fetch(&data, &url, &sha).await?;
+        let t = review(&fetched, None)?;
+        model_gate(&data, &t).await?;
         add(&data, &url, &sha, &fetched)
     }
     .await;
@@ -708,5 +767,55 @@ mod tests {
         apps.reload_templates();
         assert!(!has(&apps));
         let _ = std::fs::remove_dir_all(&data);
+    }
+
+    /// Real Docker. Spellings the line scans do not see must still be refused.
+    #[tokio::test]
+    async fn the_model_gate_sees_through_yaml_spelling() {
+        let data = std::env::temp_dir().join(format!("dw-gate-{}", std::process::id()));
+        std::fs::create_dir_all(&data).unwrap();
+        let m = MANIFEST.replace("id = \"ghost\"", "id = \"ghost-x\"");
+        for (name, add) in [
+            ("quoted key", "    \"privileged\": true\n"),
+            ("space before colon", "    privileged : true\n"),
+            ("quoted cap_add", "    \"cap_add\":\n      - SYS_ADMIN\n"),
+            ("quoted network_mode", "    \"network_mode\": host\n"),
+            ("pid quoted", "    pid: \"host\"\n"),
+            ("pid space", "    pid:  host\n"),
+        ] {
+            let c = COMPOSE.replacen("    image:", &format!("{add}    image:"), 1);
+            let f = Fetched {
+                manifest: m.clone(),
+                compose: c,
+                icon: None,
+            };
+            assert!(
+                review(&f, None).is_ok(),
+                "{name}: the line scan was expected to miss this"
+            );
+            let t = review(&f, None).unwrap();
+            assert!(model_gate(&data, &t).await.is_err(), "{name}");
+        }
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    /// Real Docker. Every bundled template is written the way a good third-party one would be,
+    /// so the gate must let all of them through (no false alarms).
+    #[tokio::test]
+    async fn the_model_gate_accepts_every_bundled_template() {
+        let data = std::env::temp_dir().join(format!("dw-gate2-{}", std::process::id()));
+        std::fs::create_dir_all(&data).unwrap();
+        let mut failed = Vec::new();
+        for t in template::catalog(None).unwrap() {
+            // Paperless-AI needs security_opt, which third-party templates may never use.
+            if t.manifest.app.id == "paperless-ai" {
+                continue;
+            }
+            if let Err(e) = model_gate(&data, &t).await {
+                failed.push(format!("{}: {e}", t.manifest.app.id));
+            }
+        }
+        let _ = std::fs::remove_dir_all(&data);
+        assert!(failed.is_empty(), "{failed:#?}");
     }
 }

@@ -6,7 +6,7 @@
 //! reason, so a panel login cannot be turned into root on the host by pasting YAML.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
@@ -96,6 +96,35 @@ pub fn lint_model_opts(
     project_dir: &Path,
     host_folders: bool,
 ) -> Result<(), String> {
+    lint_model_with(
+        model,
+        project_dir,
+        &LintOpts {
+            host_folders,
+            ..LintOpts::default()
+        },
+    )
+}
+
+/// Knobs for [`lint_model_with`]; the default is the strict rule for pasted stacks.
+#[derive(Default)]
+pub struct LintOpts<'a> {
+    /// Bind mounts anywhere are left to the caller (adopted stacks).
+    pub host_folders: bool,
+    /// Third-party templates: binds anywhere inside the instance folder, not only `./data`.
+    pub binds_in_project: bool,
+    /// Host ports (with protocol) a template declared as published on every interface.
+    pub lan_ports: &'a [(u16, &'a str)],
+    /// Host folders accepted as they are (exact match): ones the user types into a form.
+    pub bind_ok: &'a [&'a str],
+}
+
+pub fn lint_model_with(
+    model: &Value,
+    project_dir: &Path,
+    opts: &LintOpts<'_>,
+) -> Result<(), String> {
+    let host_folders = opts.host_folders;
     let top = model
         .as_object()
         .ok_or("the compose model is not an object")?;
@@ -144,7 +173,15 @@ pub fn lint_model_opts(
             .flatten()
         {
             let ip = p.get("host_ip").and_then(Value::as_str).unwrap_or("");
-            if ip != "127.0.0.1" {
+            let declared = || {
+                let port = p
+                    .get("published")
+                    .and_then(Value::as_str)
+                    .and_then(|x| x.parse::<u16>().ok());
+                let proto = p.get("protocol").and_then(Value::as_str).unwrap_or("tcp");
+                port.is_some_and(|port| opts.lan_ports.contains(&(port, proto)))
+            };
+            if ip != "127.0.0.1" && !declared() {
                 let what = p.get("published").and_then(Value::as_str).unwrap_or("?");
                 return Err(format!(
                     "service {name}: port {what} must be bound to 127.0.0.1 (write \"127.0.0.1:{what}:{}\"); reach it from outside through a public hostname",
@@ -164,8 +201,14 @@ pub fn lint_model_opts(
                 "volume" | "tmpfs" => {}
                 "bind" if host_folders => {}
                 "bind" => {
-                    if !(source == data_dir || source.starts_with(&format!("{data_dir}/")))
-                        || source.contains("..")
+                    let root = if opts.binds_in_project {
+                        project_dir.display().to_string()
+                    } else {
+                        data_dir.clone()
+                    };
+                    if !opts.bind_ok.contains(&source)
+                        && (!(source == root || source.starts_with(&format!("{root}/")))
+                            || source.contains(".."))
                     {
                         return Err(format!(
                             "service {name}: bind mount of {} is not allowed; keep data in a named volume or under ./data (for example ./data/db:/var/lib/db)",
@@ -342,25 +385,36 @@ pub async fn check_raw_opts(
     env_text: &str,
     host_folders: bool,
 ) -> Result<Value, String> {
+    let (model, canon) = resolve_raw(data_dir, compose, env_text).await?;
+    lint_model_opts(&model, &canon, host_folders)?;
+    Ok(model)
+}
+
+/// Docker's resolved model of `compose` with `env_text` as `.env`, plus the (already removed)
+/// scratch folder it was resolved in, which relative paths in the model start with. No lint.
+pub async fn resolve_raw(
+    data_dir: &Path,
+    compose: &str,
+    env_text: &str,
+) -> Result<(Value, PathBuf), String> {
     precheck(compose)?;
     if env_text.len() > MAX_COMPOSE_BYTES {
         return Err("the environment is larger than 64 KiB".into());
     }
     let dir = data_dir.join(format!("stack-check-{}", crate::auth::generate_password()));
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let result = check_in(&dir, data_dir, compose, env_text, host_folders).await;
+    let result = resolve_in(&dir, data_dir, compose, env_text).await;
     // `dir` was created just above and holds only the two files written there.
     let _ = std::fs::remove_dir_all(&dir);
     result
 }
 
-async fn check_in(
+async fn resolve_in(
     dir: &Path,
     data_dir: &Path,
     compose: &str,
     env_text: &str,
-    host_folders: bool,
-) -> Result<Value, String> {
+) -> Result<(Value, PathBuf), String> {
     std::fs::write(dir.join("compose.yaml"), compose).map_err(|e| e.to_string())?;
     crate::install::write_env_text(dir, env_text).map_err(|e| e.to_string())?;
     let out = tokio::process::Command::new("docker")
@@ -395,8 +449,7 @@ async fn check_in(
     let canon = dir.canonicalize().map_err(|e| e.to_string())?;
     let model: Value = serde_json::from_slice(&out.stdout)
         .map_err(|e| format!("unreadable compose model: {e}"))?;
-    lint_model_opts(&model, &canon, host_folders)?;
-    Ok(model)
+    Ok((model, canon))
 }
 
 #[cfg(test)]

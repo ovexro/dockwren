@@ -480,7 +480,7 @@ pub fn catalog(extra_dir: Option<&Path>) -> Result<Vec<Template>, String> {
 }
 
 /// All `${NAME}` references in `text`.
-fn var_refs(text: &str) -> Vec<&str> {
+pub(crate) fn var_refs(text: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut rest = text;
     while let Some(i) = rest.find("${") {
