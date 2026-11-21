@@ -1,0 +1,37 @@
+[app]
+id = "trilium"
+name = "Trilium Notes"
+description = "Hierarchical note-taking app for large personal knowledge bases"
+homepage = "https://github.com/TriliumNext/Trilium"
+changelog = "https://github.com/TriliumNext/Trilium/releases"
+version = 1
+note = "Notes in a tree with rich text, code, maps and attachments. On your first visit you choose the password, so open the app right after the install (before publishing it)."
+accepts_public_host = true
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "trilium"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[services]]
+name = "trilium"
+main = true
+health = { source = "image" }
+
+[backup]
+paths = ["data"]
+
+[update]
+image_pins = ["triliumnext/trilium"]
+pre_update = ["backup"]

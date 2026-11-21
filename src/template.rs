@@ -327,6 +327,16 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/freshrss/icon.svg"),
     ),
     (
+        include_str!("../apps/trilium/manifest.toml"),
+        include_str!("../apps/trilium/compose.yaml"),
+        include_str!("../apps/trilium/icon.svg"),
+    ),
+    (
+        include_str!("../apps/bookstack/manifest.toml"),
+        include_str!("../apps/bookstack/compose.yaml"),
+        include_str!("../apps/bookstack/icon.svg"),
+    ),
+    (
         include_str!("../apps/paperless-ai/manifest.toml"),
         include_str!("../apps/paperless-ai/compose.yaml"),
         include_str!("../apps/paperless-ai/icon.svg"),
@@ -843,6 +853,7 @@ mod tests {
                 "actual-budget",
                 "adguard-home",
                 "audiobookshelf",
+                "bookstack",
                 "changedetection",
                 "custom",
                 "forgejo",
@@ -871,6 +882,7 @@ mod tests {
                 "snappymail",
                 "stirling-pdf",
                 "syncthing",
+                "trilium",
                 "uptime-kuma",
                 "vaultwarden",
                 "wallos",
@@ -880,7 +892,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 36);
+        assert_eq!(c.len(), 38);
     }
 
     #[test]
@@ -924,6 +936,7 @@ mod tests {
                 "actual-budget",
                 "adguard-home",
                 "audiobookshelf",
+                "bookstack",
                 "changedetection",
                 "custom",
                 "forgejo",
@@ -952,6 +965,7 @@ mod tests {
                 "snappymail",
                 "stirling-pdf",
                 "syncthing",
+                "trilium",
                 "uptime-kuma",
                 "vaultwarden",
                 "wallos",

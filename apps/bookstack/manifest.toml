@@ -1,0 +1,86 @@
+[app]
+id = "bookstack"
+name = "BookStack"
+description = "Self-hosted wiki organised in shelves, books and pages"
+homepage = "https://www.bookstackapp.com"
+changelog = "https://github.com/BookStackApp/BookStack/releases"
+version = 1
+note = "A simple, friendly wiki for documentation. Sign in with your e-mail and the generated password shown once after the install."
+public_url_field = "PUBLIC_URL"
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "bookstack"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "PUBLIC_URL"
+label = "Public URL"
+type = "url"
+default = "http://127.0.0.1:${WEB_PORT}"
+help = "The address people use to reach this app. Leave it as it is for now: when you publish the app with a public hostname, Dockwren fills this in for you."
+
+[[fields]]
+key = "ADMIN_EMAIL"
+label = "Admin e-mail"
+type = "email"
+help = "The e-mail address you will sign in with. Dockwren creates a strong password for you and shows it once after the install, so copy it then."
+
+[[secrets]]
+key = "ADMIN_PASSWORD"
+kind = "password"
+length = 20
+reveal = true
+
+[[secrets]]
+key = "APP_KEY"
+kind = "password"
+length = 32
+
+[[secrets]]
+key = "DB_PASSWORD"
+kind = "password"
+length = 32
+
+[[secrets]]
+key = "DB_ROOT_PASSWORD"
+kind = "password"
+length = 32
+
+[[services]]
+name = "db"
+health = { source = "image" }
+
+[[services]]
+name = "bookstack"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1:80/status"], interval = "30s", start_period = "2m" }
+
+[[post_start]]
+name = "create-admin"
+service = "bookstack"
+run = ["php", "/app/www/artisan", "bookstack:create-admin", "--email=${ADMIN_EMAIL}", "--name=Admin", "--password=${ADMIN_PASSWORD}", "--initial"]
+
+[backup]
+paths = ["config"]
+[[backup.dumps]]
+service = "db"
+run = ["sh", "-c", "mariadb-dump --single-transaction --add-drop-table -u root -p\"$MARIADB_ROOT_PASSWORD\" bookstack"]
+restore = ["sh", "-c", "mariadb -u root -p\"$MARIADB_ROOT_PASSWORD\" bookstack"]
+output = "db.sql"
+
+[update]
+image_pins = ["lscr.io/linuxserver/bookstack", "mariadb"]
+pre_update = ["backup"]
+pinned_major = ["mariadb"]

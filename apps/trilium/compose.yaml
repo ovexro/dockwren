@@ -1,0 +1,10 @@
+services:
+  trilium:
+    image: triliumnext/trilium:v0.107.0
+    restart: unless-stopped
+    environment:
+      TRILIUM_DATA_DIR: /home/node/trilium-data
+    volumes:
+      - ./data:/home/node/trilium-data
+    ports:
+      - "127.0.0.1:${WEB_PORT}:8080"
