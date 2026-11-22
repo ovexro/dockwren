@@ -1,0 +1,82 @@
+[app]
+id = "planka"
+name = "Planka"
+description = "Kanban boards for projects and teams, with cards, labels and file attachments"
+changelog = "https://github.com/plankanban/planka/releases"
+version = 1
+note = "Your boards and cards, with their own database. Sign in with the admin e-mail and the generated password (shown once). Public sign-up is off; add people from the admin settings."
+public_url_field = "PUBLIC_URL"
+needs_public_https = false
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "planka"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[fields]]
+key = "PUBLIC_URL"
+label = "Public URL"
+type = "url"
+default = "http://127.0.0.1:${WEB_PORT}"
+help = "The address people use to reach this app. Leave it as it is for now: when you publish the app with a public hostname, Dockwren fills this in for you."
+
+[[fields]]
+key = "ADMIN_USER"
+label = "Admin user"
+type = "string"
+default = "admin"
+pattern = "^[a-z][a-z0-9_-]{2,30}$"
+help = "The username of the administrator. Dockwren creates a strong password for you and shows it once after the install, so copy it then."
+
+[[fields]]
+key = "ADMIN_EMAIL"
+label = "Admin e-mail"
+type = "email"
+help = "Your e-mail address: you sign in with it, together with the generated password."
+
+[[secrets]]
+key = "POSTGRES_PASSWORD"
+kind = "password"
+length = 32
+
+[[secrets]]
+key = "SECRET_KEY"
+kind = "password"
+length = 48
+
+[[secrets]]
+key = "ADMIN_PASSWORD"
+kind = "password"
+length = 20
+reveal = true
+
+[[services]]
+name = "db"
+health = { source = "image" }
+
+[[services]]
+name = "planka"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "wget -q --spider http://127.0.0.1:1337/"], interval = "15s", start_period = "40s" }
+
+[backup]
+paths = ["data"]
+[[backup.dumps]]
+service = "db"
+run = ["pg_dump", "--clean", "--if-exists", "-U", "planka", "planka"]
+restore = ["psql", "-v", "ON_ERROR_STOP=1", "-q", "-U", "planka", "planka"]
+output = "db.sql"
+
+[update]
+image_pins = ["ghcr.io/plankanban/planka", "postgres"]
+pre_update = ["backup"]

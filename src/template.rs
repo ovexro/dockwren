@@ -452,6 +452,11 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/linkwarden/icon.svg"),
     ),
     (
+        include_str!("../apps/planka/manifest.toml"),
+        include_str!("../apps/planka/compose.yaml"),
+        include_str!("../apps/planka/icon.svg"),
+    ),
+    (
         include_str!("../apps/forgejo/manifest.toml"),
         include_str!("../apps/forgejo/compose.yaml"),
         include_str!("../apps/forgejo/icon.svg"),
@@ -878,6 +883,7 @@ mod tests {
                 "paperless-ai",
                 "paperless-ngx",
                 "pi-hole",
+                "planka",
                 "roundcube",
                 "snappymail",
                 "stirling-pdf",
@@ -892,7 +898,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 38);
+        assert_eq!(c.len(), 39);
     }
 
     #[test]
@@ -961,6 +967,7 @@ mod tests {
                 "paperless-ai",
                 "paperless-ngx",
                 "pi-hole",
+                "planka",
                 "roundcube",
                 "snappymail",
                 "stirling-pdf",

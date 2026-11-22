@@ -7,7 +7,7 @@ Open items only, one line each, with the date it was last verified open. Deliver
 - CSP: web terminal page alone keeps `style-src 'unsafe-inline'` (xterm.js injects <style> at runtime); revisit if xterm gets a nonce/CSSOM-only mode. (2026-11-21)
 - Hardening left: external independent review; Docker socket proxy (later); optional re-gate of stored third-party templates at load (model_gate async, load_all sync). Roadmap: memory hardening-roadmap. (2026-11-21)
 - Watch: `audit.yml` ignores RUSTSEC-2026-0374 (basic-toml via askama, build-time); drop `--ignore` when askama moves off it. Big files if wanted: `install.rs`, `template.rs`. (2026-11-21)
-- More catalog templates: 38 in `apps/`, all VPS-tested; none queued, pick a popular app (Planka first). Test notes per app live in memory `pitfalls-vps-templates`. (2026-11-21)
+- More catalog templates: 39 in `apps/`, all VPS-tested (Planka added 2026-11-22); none queued, pick a popular app. Test notes per app live in memory `pitfalls-vps-templates`. (2026-11-22)
 - Security recheck at each release: PHP (nextcloud 35.0.3 = 8.5.12, roundcube 1.7.6 = 8.4.27; 8.5.13 exists, images not rebuilt); mariadb 11.8.9 gosu Go 1.24.6 (fix 1.24.13; 11.8.10 not out). (2026-11-20)
 - UPS (NUT, v0.1.98), user postponed, do not push: `upsmon -c fsd` shutdown test, `battery.charge.low` 25% (needs upsd admin user), optional panel button, `dockwren setup-ups` untested on fresh/Ubuntu/older NUT; check nut unit names in journalctl. (2026-11-20)
 - Adopt containers/Compose (phases 1+2 built, v0.1.80): open: ports claimed in .env, ProtectHome files, restore test/clone for host folders. (2026-11-18)
