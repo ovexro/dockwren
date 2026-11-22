@@ -33,3 +33,4 @@ Open items only, one line each, with the date it was last verified open. Deliver
 - NEW FEATURE = add its keyword to `scripts/features.txt` in the same release: docs-check then fails until README AND site/index.html mention it (added 2026-11-19 after the site lagged ~12 features).
 - At every tag/wrapup with new features re-check README, GitHub description/topics, SECURITY.md, docs/TEMPLATES.md (memory public-repo-freshness).
 - Screenshots last reshot 2026-11-20 at 1440x810 @2x (Resources with 30+ min history); site redeployed.
+- Seafile template (user wish, 2026-11-22): MariaDB+Redis+seafile, test on OVH; user wants file data on the HDD (/mnt/backup, spin-down 10 min is fine), DB/Redis on SSD; desktop client on SER8. Ask: Tailscale-only or public hostname; folder path; offsite/restic copy of the HDD data. Memory reference-backup has the spin-down facts.
