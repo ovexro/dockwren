@@ -126,6 +126,12 @@ pub async fn run(
         );
         return Ok(None);
     }
+    if !crate::backup::external_paths(live, &t.manifest.backup.paths).is_empty() {
+        log(
+            "skipped: this app keeps its data in a linked folder elsewhere, which a throwaway copy would not have",
+        );
+        return Ok(None);
+    }
     if let Some(m) = available_mib()
         && m < MIN_FREE_MIB
     {

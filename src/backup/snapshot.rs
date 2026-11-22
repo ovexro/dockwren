@@ -74,7 +74,33 @@ pub async fn snapshot_keep(
         write_private(&tmp.join(&d.output), out.as_bytes())
             .map_err(|e| format!("{}: {e}", d.output))?;
     }
-    if !b.paths.is_empty() {
+    let external = external_paths(inst, &b.paths);
+    for (p, target) in &external {
+        log(&format!(
+            "NOT archived: {p} is a link to {target}; its files stay there, back that folder up separately"
+        ));
+    }
+    if !external.is_empty() {
+        let list: String = external
+            .iter()
+            .map(|(p, t)| format!("{p}\t{t}\n"))
+            .collect();
+        write_private(&tmp.join(EXTERNAL), list.as_bytes())
+            .map_err(|e| format!("{EXTERNAL}: {e}"))?;
+    }
+    let paths: Vec<String> = b
+        .paths
+        .iter()
+        .filter(|p| !external.iter().any(|(e, _)| e == *p))
+        .cloned()
+        .collect();
+    if paths.is_empty() && b.dumps.is_empty() {
+        return Err(format!(
+            "nothing to archive: all backup paths are links to other places (partial snapshot in {})",
+            tmp.display()
+        ));
+    }
+    if !paths.is_empty() {
         log("archiving files");
         let image = first_image(inst).await?;
         let dir =
@@ -107,7 +133,7 @@ pub async fn snapshot_keep(
             .arg("-v")
             .arg(format!("{}:/src:ro", dir.display()))
             .args(["-w", "/src", &image, "--numeric-owner", "-czf", "-", "--"])
-            .args(&b.paths)
+            .args(&paths)
             .stdout(std::process::Stdio::from(archive))
             .stderr(std::process::Stdio::piped())
             .spawn()

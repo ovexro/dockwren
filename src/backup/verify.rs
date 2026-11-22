@@ -53,7 +53,8 @@ pub async fn verify(
         }
         log(&format!("{} ok ({len} bytes)", d.output));
     }
-    if !b.paths.is_empty() {
+    let paths = archived_paths(&snap, &b.paths);
+    if !paths.is_empty() {
         let tar = snap.join("files.tar.gz");
         let archive = std::fs::File::open(&tar).map_err(|_| "snapshot is missing files.tar.gz")?;
         log("reading files.tar.gz end to end");
@@ -81,7 +82,7 @@ pub async fn verify(
         let mut count = 0u64;
         while let Some(line) = lines.next_line().await.map_err(|e| format!("tar: {e}"))? {
             count += 1;
-            for p in &b.paths {
+            for p in &paths {
                 if !found.contains(p.as_str()) && tar_entry_matches(&line, p) {
                     found.insert(p.as_str());
                 }
@@ -96,7 +97,7 @@ pub async fn verify(
             let tail: Vec<&str> = err.lines().take(3).collect();
             return Err(format!("files.tar.gz is damaged: {}", tail.join("; ")));
         }
-        if let Some(p) = b.paths.iter().find(|p| !found.contains(p.as_str())) {
+        if let Some(p) = paths.iter().find(|p| !found.contains(p.as_str())) {
             return Err(format!("files.tar.gz does not contain {p}"));
         }
         log(&format!("files.tar.gz ok ({count} entries)"));

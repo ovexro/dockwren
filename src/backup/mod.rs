@@ -26,6 +26,45 @@ pub use snapshot::*;
 pub use verify::*;
 pub use volumes::*;
 
+/// File inside a snapshot listing backup paths that were symlinks to another place and so were
+/// NOT archived (one `path<TAB>target` per line).
+const EXTERNAL: &str = "external.txt";
+
+/// Backup paths of `inst` that are symlinks (for example `data` pointing at another disk), with
+/// their targets. `tar` would archive only the link itself, which looks like a backup but holds
+/// no files, so these are left out on purpose and reported instead.
+pub fn external_paths(inst: &Instance, paths: &[String]) -> Vec<(String, String)> {
+    paths
+        .iter()
+        .filter_map(|p| {
+            let full = inst.dir.join(p);
+            std::fs::symlink_metadata(&full)
+                .ok()
+                .filter(|m| m.file_type().is_symlink())
+                .map(|_| {
+                    let t = std::fs::read_link(&full)
+                        .map(|t| t.display().to_string())
+                        .unwrap_or_default();
+                    (p.clone(), t)
+                })
+        })
+        .collect()
+}
+
+/// The backup paths that this snapshot really archived (all, minus those it recorded as external).
+fn archived_paths(snap: &Path, paths: &[String]) -> Vec<String> {
+    let skipped: Vec<String> = std::fs::read_to_string(snap.join(EXTERNAL))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| l.split('\t').next().map(String::from))
+        .collect();
+    paths
+        .iter()
+        .filter(|p| !skipped.contains(p))
+        .cloned()
+        .collect()
+}
+
 /// Snapshots kept per instance; older ones are pruned after a successful run.
 pub const KEEP: usize = 7;
 
@@ -110,6 +149,29 @@ mod tests {
         ] {
             assert!(!is_restore_leftover(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn symlinked_backup_paths_are_reported_and_left_out() {
+        let root = tmp();
+        let dir = root.join("app");
+        let other = root.join("disk");
+        std::fs::create_dir_all(dir.join("real")).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        std::os::unix::fs::symlink(&other, dir.join("data")).unwrap();
+        let inst = Instance {
+            name: "app".into(),
+            dir,
+        };
+        let paths = vec!["real".to_string(), "data".to_string()];
+        let ext = external_paths(&inst, &paths);
+        assert_eq!(ext, vec![("data".to_string(), other.display().to_string())]);
+        let snap = root.join("snap");
+        std::fs::create_dir_all(&snap).unwrap();
+        assert_eq!(archived_paths(&snap, &paths), paths);
+        std::fs::write(snap.join(EXTERNAL), "data\tx\n").unwrap();
+        assert_eq!(archived_paths(&snap, &paths), vec!["real".to_string()]);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

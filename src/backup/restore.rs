@@ -56,7 +56,8 @@ pub async fn restore(
             return Err(format!("this app has no restore command for {}", d.output));
         }
     }
-    if !b.paths.is_empty() && !snap.join("files.tar.gz").is_file() {
+    let paths = archived_paths(&snap, &b.paths);
+    if !paths.is_empty() && !snap.join("files.tar.gz").is_file() {
         return Err("snapshot is missing files.tar.gz".into());
     }
     let vols = snapshot_volumes(&snap);
@@ -117,7 +118,7 @@ pub async fn restore(
             let _ = std::fs::rename(aside, orig);
         }
     };
-    for p in &b.paths {
+    for p in &paths {
         let orig = inst.dir.join(p);
         if orig.exists() {
             let aside = PathBuf::from(format!("{}.pre-restore-{stamp}", orig.display()));
@@ -129,7 +130,7 @@ pub async fn restore(
             moved.push((orig, aside));
         }
     }
-    if !b.paths.is_empty() {
+    if !paths.is_empty() {
         log("extracting files");
         let archive = std::fs::File::open(snap.join("files.tar.gz"))
             .map_err(|e| format!("files.tar.gz: {e}"))?;
@@ -194,25 +195,38 @@ pub async fn restore(
             "the previous content is in {src}.pre-restore-{stamp}"
         ));
     }
+    // Database dumps go in BEFORE the app starts: an app that reads its database at start-up
+    // (users, settings) must not meet an empty one. Only the services that hold a dump come up
+    // first; a database that was never initialised is created by its own image on this first start.
+    if !b.dumps.is_empty() {
+        let mut svcs: Vec<&str> = Vec::new();
+        for d in &b.dumps {
+            if !svcs.contains(&d.service.as_str()) {
+                svcs.push(d.service.as_str());
+            }
+        }
+        log(&format!("starting {}", svcs.join(", ")));
+        let up: Vec<&str> = ["up", "-d"]
+            .into_iter()
+            .chain(svcs.iter().copied())
+            .collect();
+        runner::compose(inst, &up).await?;
+        runner::wait_healthy_services(inst, &svcs, std::time::Duration::from_secs(240)).await?;
+        for d in &b.dumps {
+            log(&format!("restoring {} into {}", d.output, d.service));
+            let f = std::fs::File::open(snap.join(&d.output))
+                .map_err(|e| format!("{}: {e}", d.output))?;
+            let args: Vec<&str> = ["exec", "-T", d.service.as_str()]
+                .into_iter()
+                .chain(d.restore.iter().map(String::as_str))
+                .collect();
+            runner::compose_with_stdin(inst, &args, Some(f))
+                .await
+                .map_err(|e| format!("restore {}: {e}", d.output))?;
+        }
+    }
     log("starting");
     runner::compose(inst, &["up", "-d"]).await?;
     runner::wait_healthy(inst, std::time::Duration::from_secs(240)).await?;
-    for d in &b.dumps {
-        log(&format!("restoring {} into {}", d.output, d.service));
-        let f =
-            std::fs::File::open(snap.join(&d.output)).map_err(|e| format!("{}: {e}", d.output))?;
-        let args: Vec<&str> = ["exec", "-T", d.service.as_str()]
-            .into_iter()
-            .chain(d.restore.iter().map(String::as_str))
-            .collect();
-        runner::compose_with_stdin(inst, &args, Some(f))
-            .await
-            .map_err(|e| format!("restore {}: {e}", d.output))?;
-    }
-    if !b.dumps.is_empty() {
-        log("restarting so the app sees the restored database");
-        runner::compose(inst, &["restart"]).await?;
-        runner::wait_healthy(inst, std::time::Duration::from_secs(240)).await?;
-    }
     Ok(snap)
 }

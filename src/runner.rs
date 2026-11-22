@@ -311,9 +311,20 @@ pub fn judge(ps: &str) -> Status {
 
 /// Poll until every service is up and healthy, one fails, or `timeout` passes.
 pub async fn wait_healthy(inst: &Instance, timeout: Duration) -> Result<(), String> {
+    wait_healthy_services(inst, &[], timeout).await
+}
+
+/// [`wait_healthy`] limited to the named services (all of them when the list is empty).
+pub async fn wait_healthy_services(
+    inst: &Instance,
+    services: &[&str],
+    timeout: Duration,
+) -> Result<(), String> {
     let start = Instant::now();
+    let mut args = vec!["ps", "-a", "--format", "json"];
+    args.extend_from_slice(services);
     loop {
-        let ps = compose(inst, &["ps", "-a", "--format", "json"]).await?;
+        let ps = compose(inst, &args).await?;
         match judge(&ps) {
             Status::Healthy => return Ok(()),
             Status::Failed(why) => return Err(why),
