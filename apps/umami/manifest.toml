@@ -1,0 +1,66 @@
+[app]
+id = "umami"
+name = "Umami"
+description = "Simple, privacy-friendly web analytics for your websites, no cookies"
+changelog = "https://github.com/umami-software/umami/releases"
+version = 1
+note = "Website statistics with their own database. Sign in as admin with the generated password (shown once after the install). Add a website under Settings, then paste its tracking snippet into your pages."
+needs_public_https = false
+accepts_public_host = true
+
+[[fields]]
+key = "INSTANCE_NAME"
+label = "Internal name"
+type = "string"
+default = "umami"
+pattern = "^[a-z][a-z0-9-]{1,30}$"
+help = "A short label for this installation, used only on your server: it names the folder and the Docker containers (for example dockwren-<name>-...). It is NOT part of your website address and visitors never see it. Lower-case letters, digits and hyphens, starting with a letter. To run a second copy of the same app, give it a different name."
+
+[[fields]]
+key = "WEB_PORT"
+label = "Web port"
+type = "port"
+default = "auto"
+help = "The door this app uses on this server; it can only be reached from the server itself. Leave it on auto and Dockwren picks a free one. Visitors never type it: they use your public hostname."
+
+[[secrets]]
+key = "POSTGRES_PASSWORD"
+kind = "password"
+length = 32
+
+[[secrets]]
+key = "APP_SECRET"
+kind = "password"
+length = 48
+
+[[secrets]]
+key = "ADMIN_PASSWORD"
+kind = "password"
+length = 20
+reveal = true
+
+[[services]]
+name = "db"
+health = { source = "image" }
+
+[[services]]
+name = "umami"
+main = true
+health = { source = "panel", test = ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/api/heartbeat"], interval = "15s", start_period = "40s" }
+
+[[post_start]]
+name = "set admin password"
+service = "umami"
+run = ["node", "-e", "const b='http://127.0.0.1:3000',h={'Content-Type':'application/json'};(async()=>{const r=await fetch(b+'/api/auth/login',{method:'POST',headers:h,body:JSON.stringify({username:'admin',password:'umami'})});const d=await r.json();if(!d.token)process.exit(0);const p=await fetch(b+'/api/users/'+d.user.id,{method:'POST',headers:{...h,Authorization:'Bearer '+d.token},body:JSON.stringify({password:'${ADMIN_PASSWORD}'})});if(!p.ok)process.exit(1)})()"]
+
+[backup]
+paths = []
+[[backup.dumps]]
+service = "db"
+run = ["pg_dump", "--clean", "--if-exists", "-U", "umami", "umami"]
+restore = ["psql", "-v", "ON_ERROR_STOP=1", "-q", "-U", "umami", "umami"]
+output = "db.sql"
+
+[update]
+image_pins = ["ghcr.io/umami-software/umami", "postgres"]
+pre_update = ["backup"]
