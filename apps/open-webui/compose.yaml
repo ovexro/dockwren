@@ -1,0 +1,15 @@
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.13.4
+    restart: unless-stopped
+    environment:
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY}
+      WEBUI_URL: ${PUBLIC_URL}
+      ENABLE_OLLAMA_API: "false"
+      SCARF_NO_ANALYTICS: "true"
+      DO_NOT_TRACK: "true"
+      ANONYMIZED_TELEMETRY: "false"
+    volumes:
+      - ./data:/app/backend/data
+    ports:
+      - "127.0.0.1:${WEB_PORT}:8080"

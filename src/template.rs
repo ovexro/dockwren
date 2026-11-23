@@ -317,6 +317,11 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../apps/miniflux/icon.svg"),
     ),
     (
+        include_str!("../apps/open-webui/manifest.toml"),
+        include_str!("../apps/open-webui/compose.yaml"),
+        include_str!("../apps/open-webui/icon.svg"),
+    ),
+    (
         include_str!("../apps/ntfy/manifest.toml"),
         include_str!("../apps/ntfy/compose.yaml"),
         include_str!("../apps/ntfy/icon.svg"),
@@ -896,6 +901,7 @@ mod tests {
                 "navidrome",
                 "nextcloud",
                 "ntfy",
+                "open-webui",
                 "paperless-ai",
                 "paperless-ngx",
                 "pi-hole",
@@ -916,7 +922,7 @@ mod tests {
         );
         // An on-disk template with the same id replaces the bundled one.
         let c = catalog(Some(&apps())).unwrap();
-        assert_eq!(c.len(), 42);
+        assert_eq!(c.len(), 43);
     }
 
     #[test]
@@ -983,6 +989,7 @@ mod tests {
                 "navidrome",
                 "nextcloud",
                 "ntfy",
+                "open-webui",
                 "paperless-ai",
                 "paperless-ngx",
                 "pi-hole",
