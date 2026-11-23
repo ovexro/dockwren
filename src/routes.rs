@@ -203,6 +203,7 @@ pub(super) fn app(
         .route("/login/code", post(auth::login_code))
         .route("/static/passkey.js", get(passkey_js))
         .route("/static/confirm.js", get(confirm_js))
+        .route("/static/follow.js", get(follow_js))
         .merge(protected)
         .with_state(AppState {
             auth,

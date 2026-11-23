@@ -355,6 +355,8 @@ struct LogTemplate {
     code: Option<i32>,
     interrupted: bool,
     lines: Vec<String>,
+    reboot: bool,
+    reboot_why: String,
 }
 
 /// What the template shows about the waiting updates.
@@ -426,6 +428,8 @@ async fn log_fragment(State(s): State<OsState>, headers: HeaderMap) -> Response 
         },
         interrupted: run == Run::Interrupted,
         lines,
+        reboot: hostupdates::reboot_required(),
+        reboot_why: hostupdates::reboot_reason(),
     };
     Html(t.render().expect("osupdate log renders")).into_response()
 }

@@ -6,6 +6,7 @@ pub(super) const HTMX: &str = include_str!("../static/htmx.min.js");
 pub(super) const CSS: &str = include_str!("../static/dockwren.css");
 pub(super) const PASSKEY_JS: &str = include_str!("../static/passkey.js");
 pub(super) const CONFIRM_JS: &str = include_str!("../static/confirm.js");
+pub(super) const FOLLOW_JS: &str = include_str!("../static/follow.js");
 pub(super) const FAVICON: &str = include_str!("../static/favicon.svg");
 pub(super) const MANIFEST: &str = include_str!("../static/manifest.webmanifest");
 pub(super) const ICON_192: &[u8] = include_bytes!("../static/icon-192.png");
@@ -20,6 +21,7 @@ pub fn asset_version() -> String {
         .chain(HTMX.bytes())
         .chain(PASSKEY_JS.bytes())
         .chain(CONFIRM_JS.bytes())
+        .chain(FOLLOW_JS.bytes())
         .chain(terminal::TERMINAL_JS.bytes())
     {
         h = (h ^ u64::from(b)).wrapping_mul(0x100000001b3);
@@ -84,6 +86,16 @@ pub(super) async fn confirm_js() -> impl IntoResponse {
             (header::CACHE_CONTROL, "no-cache"),
         ],
         CONFIRM_JS,
+    )
+}
+
+pub(super) async fn follow_js() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        FOLLOW_JS,
     )
 }
 

@@ -11,6 +11,7 @@ const KIND: &str = "host.os_updates";
 const EVERY: Duration = Duration::from_secs(6 * 3600);
 const POLL: Duration = Duration::from_secs(300);
 const REBOOT_FLAG: &str = "/var/run/reboot-required";
+const REBOOT_PKGS: &str = "/var/run/reboot-required.pkgs";
 const APT_LISTS: &str = "/var/lib/apt/lists";
 const SHOW: usize = 10;
 
@@ -82,6 +83,27 @@ async fn pending() -> Result<Pending, String> {
 }
 
 /// Raise or clear the notification for what the host reports.
+/// True while the host says a restart is needed (set by apt after a kernel or core library update).
+pub fn reboot_required() -> bool {
+    std::path::Path::new(REBOOT_FLAG).exists()
+}
+
+/// A short, plain reason for the reboot notice: the packages that asked for it, when the host lists them.
+pub fn reboot_reason() -> String {
+    let pkgs = std::fs::read_to_string(REBOOT_PKGS).unwrap_or_default();
+    let names: Vec<&str> = pkgs
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .take(5)
+        .collect();
+    if names.is_empty() {
+        "the updates installed need a restart to take effect.".into()
+    } else {
+        format!("{} need a restart to take effect.", names.join(", "))
+    }
+}
+
 fn apply(shared: &Shared, p: &Pending, reboot: bool) {
     if p.packages.is_empty() && !reboot {
         notify::resolve(shared, KIND);
