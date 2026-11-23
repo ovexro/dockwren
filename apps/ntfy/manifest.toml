@@ -4,7 +4,7 @@ name = "ntfy"
 description = "Self-hosted push notifications to your phone and desktop"
 changelog = "https://github.com/binwiederhier/ntfy/releases"
 version = 1
-note = "Push notification server. Nobody can publish or read until you create a user: run docker exec -it <container> ntfy user add --role=admin <name>."
+note = "Push notification server. Nobody can publish or read without signing in: Dockwren creates an admin user and shows its generated password once after the install. More users: docker exec -it <container> ntfy user add <name>."
 public_url_field = "PUBLIC_URL"
 needs_public_https = false
 
@@ -29,10 +29,29 @@ label = "Public URL"
 type = "url"
 default = "http://127.0.0.1:${WEB_PORT}/"
 
+[[fields]]
+key = "ADMIN_USER"
+label = "Admin user"
+type = "string"
+default = "admin"
+pattern = "^[a-z][a-z0-9_-]{2,30}$"
+help = "The username you will sign in with. Dockwren creates a strong password for you and shows it once after the install, so copy it then."
+
+[[secrets]]
+key = "ADMIN_PASSWORD"
+kind = "password"
+length = 20
+reveal = true
+
 [[services]]
 name = "ntfy"
 main = true
 health = { source = "panel", test = ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80/v1/health"], interval = "15s", start_period = "10s" }
+
+[[post_start]]
+name = "create-admin"
+service = "ntfy"
+run = ["sh", "-c", "NTFY_PASSWORD=\"$1\" ntfy user add --role=admin \"$2\"", "sh", "${ADMIN_PASSWORD}", "${ADMIN_USER}"]
 
 [backup]
 paths = ["data"]
