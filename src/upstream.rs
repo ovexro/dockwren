@@ -312,7 +312,13 @@ fn sync(shared: &Shared, found: &BTreeMap<String, Found>) {
         .filter(|k| !keep.contains(k))
         .collect();
     for k in stale {
-        notify::resolve(shared, &k);
+        // `prefix + instance + :minor + :major`: a newer key for the same instance replaces it.
+        let instance = k.rsplitn(3, ':').last().unwrap_or(&k).to_string() + ":";
+        if keep.iter().any(|n| n.starts_with(&instance)) {
+            shared.lock().unwrap().supersede(&k);
+        } else {
+            notify::resolve(shared, &k);
+        }
     }
 }
 

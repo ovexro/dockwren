@@ -212,8 +212,8 @@ fn problems(u: &Ups) -> Vec<(Severity, &'static str, String, String)> {
         v.push((
             Severity::Warning,
             "power",
-            format!("Power cut: UPS {} is running on battery", u.name),
-            format!("{detail}. If the power does not come back soon, shut the server down in time (NUT does it by itself when the battery is low)."),
+            format!("Power cut: UPS {} on battery", u.name),
+            format!("{detail}. NUT shuts the server down by itself if the battery runs low."),
         ));
     }
     if u.has("RB") {
@@ -244,6 +244,11 @@ fn key_for(name: &str, what: &str) -> String {
 pub fn apply(shared: &Shared, list: &[Ups], seen: &mut HashMap<String, u32>) {
     let mut present = HashSet::new();
     for u in list {
+        // Neither on mains nor on battery says nothing: keep what is open as it is, or an
+        // unknown state would be announced as "power restored".
+        if !u.has("OL") && !u.has("OB") {
+            present.extend(["power", "replace", "overload"].map(|what| key_for(&u.name, what)));
+        }
         for (sev, what, title, body) in problems(u) {
             let key = key_for(&u.name, what);
             present.insert(key.clone());
@@ -475,6 +480,10 @@ mod tests {
         let sev = s.lock().unwrap().open_events()[0].severity;
         assert_eq!(sev, Severity::Critical);
         assert_eq!(open(&s), 1, "escalation updates in place");
+        for unknown in ["", "WAIT"] {
+            apply(&s, &[ups(unknown)], &mut seen);
+            assert_eq!(open(&s), 1, "'{unknown}' is not 'power back'");
+        }
         apply(&s, &[ups("OL CHRG")], &mut seen);
         assert_eq!(open(&s), 0, "power back closes it");
     }

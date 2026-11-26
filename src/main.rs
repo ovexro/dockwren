@@ -55,6 +55,7 @@ mod upstream;
 mod vulnscan;
 mod watchdog;
 mod webcheck;
+mod wording;
 
 use std::sync::Arc;
 

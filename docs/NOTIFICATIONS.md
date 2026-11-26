@@ -21,6 +21,11 @@ notify::raise(
 notify::resolve(&shared, "job.failed:update:gitea");
 ```
 
+`resolve` means "the problem ended": phones that were told about it get a follow-up. When an event
+is only replaced by a newer one (or its kind is switched off), use `Store::supersede`, which closes
+it without a message. A new kind that resolves also needs its own words in `src/wording.rs`
+(`cleared_title`; a test fails without them).
+
 Rules:
 
 - **Raise from a condition, not an occurrence.** A periodic check may call `raise` every hour; the
@@ -52,16 +57,35 @@ last 90 days). Switch state lives in `notify-settings.json` next to it.
 ## Delivery channels
 
 `src/deliver.rs` pushes events out of the panel: ntfy (JSON publish, priority by severity), Telegram (bot `sendMessage`, plain text with a severity icon) and a generic
-webhook (JSON POST with `title`, `body`, `severity`, `kind`, `link`, `ts`, plus `text` and `content` for
-Slack and Discord). Producers do nothing: a loop checks every 20 s for open events that were not sent yet at
-their current severity (`Store::pending_delivery`), so a new event and an escalation are sent, a repeat is not.
-Each event remembers the highest severity sent (`notified`). A failed send is retried 3 times, then dropped.
+webhook (JSON POST with `title`, `body`, `severity`, `kind`, `link`, `ts`, `state` (`alert`, `cleared` or
+`missed`), `since`, `cleared_at`, plus `text` and `content` for Slack and Discord). Producers do nothing:
+each channel has its own loop that every 5 s asks what it is owed (`Store::outbox`), so a new event and an
+escalation are sent, a repeat is not. The log keeps, per event and channel, what the channel actually
+accepted (`delivery`).
+
+**Nothing counts as sent until the channel accepted it.** While a channel cannot be reached (a power cut
+that takes the internet down, for example) it is retried after 10, 20, 40 and then every 60 s, for up to
+24 hours, also across restarts. The first failure, the recovery and giving up are written to the panel's
+journal, and Settings → Notifications shows which channel is not getting through. A server without
+internet cannot warn you while it is offline: if the router stays up in a power cut, put the modem or
+fibre terminal (ONT) on the UPS too.
+
+There are three messages, worded so they cannot be mistaken for each other (`src/wording.rs`):
+
+| Message | When | Power cut example |
+| --- | --- | --- |
+| alert | the problem is there (new or escalated) | 🔌 Power cut: UPS eaton on battery · Since 26 Nov 13:41 EET. |
+| cleared | it ended and the channel had the alert | ✅ Power restored: UPS eaton is back on mains · Power was out: 26 Nov 13:41–13:56 EET (15 min). |
+| missed | it ended before the alert could be sent; one message instead of two | ✅ Power restored after a cut of 15 min (UPS eaton) · Already over: the alert could not be sent while it lasted. |
+
+Times are the server's local time. An alert that goes out late says since when. A problem that comes and
+goes within a few seconds on a working channel sends nothing.
 
 - Settings: ntfy server/topic/token, Telegram bot token + chat id or `@channel` (an empty chat id with a new token is looked up with `getUpdates`: the chat that last wrote to the bot), webhook address, and a minimum severity (default warnings and critical).
   Addresses and tokens live in `notify-channels.json` (0600), go to curl on stdin and are never shown again.
-- Turning the first channel on marks the events already open as sent, so it is not flooded.
-- When a condition clears by itself after it was sent, one low-priority "Resolved: ..." message follows (`clear_pending`, `Store::pending_resolved`). Dismissing an event by hand sends nothing; e-mail is not built.
-- Maintenance mode: "Silence pushes" (30 min or 2 h, at most 4 h) holds all channel delivery. Events are still raised and shown in the panel; when it ends (or on "Resume now") whatever is still open is sent, and events that cleared meanwhile are never sent. The end time lives in `notify-silence.txt`, so an update restart does not cancel it.
+- A channel that is turned on starts from that moment: it is not flooded, and gets no "cleared" for alerts it never received.
+- The "cleared" message is low priority. Dismissing an event by hand sends nothing; e-mail is not built.
+- Maintenance mode: "Silence pushes" (30 min or 2 h, at most 4 h) holds all channel delivery. Events are still raised and shown in the panel; when it ends (or on "Resume now") whatever is still open is sent, and events that came and cleared meanwhile are never sent. The end time lives in `notify-silence.txt`, so an update restart does not cancel it.
 - Event text goes to a third party: keep secrets out of titles and bodies (already the rule above).
 
 ## OS updates
@@ -90,7 +114,7 @@ to change or `off`) for `LIST UPS` and `LIST VAR`: plain text over TCP, read-onl
 status flag must show on 2 polls in a row before anything is raised (a one-second brownout is not
 news). `OB` raises a warning on `host.ups:<ups>:power`, escalated to critical when `LB` or `FSD`
 follows (NUT is shutting the server down); `RB` raises `...:replace`, `OVER` raises `...:overload`.
-Each closes when the flag goes away, which also sends the "resolved" message. If `upsd` does not
+Each closes when the flag goes away (a status with neither `OL` nor `OB` closes nothing), which also sends the "power restored" message. If `upsd` does not
 answer, nothing is raised and nothing is closed. Health shows each UPS.
 
 ## Disk health (SMART)
@@ -141,7 +165,9 @@ container list. Thresholds are fixed (no settings); each kind has its on/off swi
   error or an HTTP status of 500 or more is a failed check; 200, redirects (a login page), 401, 403 and
   404 count as reachable. Three failed checks in a row (about 10 minutes) raise a warning, the first good
   one closes it. An app is watched only after its first successful check, so a hostname that was saved but
-  never published stays quiet. The Apps page shows "reachable" or "unreachable" next to the address and, below it, the share of reachable
+  never published stays quiet. A failed check only counts while the server itself has
+  internet: it then asks the `DOCKWREN_ONLINE_CHECK` addresses (default cloudflare.com and github.com),
+  and when none answers, nothing is raised or counted against uptime and the three checks start over. The Apps page shows "reachable" or "unreachable" next to the address and, below it, the share of reachable
   checks over the last 30 days (kept in `uptime.log` in the app folder; also `uptime` in `/api/status`).
   Key `app.unreachable:<app name>`.
 

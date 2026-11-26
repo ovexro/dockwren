@@ -13,10 +13,13 @@ use axum::{
     response::Html,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
+use crate::wording::What;
 
 const LOG_FILE: &str = "notifications.log";
 const PREFS_FILE: &str = "notify-settings.json";
@@ -118,7 +121,7 @@ pub const KINDS: [(&str, &str, &str); 23] = [
     (
         "app.unreachable",
         "App not reachable at its public address",
-        "Every 5 minutes, requests the public https address of each app that has one (the app is only watched after its first successful check). Raised after 3 failed checks in a row (connection error or HTTP 500 and up); clears on the first good one.",
+        "Every 5 minutes, requests the public https address of each app that has one (the app is only watched after its first successful check). Raised after 3 failed checks in a row (connection error or HTTP 500 and up); clears on the first good one. A failed check is ignored while this server itself has no internet (it then asks cloudflare.com and github.com).",
     ),
     (
         "app.vulnerable",
@@ -145,22 +148,28 @@ pub const KINDS: [(&str, &str, &str); 23] = [
 const KEEP_CLOSED: usize = 200;
 /// Closed events older than this are dropped on compaction (90 days).
 const MAX_AGE_SECS: u64 = 90 * 24 * 3600;
+/// A message that could not be sent for this long is given up on (and the log says so).
+pub const GIVE_UP_SECS: u64 = 24 * 3600;
 const MAX_TITLE: usize = 200;
 const MAX_BODY: usize = 2000;
 const MAX_LINK: usize = 300;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
+    #[default]
     Info,
     Warning,
     Critical,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum State {
     /// Raised and not yet looked at.
+    #[default]
     New,
     /// Opened or acknowledged, condition may still hold.
     Seen,
@@ -168,7 +177,24 @@ pub enum State {
     Resolved,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// What one channel has (not) received of one event.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Delivery {
+    /// Highest severity the channel actually accepted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent: Option<Severity>,
+    /// No alert is owed up to this severity: the channel was set up later, or we gave up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip: Option<Severity>,
+    /// An alert was due while the channel could not be reached.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub failed: bool,
+    /// Nothing is owed any more about the event having cleared.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub done: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Event {
     pub id: u64,
     pub ts: u64,
@@ -182,12 +208,63 @@ pub struct Event {
     pub link: Option<String>,
     pub key: String,
     pub state: State,
-    /// Highest severity already sent to the delivery channels (None = never sent).
+    /// When the condition was first raised (`ts` moves on every later check).
+    #[serde(default)]
+    pub since: u64,
+    /// When the event reached its current severity.
+    #[serde(default)]
+    pub raised: u64,
+    /// Set when the condition ended by itself (not when the admin dismissed the event).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleared_at: Option<u64>,
+    /// Per channel (`ntfy`, `webhook`, `telegram`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub delivery: BTreeMap<String, Delivery>,
+    /// Logs written up to v0.1.122 (one state for all channels); read only.
+    #[serde(default, skip_serializing)]
     pub notified: Option<Severity>,
-    /// The condition cleared after the channels had received this event: a "resolved" message is owed.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing)]
     pub clear_pending: bool,
+}
+
+impl Event {
+    fn delivery_of(&self, channel: &str) -> Delivery {
+        self.delivery.get(channel).copied().unwrap_or_default()
+    }
+
+    /// Is an alert still owed to this channel (whether or not the event is open)?
+    fn alert_owed(&self, channel: &str, min: Severity) -> bool {
+        let d = self.delivery_of(channel);
+        self.severity >= min && Some(self.severity) > d.sent.max(d.skip)
+    }
+
+    /// The one message this channel is owed now, and since when it has been due.
+    fn owed(&self, channel: &str, min: Severity) -> Option<(What, u64)> {
+        if self.state != State::Resolved {
+            return self
+                .alert_owed(channel, min)
+                .then_some((What::Alert, self.raised));
+        }
+        let at = self.cleared_at?;
+        let d = self.delivery_of(channel);
+        if d.done {
+            None
+        } else if d.sent.is_some() {
+            Some((What::Cleared, at))
+        } else {
+            d.failed.then_some((What::Missed, at))
+        }
+    }
+}
+
+/// A message a channel is owed.
+#[derive(Clone, Debug)]
+pub struct Owed {
+    pub event: Event,
+    pub what: What,
+    pub due: u64,
+    /// An earlier attempt to send it failed.
+    pub late: bool,
 }
 
 /// What a producer builds; the store assigns id, time and state.
@@ -240,6 +317,8 @@ pub struct Store {
     /// Where events are sent besides the panel (ntfy, webhook).
     pub channels: crate::deliver::Config,
     channels_path: Option<PathBuf>,
+    /// Channels whose last send failed, with the reason (kept in memory).
+    down: BTreeMap<String, String>,
     /// Maintenance mode: until this unix time nothing is pushed to the channels. Events are still
     /// raised and shown in the panel, and are delivered afterwards if still open.
     silenced_until: u64,
@@ -295,6 +374,7 @@ impl Store {
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_default();
         s.channels_path = Some(chan);
+        s.migrate_legacy();
         let sil = data_dir.join(SILENCE_FILE);
         s.silenced_until = std::fs::read_to_string(&sil)
             .ok()
@@ -345,17 +425,15 @@ impl Store {
     }
 
     /// Replace the delivery settings and remember them (file mode 0600: URLs and tokens are secrets).
-    /// Events already open are marked as sent, so turning a channel on does not flood it.
+    /// A channel that was off starts from now: what happened before is not sent to it.
     pub fn set_channels(&mut self, c: crate::deliver::Config) {
-        let was_off = !self.channels.any();
+        let before = self.channels.enabled();
         self.channels = c;
-        if was_off {
-            self.mark_open_notified();
-            let owed: Vec<u64> = self.pending_resolved().iter().map(|e| e.id).collect();
-            for id in owed {
-                self.mark_resolution_sent(id);
-            }
+        let after = self.channels.enabled();
+        for ch in after.iter().filter(|c| !before.contains(c)) {
+            self.start_channel(ch);
         }
+        self.down.retain(|ch, _| after.contains(&ch.as_str()));
         if let Some(p) = &self.channels_path
             && let Ok(mut f) = Self::open_file(p, true)
             && let Ok(t) = serde_json::to_string(&self.channels)
@@ -364,67 +442,131 @@ impl Store {
         }
     }
 
-    fn mark_open_notified(&mut self) {
-        let ids: Vec<(u64, Severity)> = self
-            .events
-            .iter()
-            .filter(|e| e.state != State::Resolved)
-            .map(|e| (e.id, e.severity))
-            .collect();
-        for (id, sev) in ids {
-            self.mark_notified(id, sev);
+    fn start_channel(&mut self, channel: &str) {
+        let ids: Vec<u64> = self.events.iter().map(|e| e.id).collect();
+        for id in ids {
+            self.update_delivery(id, channel, |e, d| {
+                *d = Delivery {
+                    skip: Some(e.severity),
+                    done: e.state == State::Resolved,
+                    ..Delivery::default()
+                };
+            });
         }
     }
 
-    /// Open events the channels have not received yet at their current severity.
-    pub fn pending_delivery(&self, min: Severity) -> Vec<Event> {
-        let mut v: Vec<Event> = self
-            .events
-            .iter()
-            .filter(|e| {
-                e.state != State::Resolved
-                    && e.severity >= min
-                    && e.notified.is_none_or(|n| e.severity > n)
-            })
-            .cloned()
-            .collect();
-        v.sort_by_key(|e| e.id);
-        v
+    /// Events from an older log say once for all channels what was sent.
+    fn migrate_legacy(&mut self) {
+        let channels = self.channels.enabled();
+        for e in &mut self.events {
+            let Some(sent) = e.notified else { continue };
+            if !e.delivery.is_empty() {
+                continue;
+            }
+            if e.clear_pending && e.cleared_at.is_none() {
+                e.cleared_at = Some(e.ts);
+            }
+            for ch in &channels {
+                let d = Delivery {
+                    sent: Some(sent),
+                    done: e.state == State::Resolved && !e.clear_pending,
+                    ..Delivery::default()
+                };
+                e.delivery.insert(ch.to_string(), d);
+            }
+        }
     }
 
-    /// Events that cleared by themselves after being sent, and whose "resolved" message is still owed.
-    pub fn pending_resolved(&self) -> Vec<Event> {
-        let mut v: Vec<Event> = self
-            .events
-            .iter()
-            .filter(|e| e.state == State::Resolved && e.clear_pending)
-            .cloned()
-            .collect();
-        v.sort_by_key(|e| e.id);
-        v
-    }
-
-    pub fn mark_resolution_sent(&mut self, id: u64) {
+    /// Change one channel's state of one event; written to the log only when it changed.
+    fn update_delivery(&mut self, id: u64, channel: &str, f: impl FnOnce(&Event, &mut Delivery)) {
         let Some(e) = self.events.iter_mut().find(|e| e.id == id) else {
             return;
         };
-        if e.clear_pending {
-            e.clear_pending = false;
-            let snapshot = e.clone();
-            self.append(&snapshot);
-        }
-    }
-
-    pub fn mark_notified(&mut self, id: u64, sev: Severity) {
-        let Some(e) = self.events.iter_mut().find(|e| e.id == id) else {
-            return;
-        };
-        if e.notified.is_some_and(|n| n >= sev) {
+        let old = e.delivery.get(channel).copied();
+        let mut d = old.unwrap_or_default();
+        f(e, &mut d);
+        if old == Some(d) || (old.is_none() && d == Delivery::default()) {
             return;
         }
-        e.notified = Some(sev);
+        e.delivery.insert(channel.to_string(), d);
         let snapshot = e.clone();
         self.append(&snapshot);
+    }
+
+    /// Every message `channel` is owed, oldest first.
+    pub fn outbox(&self, channel: &str, min: Severity) -> Vec<Owed> {
+        let mut v: Vec<Owed> = self
+            .events
+            .iter()
+            .filter_map(|e| {
+                let (what, due) = e.owed(channel, min)?;
+                Some(Owed {
+                    late: e.delivery_of(channel).failed,
+                    event: e.clone(),
+                    what,
+                    due,
+                })
+            })
+            .collect();
+        v.sort_by_key(|o| (o.due, o.event.id));
+        v
+    }
+
+    /// The channel accepted this message (`o` is the event as it was when it was sent).
+    pub fn delivered(&mut self, channel: &str, o: &Owed) {
+        let sev = o.event.severity;
+        let what = o.what;
+        self.update_delivery(o.event.id, channel, |_, d| match what {
+            What::Alert => d.sent = d.sent.max(Some(sev)),
+            What::Cleared | What::Missed => d.done = true,
+        });
+        self.down.remove(channel);
+    }
+
+    /// Sending `o` failed. Every alert waiting for this channel is now late: if its problem
+    /// ends before the channel works again, a summary is owed instead of silence.
+    pub fn send_failed(&mut self, channel: &str, o: &Owed, reason: &str, min: Severity) {
+        self.down.insert(channel.to_string(), reason.to_string());
+        let mut ids: Vec<u64> = self
+            .outbox(channel, min)
+            .iter()
+            .filter(|w| w.what == What::Alert)
+            .map(|w| w.event.id)
+            .collect();
+        if o.what == What::Alert {
+            ids.push(o.event.id); // it may have cleared while curl was trying
+        }
+        for id in ids {
+            self.update_delivery(id, channel, |_, d| d.failed = true);
+        }
+    }
+
+    /// Stop trying messages that have been due for `GIVE_UP_SECS`; returns them for the log.
+    /// An alert given up on still gets its summary if the problem ends later.
+    pub fn give_up(&mut self, channel: &str, min: Severity, now: u64) -> Vec<Owed> {
+        let old: Vec<Owed> = self
+            .outbox(channel, min)
+            .into_iter()
+            .filter(|o| now.saturating_sub(o.due) > GIVE_UP_SECS)
+            .collect();
+        for o in &old {
+            let what = o.what;
+            self.update_delivery(o.event.id, channel, |e, d| match what {
+                What::Alert => d.skip = Some(e.severity),
+                What::Cleared | What::Missed => d.done = true,
+            });
+        }
+        old
+    }
+
+    /// Why the channel's last send failed; `None` while it works.
+    pub fn channel_error(&self, channel: &str) -> Option<&str> {
+        self.down.get(channel).map(String::as_str)
+    }
+
+    /// A channel that was changed or removed starts with a clean record.
+    pub fn forget_channel_error(&mut self, channel: &str) {
+        self.down.remove(channel);
     }
 
     /// Replay a log: the last line per id wins, bad lines are skipped, then retention applies.
@@ -436,6 +578,12 @@ impl Store {
             };
             // The file is ours, but links end up in href: never trust it blindly.
             e.link = e.link.as_deref().and_then(clean_link);
+            if e.since == 0 {
+                e.since = e.ts;
+            }
+            if e.raised == 0 {
+                e.raised = e.since;
+            }
             match events.iter_mut().find(|x| x.id == e.id) {
                 Some(slot) => *slot = e,
                 None => events.push(e),
@@ -450,6 +598,7 @@ impl Store {
             prefs_path: None,
             channels: Default::default(),
             channels_path: None,
+            down: BTreeMap::new(),
             silenced_until: 0,
             silence_path: None,
         };
@@ -535,7 +684,7 @@ impl Store {
             .collect();
         self.muted = kinds;
         for k in open {
-            self.resolve(&k);
+            self.supersede(&k);
         }
     }
 
@@ -553,6 +702,8 @@ impl Store {
             .find(|e| e.key == key && e.state != State::Resolved)
         {
             let escalated = n.severity > e.severity;
+            // Checks repeat every few seconds: only a visible change is worth a log line.
+            let changed = escalated || e.title != title || e.link != link;
             e.ts = now;
             e.title = title;
             e.body = body;
@@ -560,9 +711,12 @@ impl Store {
             if escalated {
                 e.severity = n.severity;
                 e.state = State::New;
+                e.raised = now;
             }
             let (id, snapshot) = (e.id, e.clone());
-            self.append(&snapshot);
+            if changed {
+                self.append(&snapshot);
+            }
             return (id, escalated);
         }
         let e = Event {
@@ -576,8 +730,9 @@ impl Store {
             link,
             key,
             state: State::New,
-            notified: None,
-            clear_pending: false,
+            since: now,
+            raised: now,
+            ..Event::default()
         };
         self.next_id += 1;
         let id = e.id;
@@ -589,19 +744,46 @@ impl Store {
 
     /// Close every open event with this key (the condition cleared). Returns how many.
     pub fn resolve(&mut self, key: &str) -> usize {
-        let ids: Vec<u64> = self
-            .events
-            .iter()
-            .filter(|e| e.key == key && e.state != State::Resolved)
-            .map(|e| e.id)
-            .collect();
+        self.resolve_at(key, now_unix())
+    }
+
+    fn resolve_at(&mut self, key: &str, now: u64) -> usize {
+        let ids = self.open_ids(key);
+        // While a channel is unreachable, an alert still waiting for it must not vanish.
+        let min = self.channels.min;
+        let unreachable: Vec<String> = if self.silence_left() > 0 {
+            Vec::new()
+        } else {
+            self.down.keys().cloned().collect()
+        };
         for id in &ids {
+            for ch in &unreachable {
+                self.update_delivery(*id, ch, |e, d| {
+                    d.failed |= e.alert_owed(ch, min);
+                });
+            }
             if let Some(e) = self.events.iter_mut().find(|e| e.id == *id) {
-                e.clear_pending = e.notified.is_some();
+                e.cleared_at = Some(now);
             }
             self.set_state(*id, State::Resolved);
         }
         ids.len()
+    }
+
+    /// Close the open events with this key without saying the condition cleared: a newer
+    /// event replaces them, or the admin switched the kind off.
+    pub fn supersede(&mut self, key: &str) {
+        for id in self.open_ids(key) {
+            self.set_state(id, State::Resolved);
+        }
+    }
+
+    fn open_ids(&self, key: &str) -> Vec<u64> {
+        self.events
+            .iter()
+            .filter(|e| e.key == key && e.state != State::Resolved)
+            .map(|e| e.id)
+            .collect()
     }
 
     /// Admin dismissed one event.
@@ -677,7 +859,7 @@ impl Store {
             .iter()
             .filter(|e| e.state != State::Resolved)
             .collect();
-        v.sort_by_key(|e| std::cmp::Reverse((e.ts, e.id)));
+        v.sort_by_key(|e| std::cmp::Reverse((e.since, e.id)));
         v
     }
 
@@ -688,7 +870,7 @@ impl Store {
             .iter()
             .filter(|e| e.state == State::Resolved)
             .collect();
-        v.sort_by_key(|e| std::cmp::Reverse((e.ts, e.id)));
+        v.sort_by_key(|e| std::cmp::Reverse((e.cleared_at.unwrap_or(e.ts), e.id)));
         v
     }
 }
@@ -757,7 +939,19 @@ fn row(e: &Event, now: u64) -> Row {
         body: e.body.clone(),
         link: e.link.clone(),
         source: e.source.clone(),
-        age: age(now, e.ts),
+        age: when(now, e),
+    }
+}
+
+/// When it started; for a condition that ended by itself, also how long it lasted.
+fn when(now: u64, e: &Event) -> String {
+    let started = age(now, e.since);
+    match e.cleared_at {
+        Some(end) => format!(
+            "started {started}, lasted {}",
+            crate::wording::duration(end.saturating_sub(e.since))
+        ),
+        None => started,
     }
 }
 
@@ -967,6 +1161,36 @@ mod tests {
     }
 
     #[test]
+    fn repeated_checks_keep_the_start_time_and_do_not_grow_the_log() {
+        let d = tmpdir("since");
+        let mut s = Store::open_at(&d, 100);
+        let lines = || {
+            std::fs::read_to_string(d.join(LOG_FILE))
+                .unwrap()
+                .lines()
+                .count()
+        };
+        s.raise_at(ev("k", Severity::Warning).body("battery 100%"), 100);
+        for t in 1..90 {
+            s.raise_at(
+                ev("k", Severity::Warning).body(format!("battery {}%", 100 - t / 10)),
+                100 + t * 10,
+            );
+        }
+        assert_eq!(lines(), 1, "the same condition is written once");
+        let e = s.open_events()[0].clone();
+        assert_eq!((e.since, e.raised, e.ts), (100, 100, 990));
+        s.raise_at(ev("k", Severity::Critical), 1_000);
+        let e = s.open_events()[0].clone();
+        assert_eq!((e.since, e.raised), (100, 1_000));
+        s.resolve_at("k", 1_300);
+        let e = s.closed_events()[0].clone();
+        assert_eq!((e.since, e.cleared_at), (100, Some(1_300)));
+        assert_eq!(when(1_360, &e), "started 21 min ago, lasted 20 min");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn different_keys_are_separate() {
         let mut s = Store::memory();
         s.raise(ev("k:gitea", Severity::Info));
@@ -1164,8 +1388,7 @@ mod tests {
             link: None,
             key: "k".into(),
             state: State::New,
-            notified: None,
-            clear_pending: false,
+            ..Event::default()
         })
         .unwrap();
         let s = Store::from_log(&format!("not json\n{good}\n{{\"id\":1}}\n\n"), 20);
@@ -1187,8 +1410,7 @@ mod tests {
                 link: Some(link.into()),
                 key: format!("k{id}"),
                 state: State::New,
-                notified: None,
-                clear_pending: false,
+                ..Event::default()
             })
             .unwrap()
                 + "\n"

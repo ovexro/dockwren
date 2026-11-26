@@ -68,7 +68,7 @@ Dockwren does not try to list the most apps. It tries to be the panel you can le
 - **Safe updates:** a snapshot first, a preview of what changes, automatic rollback if the new version is not healthy. Drift detection shows apps that no longer match their files, with one **Apply**.
 - **Backups and restore:** scheduled snapshots, **off-host** copies (SFTP or S3, encrypted), verify, weekly test restores, duplicate an app from a snapshot, and `dockwren recover` for a lost server.
 - **Public addresses:** Cloudflare Tunnel, or direct HTTPS with Let's Encrypt (bundled Caddy). See [Publishing](docs/PUBLISHING.md).
-- **Monitoring:** resource graphs, disk, memory and CPU alerts, UPS power-cut alerts (via NUT), crash and health alerts, image vulnerability scan with a full report per app, public address checks. Notifications go to the panel bell, ntfy, Telegram or a webhook.
+- **Monitoring:** resource graphs, disk, memory and CPU alerts, UPS power-cut alerts (via NUT), crash and health alerts, image vulnerability scan with a full report per app, public address checks. Notifications go to the panel bell, ntfy, Telegram or a webhook; what cannot be sent while the internet is down is delivered afterwards.
 - **Careful by design:** Argon2id login, strict **security headers** (CSP without inline scripts, no framing), **two-factor** and **passkey** sign-in, a list of signed-in browsers with **sign out everywhere**, an audit log, an opt-in web terminal, **registry login** for private images, **schedule** stop/start, **needs** between apps, resource limits, log caps.
 
 Every feature in detail: [docs/FEATURES.md](docs/FEATURES.md).

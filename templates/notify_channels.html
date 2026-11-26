@@ -1,5 +1,8 @@
 <div id="channels">
-  <p><small>Besides the Notifications page, Dockwren can push new or escalated notifications to your phone (ntfy), to a Telegram chat or channel, or to any service that accepts a webhook. Only the text of the notification is sent, never passwords or tokens. Delivery is best effort: a failed send is retried a few times, then dropped.</small></p>
+  <p><small>Besides the Notifications page, Dockwren can push new or escalated notifications to your phone (ntfy), to a Telegram chat or channel, or to any service that accepts a webhook. Only the text of the notification is sent, never passwords or tokens. A message that cannot be sent (no internet, for example) is retried for up to 24 hours; if the problem is over by then, you get one summary of it.</small></p>
+  {% for (channel, reason) in failing %}
+  <p role="status"><strong>Not getting through to {{ channel }}:</strong> {{ reason }}. Dockwren keeps trying.</p>
+  {% endfor %}
   {% if configured %}
   <div class="actions">
   {% if silence_min > 0 %}
@@ -37,7 +40,7 @@
       <h4>Webhook {% if has_webhook %}<span class="badge" data-state="running">on</span>{% else %}<span class="badge" data-state="exited">off</span>{% endif %}</h4>
     <p><label>Webhook address
       <input type="password" name="webhook_url" autocomplete="off" spellcheck="false" placeholder="{% if has_webhook %}saved ({{ webhook_host }}), leave empty to keep{% else %}https://…{% endif %}"></label><br>
-      <small>Dockwren sends a JSON POST with <code>title</code>, <code>body</code>, <code>severity</code>, <code>kind</code>, <code>link</code>, <code>ts</code>, plus <code>text</code> and <code>content</code> (what Slack and Discord read).</small></p>
+      <small>Dockwren sends a JSON POST with <code>title</code>, <code>body</code>, <code>severity</code>, <code>kind</code>, <code>link</code>, <code>ts</code>, <code>state</code> (alert, cleared or missed), <code>since</code>, <code>cleared_at</code>, plus <code>text</code> and <code>content</code> (what Slack and Discord read).</small></p>
       {% if has_webhook %}<button type="button" hx-post="/settings/channels/webhook/remove" hx-params="none" hx-target="#channels" hx-swap="outerHTML" hx-confirm="Stop sending to the webhook and forget its address?">Remove Webhook</button>{% endif %}
     </div>
     </div>

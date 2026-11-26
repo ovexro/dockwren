@@ -6,6 +6,10 @@
 //! means the address is reachable. Three failed probes in a row raise a warning, one good probe
 //! clears it. A hostname that was saved but never published would always fail, so an app is
 //! only watched after its first successful probe (remembered in `public.ok` in its folder).
+//!
+//! A failed probe only counts when this server itself has internet: it then asks two
+//! well-known addresses (`DOCKWREN_ONLINE_CHECK`, `off` skips this). When neither answers,
+//! the outage is the server's, so nothing is raised or counted against the app's uptime.
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -23,6 +27,7 @@ const HISTORY: &str = "uptime.log";
 const HISTORY_DAYS: u64 = 30;
 /// Rewrite the log without old lines once it grows past this many bytes (about 30 days is 100 KB).
 const HISTORY_COMPACT_AT: u64 = 150_000;
+const ONLINE_CHECK: &str = "https://www.cloudflare.com/cdn-cgi/trace,https://github.com/";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
@@ -56,6 +61,11 @@ fn reachable(code: u16) -> bool {
 }
 
 async fn probe(host: &str) -> bool {
+    reachable(http_code(&format!("https://{host}/")).await)
+}
+
+/// The HTTP status of one request; 0 when there was no answer.
+async fn http_code(url: &str) -> u16 {
     let out = tokio::process::Command::new("curl")
         .args([
             "-sS",
@@ -67,21 +77,49 @@ async fn probe(host: &str) -> bool {
             "15",
             "-A",
             concat!("dockwren/", env!("CARGO_PKG_VERSION")),
-            &format!("https://{host}/"),
+            url,
         ])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
         .await;
-    match out {
-        Ok(o) => reachable(
-            String::from_utf8_lossy(&o.stdout)
-                .trim()
-                .parse()
-                .unwrap_or(0),
-        ),
-        Err(_) => false,
+    out.ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// The addresses to ask whether this server has internet; empty when switched off.
+fn online_targets(setting: Option<&str>) -> Vec<String> {
+    let list = match setting.map(str::trim) {
+        Some("off" | "0" | "false") => return Vec::new(),
+        Some(v) if !v.is_empty() => v,
+        _ => ONLINE_CHECK,
+    };
+    list.split(',')
+        .map(str::trim)
+        .filter(|u| u.starts_with("http://") || u.starts_with("https://"))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Whether anything on the internet answers (any HTTP status). True when the check is off.
+async fn online(targets: &[String]) -> bool {
+    for url in targets {
+        if http_code(url).await >= 100 {
+            return true;
+        }
     }
+    targets.is_empty()
+}
+
+/// The result of one probe, or `None` when it says nothing about the app because the server
+/// is offline. The failure count starts over: after an outage the tunnel needs a moment.
+async fn judged(t: &mut Track, ok: bool, targets: &[String]) -> Option<bool> {
+    if ok || online(targets).await {
+        return Some(ok);
+    }
+    t.fails = 0;
+    None
 }
 
 /// Feed one probe result in. Returns the verdict to act on: Some(true) raise, Some(false) clear.
@@ -179,8 +217,13 @@ async fn run_once(apps: &Apps, shared: &Shared, tracks: &mut HashMap<String, Tra
     let names: Vec<&String> = seen.iter().map(|(n, _, _)| n).collect();
     tracks.retain(|n, _| names.contains(&n));
     statuses().lock().unwrap().retain(|n, _| names.contains(&n));
+    let targets = online_targets(std::env::var("DOCKWREN_ONLINE_CHECK").ok().as_deref());
     for (name, dir, host) in &seen {
-        let ok = probe(host).await;
+        let up = probe(host).await;
+        let t = tracks.entry(name.clone()).or_default();
+        let Some(ok) = judged(t, up, &targets).await else {
+            continue;
+        };
         let armed = dir.join(MARKER).exists();
         if ok && !armed {
             let _ = std::fs::write(dir.join(MARKER), "");
@@ -188,7 +231,6 @@ async fn run_once(apps: &Apps, shared: &Shared, tracks: &mut HashMap<String, Tra
         if armed || ok {
             record(dir, ok);
         }
-        let t = tracks.entry(name.clone()).or_default();
         let verdict = step(t, ok, armed || ok);
         let st = if ok {
             Status::Up
@@ -243,6 +285,45 @@ pub fn spawn_checker(apps: Apps, shared: Shared) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn online_check_setting() {
+        assert_eq!(online_targets(None).len(), 2);
+        assert_eq!(online_targets(Some("")).len(), 2);
+        assert!(online_targets(Some("off")).is_empty());
+        assert_eq!(
+            online_targets(Some(" http://10.0.0.1/ , ftp://x, https://a.example/")),
+            vec!["http://10.0.0.1/", "https://a.example/"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failure_while_the_server_is_offline_does_not_count() {
+        // Nothing listens here: for the check, the server has no internet.
+        let dead = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let dead = vec![format!("http://{dead}/")];
+        let mut t = Track { fails: 2 };
+        assert_eq!(judged(&mut t, false, &dead).await, None);
+        assert_eq!(t.fails, 0, "checks start over after the outage");
+        // a probe that succeeds needs no second opinion
+        assert_eq!(judged(&mut t, true, &dead).await, Some(true));
+        // one address answering (any status) is enough: the failure is the app's
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let live = format!("http://{}/", l.local_addr().unwrap());
+        let h = std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let (mut c, _) = l.accept().unwrap();
+            let _ = c.read(&mut [0u8; 2048]);
+            let _ = write!(c, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+        });
+        let both = vec![dead[0].clone(), live];
+        assert_eq!(judged(&mut t, false, &both).await, Some(false));
+        h.join().unwrap();
+        assert_eq!(judged(&mut t, false, &[]).await, Some(false));
+    }
 
     #[test]
     fn status_codes() {

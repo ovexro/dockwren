@@ -1,8 +1,11 @@
 //! Delivery channels: push notifications out of the panel (ntfy, webhook, Telegram).
 //!
-//! A background loop looks every 20 seconds for open events the channels have not received at
-//! their current severity (`Store::pending_delivery`), sends them through curl and marks them
-//! as sent. Sending is best effort: a failed send is retried a few times, then dropped.
+//! One background loop per channel asks the store what that channel is owed
+//! (`Store::outbox`) and sends it through curl. A message counts as sent only when the
+//! channel accepted it. While a channel cannot be reached (internet down, for example) the
+//! loop retries with growing pauses, up to `MAX_BACKOFF`, for up to `notify::GIVE_UP_SECS`;
+//! what is owed is kept in the notification log, so it survives restarts. An alert whose
+//! problem ends before it could be sent becomes one summary message. Failures are logged.
 //! Addresses and tokens are secrets: they live in `notify-channels.json` (mode 0600), reach curl
 //! through stdin (never the process list) and are never shown again in the UI.
 
@@ -14,16 +17,23 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Stdio;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 
-use crate::notify::{Event, Severity, Shared};
+use crate::notify::{Event, Owed, Severity, Shared};
+use crate::wording::{self, Message, What};
 
 pub const FILE: &str = "notify-channels.json";
 const DEFAULT_NTFY: &str = "https://ntfy.sh";
 const TELEGRAM_API: &str = "https://api.telegram.org";
-const TICK: Duration = Duration::from_secs(20);
-const MAX_ATTEMPTS: u8 = 3;
+/// How often a channel looks for something to send: short, so a power cut is told at once.
+const TICK: Duration = Duration::from_secs(5);
+const FIRST_BACKOFF: u64 = 10;
+/// Longest pause between attempts, so messages go out soon after the internet is back.
+const MAX_BACKOFF: u64 = 60;
+/// Most messages one channel sends in one go.
+const BATCH: usize = 20;
+const CHANNELS: [&str; 3] = ["ntfy", "webhook", "telegram"];
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
@@ -74,7 +84,19 @@ impl Config {
         !self.telegram_token.is_empty() && !self.telegram_chat.is_empty()
     }
     pub fn any(&self) -> bool {
-        self.has_ntfy() || self.has_webhook() || self.has_telegram()
+        !self.enabled().is_empty()
+    }
+    /// The channels that are set up, by name.
+    pub fn enabled(&self) -> Vec<&'static str> {
+        CHANNELS.into_iter().filter(|c| self.has(c)).collect()
+    }
+    fn has(&self, channel: &str) -> bool {
+        match channel {
+            "ntfy" => self.has_ntfy(),
+            "webhook" => self.has_webhook(),
+            "telegram" => self.has_telegram(),
+            _ => false,
+        }
     }
 }
 
@@ -147,64 +169,56 @@ fn priority(s: Severity) -> u8 {
     }
 }
 
-/// The "resolved" counterpart of an event: same channels, low priority, a check-mark tag.
-fn resolved_copy(e: &Event) -> Event {
-    let mut r = e.clone();
-    r.severity = Severity::Info;
-    r.title = format!("Resolved: {}", e.title);
-    r.body = Some("This condition has cleared.".into());
-    r.link = None;
-    r
-}
-
 /// ntfy JSON publish body (the topic goes in the body, so titles may use any character).
-fn ntfy_body(e: &Event, topic: &str) -> String {
-    let tag = match e.severity {
-        Severity::Info if e.title.starts_with("Resolved: ") => "white_check_mark",
-        Severity::Info => "information_source",
-        Severity::Warning => "warning",
-        Severity::Critical => "rotating_light",
-    };
+fn ntfy_body(m: &Message, topic: &str) -> String {
     serde_json::json!({
         "topic": topic,
-        "title": e.title,
-        "message": e.body.clone().unwrap_or_else(|| e.title.clone()),
-        "priority": priority(e.severity),
-        "tags": [tag],
+        "title": m.title,
+        "message": m.body.clone().unwrap_or_else(|| m.title.clone()),
+        "priority": priority(m.severity),
+        "tags": [m.tag],
     })
     .to_string()
 }
 
-fn webhook_body(e: &Event) -> String {
-    let text = match &e.body {
-        Some(b) => format!("[{}] {}\n{}", e.severity.label(), e.title, b),
-        None => format!("[{}] {}", e.severity.label(), e.title),
+fn webhook_body(m: &Message) -> String {
+    let text = match &m.body {
+        Some(b) => format!("[{}] {}\n{}", m.severity.label(), m.title, b),
+        None => format!("[{}] {}", m.severity.label(), m.title),
     };
     serde_json::json!({
-        "id": e.id,
-        "ts": e.ts,
-        "source": e.source,
-        "kind": e.kind,
-        "severity": e.severity.slug(),
-        "title": e.title,
-        "body": e.body,
-        "link": e.link,
+        "id": m.id,
+        "ts": m.ts,
+        "source": m.source,
+        "kind": m.kind,
+        "severity": m.severity.slug(),
+        "state": m.state,
+        "since": m.since,
+        "cleared_at": m.cleared_at,
+        "title": m.title,
+        "body": m.body,
+        "link": m.link,
         "text": text,
         "content": text,
     })
     .to_string()
 }
 
+/// The character ntfy shows for a tag, for channels that have no tags.
+fn emoji(tag: &str) -> &'static str {
+    match tag {
+        "white_check_mark" => "\u{2705}",
+        "electric_plug" => "\u{1F50C}",
+        "warning" => "\u{26A0}\u{FE0F}",
+        "rotating_light" => "\u{1F6A8}",
+        _ => "\u{2139}\u{FE0F}",
+    }
+}
+
 /// Telegram `sendMessage` body: plain text (no markup, so nothing in a title can break it).
-fn telegram_body(e: &Event, chat: &str) -> String {
-    let icon = match e.severity {
-        Severity::Info if e.title.starts_with("Resolved: ") => "\u{2705}",
-        Severity::Info => "\u{2139}\u{FE0F}",
-        Severity::Warning => "\u{26A0}\u{FE0F}",
-        Severity::Critical => "\u{1F6A8}",
-    };
-    let mut text = format!("{icon} {}", e.title);
-    if let Some(b) = &e.body {
+fn telegram_body(m: &Message, chat: &str) -> String {
+    let mut text = format!("{} {}", emoji(m.tag), m.title);
+    if let Some(b) = &m.body {
         text.push_str("\n\n");
         text.push_str(b);
     }
@@ -289,12 +303,25 @@ async fn post_out(url: &str, bearer: Option<&str>, body: &str) -> Result<String,
 }
 
 fn clean_reason(reason: &str, url: &str) -> String {
-    reason
-        .replace(url, "<address>")
-        .chars()
-        .filter(|c| !c.is_control())
-        .take(160)
-        .collect()
+    let mut text = reason.replace(url, "<address>");
+    // curl also names the server on its own ("Could not resolve host: x", "connect to x port 1").
+    let authority = url
+        .split("://")
+        .nth(1)
+        .and_then(|r| r.split(['/', '?', '#']).next())
+        .unwrap_or("");
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((h, p)) if !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) => (h, Some(p)),
+        _ => (authority, None),
+    };
+    let host = host.trim_matches(['[', ']']);
+    if !host.is_empty() {
+        text = text.replace(host, "<server>");
+    }
+    if let Some(p) = port {
+        text = text.replace(&format!("port {p}"), "port <port>");
+    }
+    text.chars().filter(|c| !c.is_control()).take(160).collect()
 }
 
 fn sent_to(cfg: &Config) -> String {
@@ -311,77 +338,168 @@ fn sent_to(cfg: &Config) -> String {
     v.join(", ")
 }
 
-/// Send one event to every configured channel. Errors are per channel, labelled.
-async fn send(cfg: &Config, e: &Event) -> Vec<String> {
-    let mut errors = Vec::new();
-    if cfg.has_ntfy() {
-        let server = if cfg.ntfy_server.is_empty() {
-            DEFAULT_NTFY
-        } else {
-            cfg.ntfy_server.as_str()
-        };
-        let body = ntfy_body(e, &cfg.ntfy_topic);
-        let token = (!cfg.ntfy_token.is_empty()).then_some(cfg.ntfy_token.as_str());
-        if let Err(m) = post(server.trim_end_matches('/'), token, &body).await {
-            errors.push(format!("ntfy: {m}"));
+/// Send one message to one channel. Errors never contain the address.
+async fn send_to(cfg: &Config, channel: &str, m: &Message) -> Result<(), String> {
+    match channel {
+        "ntfy" => {
+            let server = if cfg.ntfy_server.is_empty() {
+                DEFAULT_NTFY
+            } else {
+                cfg.ntfy_server.as_str()
+            };
+            let token = (!cfg.ntfy_token.is_empty()).then_some(cfg.ntfy_token.as_str());
+            let body = ntfy_body(m, &cfg.ntfy_topic);
+            post(server.trim_end_matches('/'), token, &body).await
         }
+        "webhook" => post(&cfg.webhook_url, None, &webhook_body(m)).await,
+        "telegram" => {
+            let url = telegram_url(TELEGRAM_API, &cfg.telegram_token, "sendMessage");
+            post(&url, None, &telegram_body(m, &cfg.telegram_chat)).await
+        }
+        _ => Err("unknown channel".into()),
     }
-    if cfg.has_webhook()
-        && let Err(m) = post(&cfg.webhook_url, None, &webhook_body(e)).await
-    {
-        errors.push(format!("webhook: {m}"));
-    }
-    if cfg.has_telegram() {
-        let url = telegram_url(TELEGRAM_API, &cfg.telegram_token, "sendMessage");
-        let body = telegram_body(e, &cfg.telegram_chat);
-        if let Err(m) = post(&url, None, &body).await {
-            errors.push(format!("telegram: {m}"));
+}
+
+/// Send one message to every configured channel (the test button). Errors are labelled.
+async fn send_all(cfg: &Config, m: &Message) -> Vec<String> {
+    let mut errors = Vec::new();
+    for channel in cfg.enabled() {
+        if let Err(e) = send_to(cfg, channel, m).await {
+            errors.push(format!("{channel}: {e}"));
         }
     }
     errors
 }
 
-/// Background loop: deliver what is pending.
-pub fn spawn(shared: Shared) {
-    tokio::spawn(async move {
-        let mut attempts: HashMap<(u64, Severity), u8> = HashMap::new();
-        loop {
-            tokio::time::sleep(TICK).await;
-            let (cfg, pending, resolved) = {
-                let s = shared.lock().unwrap();
-                if !s.channels.any() {
-                    attempts.clear();
-                    continue;
-                }
-                if s.silence_left() > 0 {
-                    continue; // maintenance mode: hold everything, send it afterwards
-                }
-                (
-                    s.channels.clone(),
-                    s.pending_delivery(s.channels.min),
-                    s.pending_resolved(),
-                )
-            };
-            for e in resolved {
-                let errors = send(&cfg, &resolved_copy(&e)).await;
-                let n = attempts.entry((e.id, Severity::Info)).or_insert(0);
-                *n += 1;
-                if errors.is_empty() || *n >= MAX_ATTEMPTS {
-                    attempts.remove(&(e.id, Severity::Info));
-                    shared.lock().unwrap().mark_resolution_sent(e.id);
-                }
+/// What one channel's loop remembers between rounds.
+#[derive(Default)]
+struct Retry {
+    /// Failed attempts in a row.
+    fails: u32,
+    wait_until: Option<Instant>,
+    /// When each waiting message was last tried, so one bad message cannot block the rest.
+    tried: Tried,
+    /// The settings the failures happened with.
+    config: Option<Config>,
+}
+
+fn backoff(fails: u32) -> Duration {
+    let secs = FIRST_BACKOFF << fails.saturating_sub(1).min(8);
+    Duration::from_secs(secs.min(MAX_BACKOFF))
+}
+
+/// Message -> (last attempt, the server refused this message itself).
+type Tried = HashMap<(u64, What), (Instant, bool)>;
+
+/// The server answered and said no to this request (not "no connection" or "slow down").
+fn refused(reason: &str) -> bool {
+    reason
+        .split_once("returned error: ")
+        .is_some_and(|(_, code)| code.starts_with('4') && !code.starts_with("429"))
+}
+
+fn pick(mut owed: Vec<Owed>, tried: &Tried) -> Option<Owed> {
+    // Never tried first (`None` sorts first), then the longest ago; ties keep the oldest first.
+    owed.sort_by_key(|o| tried.get(&(o.event.id, o.what)).map(|t| t.0));
+    owed.into_iter().next()
+}
+
+/// One round of one channel: send what it is owed, stop at the first failure.
+async fn round(shared: &Shared, channel: &str, retry: &mut Retry) {
+    for _ in 0..BATCH {
+        let (cfg, next) = {
+            let mut s = shared.lock().unwrap();
+            let cfg = s.channels.clone();
+            if !cfg.has(channel) {
+                *retry = Retry::default();
+                return;
             }
-            for e in pending {
-                let errors = send(&cfg, &e).await;
-                let n = attempts.entry((e.id, e.severity)).or_insert(0);
-                *n += 1;
-                if errors.is_empty() || *n >= MAX_ATTEMPTS {
-                    attempts.remove(&(e.id, e.severity));
-                    shared.lock().unwrap().mark_notified(e.id, e.severity);
+            if retry.config.as_ref().is_some_and(|old| *old != cfg) {
+                // New settings: try again at once.
+                *retry = Retry::default();
+                s.forget_channel_error(channel);
+            }
+            retry.config = Some(cfg.clone());
+            if s.silence_left() > 0 {
+                return; // maintenance mode: hold everything, send it afterwards
+            }
+            for o in s.give_up(channel, cfg.min, crate::metrics::now_unix()) {
+                eprintln!(
+                    "notify: {channel}: gave up on \"{}\" after {} hours without a successful send",
+                    o.event.title,
+                    crate::notify::GIVE_UP_SECS / 3600
+                );
+            }
+            if retry.wait_until.is_some_and(|t| Instant::now() < t) {
+                return;
+            }
+            let next = pick(s.outbox(channel, cfg.min), &retry.tried);
+            if next.is_none() {
+                retry.tried.clear();
+            }
+            (cfg, next)
+        };
+        let Some(owed) = next else { return };
+        let (event, what, late) = (owed.event.clone(), owed.what, owed.late);
+        // Asking `date` for local time blocks briefly: not on the async threads.
+        let Ok(message) = tokio::task::spawn_blocking(move || {
+            wording::compose(&event, what, late, &wording::local_stamp)
+        })
+        .await
+        else {
+            return;
+        };
+        match send_to(&cfg, channel, &message).await {
+            Ok(()) => {
+                if retry.fails > 0 {
+                    eprintln!(
+                        "notify: {channel}: delivery works again after {} failed attempts",
+                        retry.fails
+                    );
                 }
+                retry.fails = 0;
+                retry.wait_until = None;
+                // The channel works: back to oldest first, except for refused messages,
+                // which must not get in front of the others again.
+                retry.tried.remove(&(owed.event.id, owed.what));
+                retry.tried.retain(|_, t| t.1);
+                shared.lock().unwrap().delivered(channel, &owed);
+            }
+            Err(reason) => {
+                retry.fails = retry.fails.saturating_add(1);
+                retry.wait_until = Some(Instant::now() + backoff(retry.fails));
+                retry.tried.insert(
+                    (owed.event.id, owed.what),
+                    (Instant::now(), refused(&reason)),
+                );
+                if retry.fails == 1 {
+                    eprintln!(
+                        "notify: {channel}: could not send \"{}\": {reason} (retrying)",
+                        message.title
+                    );
+                }
+                shared
+                    .lock()
+                    .unwrap()
+                    .send_failed(channel, &owed, &reason, cfg.min);
+                return;
             }
         }
-    });
+    }
+}
+
+/// Background loops: deliver what is pending, each channel on its own.
+pub fn spawn(shared: Shared) {
+    for channel in CHANNELS {
+        let shared = shared.clone();
+        tokio::spawn(async move {
+            let mut retry = Retry::default();
+            loop {
+                tokio::time::sleep(TICK).await;
+                round(&shared, channel, &mut retry).await;
+            }
+        });
+    }
 }
 
 // ---- web UI ----
@@ -399,6 +517,8 @@ struct ChannelsTemplate {
     has_telegram: bool,
     telegram_chat: String,
     configured: bool,
+    /// (channel, reason) for channels whose last send failed.
+    failing: Vec<(&'static str, String)>,
     min: &'static str,
     silence_min: u64,
 }
@@ -417,6 +537,11 @@ fn render(s: &crate::notify::Store, message: Option<(bool, String)>) -> Html<Str
             has_telegram: c.has_telegram(),
             telegram_chat: c.telegram_chat.clone(),
             configured: c.any(),
+            failing: c
+                .enabled()
+                .into_iter()
+                .filter_map(|ch| s.channel_error(ch).map(|e| (ch, e.to_string())))
+                .collect(),
             min: c.min.slug(),
             silence_min: s.silence_left().div_ceil(60),
         }
@@ -609,20 +734,16 @@ pub async fn resume(AxState(shared): AxState<Shared>) -> Html<String> {
 pub async fn test(AxState(shared): AxState<Shared>) -> Html<String> {
     let cfg = shared.lock().unwrap().channels.clone();
     let e = Event {
-        id: 0,
         ts: crate::metrics::now_unix(),
         source: "dockwren".into(),
         kind: "test".into(),
-        severity: Severity::Info,
         title: "Test notification from Dockwren".into(),
         body: Some("If you can read this, delivery works.".into()),
-        link: None,
         key: "test".into(),
-        state: crate::notify::State::New,
-        notified: None,
-        clear_pending: false,
+        ..Event::default()
     };
-    let errors = send(&cfg, &e).await;
+    let m = wording::compose(&e, What::Alert, false, &wording::local_stamp);
+    let errors = send_all(&cfg, &m).await;
     let msg = if errors.is_empty() {
         (
             true,
@@ -701,14 +822,15 @@ mod tests {
             link: Some("/apps".into()),
             key: "k".into(),
             state: crate::notify::State::New,
-            notified: None,
-            clear_pending: false,
+            ..Event::default()
         };
-        let w: serde_json::Value = serde_json::from_str(&webhook_body(&e)).unwrap();
+        let m = wording::compose(&e, What::Alert, false, &|_| None);
+        let w: serde_json::Value = serde_json::from_str(&webhook_body(&m)).unwrap();
         assert_eq!(w["severity"], "warning");
         assert_eq!(w["title"], "update \"gitea\" failed");
         assert!(w["text"].as_str().unwrap().starts_with("[Warning] update"));
-        let n: serde_json::Value = serde_json::from_str(&ntfy_body(&e, "t")).unwrap();
+        assert_eq!(w["state"], "alert");
+        let n: serde_json::Value = serde_json::from_str(&ntfy_body(&m, "t")).unwrap();
         assert_eq!(n["priority"], 4);
         assert_eq!(n["message"], "line1\nline2");
     }
@@ -748,10 +870,10 @@ mod tests {
             link: None,
             key: "k".into(),
             state: crate::notify::State::New,
-            notified: None,
-            clear_pending: false,
+            ..Event::default()
         };
-        let v: serde_json::Value = serde_json::from_str(&telegram_body(&e, "-100123")).unwrap();
+        let m = wording::compose(&e, What::Alert, false, &|_| None);
+        let v: serde_json::Value = serde_json::from_str(&telegram_body(&m, "-100123")).unwrap();
         assert_eq!(v["chat_id"], "-100123");
         assert!(
             v["text"]
@@ -799,57 +921,399 @@ mod tests {
             url,
         );
         assert!(!m.contains("secret"));
+        for (reason, url) in [
+            ("Could not resolve host: hooks.example", url),
+            (
+                "Failed to connect to ntfy.home.example port 8443 after 0 ms",
+                "https://ntfy.home.example:8443",
+            ),
+            ("Failed to connect to fd00::7 port 80", "http://[fd00::7]/x"),
+        ] {
+            let m = clean_reason(reason, url);
+            for part in ["hooks.example", "ntfy.home.example", "8443", "fd00::7"] {
+                assert!(!m.contains(part), "{m}");
+            }
+        }
     }
 
-    #[test]
-    fn pending_follows_severity_and_sent_state() {
-        let mut s = Store::memory();
-        s.raise(NewEvent::new("a", "k", Severity::Info, "i").key("i"));
-        let (w, _) = s.raise(NewEvent::new("a", "k", Severity::Warning, "w").key("w"));
-        assert_eq!(s.pending_delivery(Severity::Warning).len(), 1);
-        assert_eq!(s.pending_delivery(Severity::Info).len(), 2);
-        s.mark_notified(w, Severity::Warning);
-        assert_eq!(s.pending_delivery(Severity::Warning).len(), 0);
-        // escalation sends again
-        s.raise(NewEvent::new("a", "k", Severity::Critical, "w").key("w"));
-        assert_eq!(s.pending_delivery(Severity::Warning).len(), 1);
-        // a resolved event is never sent as a new alert
-        s.resolve("w");
-        assert_eq!(s.pending_delivery(Severity::Info).len(), 1);
-    }
+    use crate::notify::GIVE_UP_SECS;
 
-    #[test]
-    fn resolution_is_owed_only_for_sent_events_that_cleared() {
-        let mut s = Store::memory();
-        let (sent, _) = s.raise(NewEvent::new("a", "k", Severity::Warning, "sent").key("sent"));
-        s.raise(NewEvent::new("a", "k", Severity::Warning, "unsent").key("unsent"));
-        let (dismissed, _) = s.raise(NewEvent::new("a", "k", Severity::Warning, "d").key("d"));
-        s.mark_notified(sent, Severity::Warning);
-        s.mark_notified(dismissed, Severity::Warning);
-        s.resolve("sent");
-        s.resolve("unsent");
-        s.dismiss(dismissed);
-        let owed = s.pending_resolved();
-        assert_eq!(owed.len(), 1);
-        assert_eq!(owed[0].id, sent);
-        s.mark_resolution_sent(sent);
-        assert!(s.pending_resolved().is_empty());
-        let r = resolved_copy(&owed[0]);
-        assert!(r.title.starts_with("Resolved: sent"));
-        assert!(ntfy_body(&r, "t").contains("white_check_mark"));
-    }
+    const CH: &str = "ntfy";
 
-    #[test]
-    fn turning_a_channel_on_does_not_flood_it() {
-        let mut s = Store::memory();
-        s.raise(NewEvent::new("a", "k", Severity::Critical, "old").key("old"));
-        s.set_channels(Config {
+    fn on() -> Config {
+        Config {
             ntfy_topic: "t".into(),
             ..Config::default()
-        });
-        assert!(s.pending_delivery(Severity::Info).is_empty());
-        s.raise(NewEvent::new("a", "k", Severity::Critical, "new").key("new"));
-        assert_eq!(s.pending_delivery(Severity::Info).len(), 1);
+        }
+    }
+
+    fn store() -> Store {
+        let mut s = Store::memory();
+        s.set_channels(on());
+        s
+    }
+
+    fn warn(s: &mut Store, key: &str) -> u64 {
+        s.raise(NewEvent::new("a", "k", Severity::Warning, key).key(key))
+            .0
+    }
+
+    fn owed(s: &Store) -> Vec<(u64, What)> {
+        s.outbox(CH, Severity::Warning)
+            .iter()
+            .map(|o| (o.event.id, o.what))
+            .collect()
+    }
+
+    fn first(s: &Store) -> Owed {
+        s.outbox(CH, Severity::Warning).remove(0)
+    }
+
+    #[test]
+    fn owed_follows_severity_and_sent_state() {
+        let mut s = store();
+        s.raise(NewEvent::new("a", "k", Severity::Info, "i").key("i"));
+        let w = warn(&mut s, "w");
+        assert_eq!(owed(&s), vec![(w, What::Alert)]);
+        assert_eq!(s.outbox(CH, Severity::Info).len(), 2);
+        let o = first(&s);
+        s.delivered(CH, &o);
+        assert!(owed(&s).is_empty());
+        // escalation sends again
+        s.raise(NewEvent::new("a", "k", Severity::Critical, "w").key("w"));
+        assert_eq!(owed(&s), vec![(w, What::Alert)]);
+        // once it cleared, what the channel got is followed up; the alert is not sent late
+        s.resolve("w");
+        assert_eq!(owed(&s), vec![(w, What::Cleared)]);
+        let o = first(&s);
+        s.delivered(CH, &o);
+        assert!(owed(&s).is_empty());
+    }
+
+    #[test]
+    fn a_failed_send_stays_owed_and_never_counts_as_sent() {
+        let mut s = store();
+        let w = warn(&mut s, "cut");
+        for _ in 0..50 {
+            let o = first(&s);
+            s.send_failed(CH, &o, "no route", Severity::Warning);
+        }
+        assert_eq!(owed(&s), vec![(w, What::Alert)]);
+        assert!(first(&s).late);
+        assert_eq!(s.channel_error(CH), Some("no route"));
+        // it ends while the channel is still unreachable: one summary, not "cleared"
+        s.resolve("cut");
+        assert_eq!(owed(&s), vec![(w, What::Missed)]);
+        let o = first(&s);
+        s.delivered(CH, &o);
+        assert!(owed(&s).is_empty() && s.channel_error(CH).is_none());
+    }
+
+    #[test]
+    fn what_came_and_went_during_an_outage_is_summed_up() {
+        let mut s = store();
+        warn(&mut s, "first");
+        let o = first(&s);
+        s.send_failed(CH, &o, "down", Severity::Warning);
+        // raised and cleared while the channel was known to be down, never even tried
+        let b = warn(&mut s, "second");
+        s.resolve("second");
+        assert!(owed(&s).contains(&(b, What::Missed)));
+    }
+
+    #[test]
+    fn a_blip_on_a_working_channel_and_a_dismissed_event_owe_nothing() {
+        let mut s = store();
+        warn(&mut s, "blip");
+        s.resolve("blip");
+        assert!(owed(&s).is_empty());
+        let d = warn(&mut s, "dismissed");
+        let o = first(&s);
+        s.delivered(CH, &o);
+        s.dismiss(d);
+        s.resolve("dismissed");
+        assert!(owed(&s).is_empty());
+        // superseded (replaced by a newer event, or switched off) is not "cleared"
+        warn(&mut s, "old");
+        let o = first(&s);
+        s.delivered(CH, &o);
+        s.supersede("old");
+        assert!(owed(&s).is_empty());
+    }
+
+    #[test]
+    fn it_cleared_while_curl_was_failing() {
+        let mut s = store();
+        let w = warn(&mut s, "cut");
+        let o = first(&s); // in flight
+        s.resolve("cut");
+        s.send_failed(CH, &o, "timeout", Severity::Warning);
+        assert_eq!(owed(&s), vec![(w, What::Missed)]);
+    }
+
+    #[test]
+    fn it_cleared_while_curl_was_succeeding() {
+        let mut s = store();
+        let w = warn(&mut s, "cut");
+        let o = first(&s);
+        s.resolve("cut");
+        s.delivered(CH, &o);
+        assert_eq!(owed(&s), vec![(w, What::Cleared)]);
+    }
+
+    #[test]
+    fn gives_up_after_a_day_but_still_sums_up_when_it_ends() {
+        let mut s = store();
+        let w = warn(&mut s, "long");
+        let o = first(&s);
+        s.send_failed(CH, &o, "down", Severity::Warning);
+        let now = crate::metrics::now_unix();
+        assert!(s.give_up(CH, Severity::Warning, now + 60).is_empty());
+        assert_eq!(
+            s.give_up(CH, Severity::Warning, now + GIVE_UP_SECS + 60)
+                .len(),
+            1
+        );
+        assert!(owed(&s).is_empty());
+        s.resolve("long");
+        assert_eq!(owed(&s), vec![(w, What::Missed)]);
+        assert_eq!(
+            s.give_up(CH, Severity::Warning, now + 3 * GIVE_UP_SECS)
+                .len(),
+            1
+        );
+        assert!(owed(&s).is_empty());
+    }
+
+    #[test]
+    fn channels_are_tracked_one_by_one_and_a_new_one_starts_from_now() {
+        let mut s = store();
+        warn(&mut s, "before");
+        let o = first(&s);
+        s.delivered(CH, &o);
+        let mut both = on();
+        both.webhook_url = "https://hooks.example/x".into();
+        s.set_channels(both);
+        assert!(s.outbox("webhook", Severity::Info).is_empty());
+        s.resolve("before");
+        assert_eq!(owed(&s).len(), 1);
+        assert!(
+            s.outbox("webhook", Severity::Info).is_empty(),
+            "no 'cleared' for something this channel never heard of"
+        );
+        let n = warn(&mut s, "after");
+        assert!(owed(&s).contains(&(n, What::Alert)));
+        let hook = s.outbox("webhook", Severity::Warning).remove(0);
+        s.delivered("webhook", &hook);
+        assert!(owed(&s).contains(&(n, What::Alert)), "ntfy is still owed");
+    }
+
+    #[test]
+    fn what_is_owed_survives_a_restart() {
+        let d = std::env::temp_dir().join(format!("dw-owed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let w = {
+            let mut s = Store::open(&d);
+            s.set_channels(on());
+            let w = warn(&mut s, "cut");
+            let o = first(&s);
+            s.send_failed(CH, &o, "down", Severity::Warning);
+            w
+        };
+        let mut s = Store::open(&d);
+        assert_eq!(owed(&s), vec![(w, What::Alert)]);
+        s.resolve("cut");
+        assert_eq!(owed(&Store::open(&d)), vec![(w, What::Missed)]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_log_from_the_previous_version_is_not_sent_again() {
+        let d = std::env::temp_dir().join(format!("dw-legacy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join(FILE), serde_json::to_string(&on()).unwrap()).unwrap();
+        let now = crate::metrics::now_unix();
+        let line = |id: u64, state: &str, extra: &str| {
+            format!(
+                "{{\"id\":{id},\"ts\":{now},\"source\":\"a\",\"kind\":\"k\",\"severity\":\"warning\",\"title\":\"t\",\"key\":\"k{id}\",\"state\":\"{state}\"{extra}}}\n"
+            )
+        };
+        let log = line(1, "seen", ",\"notified\":\"warning\"")
+            + &line(2, "resolved", ",\"notified\":\"warning\"")
+            + &line(
+                3,
+                "resolved",
+                ",\"notified\":\"warning\",\"clear_pending\":true",
+            )
+            + &line(4, "resolved", "");
+        std::fs::write(d.join("notifications.log"), log).unwrap();
+        let mut s = Store::open(&d);
+        assert_eq!(owed(&s), vec![(3, What::Cleared)]);
+        s.resolve("k1");
+        assert!(owed(&s).contains(&(1, What::Cleared)));
+        // and the state is still right after the log was rewritten in the new format
+        assert_eq!(owed(&Store::open(&d)).len(), 2);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn pauses_grow_and_stay_short() {
+        let secs: Vec<u64> = (1..6).map(|f| backoff(f).as_secs()).collect();
+        assert_eq!(secs, vec![10, 20, 40, 60, 60]);
+        assert_eq!(backoff(u32::MAX).as_secs(), MAX_BACKOFF);
+    }
+
+    #[test]
+    fn one_rejected_message_does_not_block_the_others() {
+        let mut s = store();
+        let a = warn(&mut s, "a");
+        let b = warn(&mut s, "b");
+        let mut tried = HashMap::new();
+        let o = pick(s.outbox(CH, Severity::Warning), &tried).unwrap();
+        assert_eq!(o.event.id, a);
+        tried.insert((a, What::Alert), (Instant::now(), true));
+        let o = pick(s.outbox(CH, Severity::Warning), &tried).unwrap();
+        assert_eq!(o.event.id, b);
+        assert!(refused("The requested URL returned error: 400"));
+        assert!(!refused("The requested URL returned error: 429"));
+        assert!(!refused("The requested URL returned error: 502"));
+        assert!(!refused("Could not resolve host: ntfy.sh"));
+    }
+
+    /// A fake ntfy server on a fixed port, answering 200 to `n` requests; returns the bodies.
+    fn fake_ntfy(addr: &str, n: usize) -> std::thread::JoinHandle<Vec<serde_json::Value>> {
+        use std::io::{Read, Write};
+        let l = std::net::TcpListener::bind(addr).unwrap();
+        std::thread::spawn(move || {
+            (0..n)
+                .map(|_| {
+                    let (mut c, _) = l.accept().unwrap();
+                    let (mut got, mut buf) = (Vec::new(), [0u8; 4096]);
+                    let body = loop {
+                        let r = c.read(&mut buf).unwrap();
+                        assert!(r > 0, "request cut short");
+                        got.extend_from_slice(&buf[..r]);
+                        let t = String::from_utf8_lossy(&got).into_owned();
+                        if let Some((_, body)) = t.split_once("\r\n\r\n")
+                            && let Ok(v) = serde_json::from_str::<serde_json::Value>(body)
+                        {
+                            break v;
+                        }
+                    };
+                    write!(
+                        c,
+                        "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                    .unwrap();
+                    body
+                })
+                .collect()
+        })
+    }
+
+    /// The outage of 2026-11-26 in one test: two power cuts while nothing can be reached.
+    #[tokio::test]
+    async fn power_cuts_without_internet_arrive_as_summaries_when_it_is_back() {
+        // A port with nothing listening is "no internet".
+        let addr = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .to_string();
+        let mut cfg = on();
+        cfg.ntfy_server = format!("http://{addr}");
+        let mut st = Store::memory();
+        st.set_channels(cfg);
+        let shared: Shared = std::sync::Arc::new(std::sync::Mutex::new(st));
+        let cut = |s: &Shared| {
+            s.lock().unwrap().raise(
+                NewEvent::new(
+                    "host",
+                    "host.ups",
+                    Severity::Warning,
+                    "Power cut: UPS eaton on battery",
+                )
+                .key("host.ups:eaton:power"),
+            );
+        };
+        let mut retry = Retry::default();
+        let pause_over = |r: &mut Retry| r.wait_until = None;
+        cut(&shared);
+        for _ in 0..10 {
+            round(&shared, CH, &mut retry).await;
+            pause_over(&mut retry);
+        }
+        assert_eq!(
+            retry.fails, 10,
+            "still trying after far more than 3 attempts"
+        );
+        shared.lock().unwrap().resolve("host.ups:eaton:power");
+        cut(&shared);
+        round(&shared, CH, &mut retry).await;
+        shared.lock().unwrap().resolve("host.ups:eaton:power");
+
+        let server = fake_ntfy(&addr, 2);
+        pause_over(&mut retry);
+        round(&shared, CH, &mut retry).await;
+        let got = server.join().unwrap();
+        for m in &got {
+            assert!(
+                m["title"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("Power restored after a cut of"),
+                "{m}"
+            );
+            assert_eq!(m["tags"][0], "white_check_mark");
+        }
+        let s = shared.lock().unwrap();
+        assert!(s.outbox(CH, Severity::Warning).is_empty());
+        assert!(s.channel_error(CH).is_none());
+    }
+
+    /// With internet during the cut: the alert at once, then a different "restored" message.
+    #[tokio::test]
+    async fn power_cut_with_internet_gets_an_alert_and_then_a_restored_message() {
+        let addr = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .to_string();
+        let server = fake_ntfy(&addr, 2);
+        let mut cfg = on();
+        cfg.ntfy_server = format!("http://{addr}");
+        let mut st = Store::memory();
+        st.set_channels(cfg);
+        let shared: Shared = std::sync::Arc::new(std::sync::Mutex::new(st));
+        shared.lock().unwrap().raise(
+            NewEvent::new(
+                "host",
+                "host.ups",
+                Severity::Warning,
+                "Power cut: UPS eaton on battery",
+            )
+            .key("host.ups:eaton:power"),
+        );
+        let mut retry = Retry::default();
+        round(&shared, CH, &mut retry).await;
+        shared.lock().unwrap().resolve("host.ups:eaton:power");
+        round(&shared, CH, &mut retry).await;
+        let got = server.join().unwrap();
+        assert_eq!(got[0]["tags"][0], "electric_plug");
+        assert!(got[0]["message"].as_str().unwrap().starts_with("Since "));
+        assert_eq!(got[1]["tags"][0], "white_check_mark");
+        assert_eq!(
+            got[1]["title"],
+            "Power restored: UPS eaton is back on mains"
+        );
+        assert!(
+            got[1]["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("Power was out: ")
+        );
     }
 
     /// One-shot local HTTP server: answers `status`, returns what it received.

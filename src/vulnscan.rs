@@ -246,8 +246,8 @@ fn sync(shared: &Shared, name: &str, s: &mut Summary) {
     if s.ids.iter().all(|i| known.contains(i)) {
         return;
     }
-    // A finding nobody was told about: close the old event so this one notifies again.
-    notify::resolve(shared, &key);
+    // A finding nobody was told about: replace the old event so this one notifies again.
+    shared.lock().unwrap().supersede(&key);
     let shown: Vec<&str> = s.ids.iter().take(8).map(String::as_str).collect();
     let more = s.ids.len().saturating_sub(shown.len());
     notify::raise(
